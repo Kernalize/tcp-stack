@@ -1,0 +1,23 @@
+[package]
+name = "tcp-stack"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# tun-tap: safe Rust wrapper around Linux's TUN/TAP ioctl interface
+tun-tap = "0.1"
+
+# etherparse: parse/build Ethernet, IP, TCP, ICMP headers without boilerplate
+# Use it to VERIFY your hand-written parser, not as a crutch
+etherparse = "0.14"
+
+# tracing: structured async-friendly logging (better than println! for debugging)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# rand: random number generation (for ISN — use OsRng, not thread_rng)
+rand = "0.8"
+
+[profile.release]
+opt-level = 3
+debug = true    # keep debug symbols even in release (useful for perf/gdb)
