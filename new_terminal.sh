@@ -1,0 +1,1 @@
+docker exec -it tcp-stack-dev bash
