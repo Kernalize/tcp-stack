@@ -262,6 +262,11 @@ impl Connection {
         }
 
         if self.state == State::Established {
+            // Flow control: track the peer's advertised receive window so we never send more
+            // unacknowledged data than it can hold (RFC 9293 §3.4). SND.WND was previously stuck
+            // at our own init value and never updated — this is the fix.
+            self.send.wnd = th.window;
+
             // Advance SND.UNA only if the ack is *acceptable*: SND.UNA < ACK <= SND.NXT, on the
             // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
             // out-of-window ack is ignored rather than blindly trusted — the defensive version
@@ -366,6 +371,15 @@ impl Connection {
             self.state = State::Closed;
         }
         self.retx.due(now_ms, rto_ms)
+    }
+
+    /// Bytes we may still send without overrunning the peer's advertised window:
+    /// `SND.WND − (SND.NXT − SND.UNA)`. Saturates at 0 when the window is full. A bulk sender
+    /// would gate transmission on this; our echo server sends tiny segments well within it.
+    #[allow(dead_code)]
+    pub fn usable_window(&self) -> u32 {
+        let in_flight = self.send.nxt.wrapping_sub(self.send.una);
+        (self.send.wnd as u32).saturating_sub(in_flight)
     }
 
     #[cfg(test)]
@@ -751,6 +765,24 @@ mod tests {
         assert_eq!(t.src_port, 80);
         assert_eq!(t.dst_port, 0x1234);
         assert_eq!(tcp_checksum(ME, PEER, &rst[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn tracks_peer_window() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        // Peer advertises a 500-byte window; nothing is in flight yet → usable = 500.
+        let probe = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 500,
+        };
+        conn.on_packet_at(&probe, &[], 0);
+        assert_eq!(conn.usable_window(), 500);
     }
 
     #[test]
