@@ -113,6 +113,8 @@ pub struct Connection {
     recv: RecvSequence,
     local: (Ipv4Addr, u16),  // us
     remote: (Ipv4Addr, u16), // the peer
+    /// Sent-but-unacknowledged data segments, for retransmission (RFC 9293 §3.8.1).
+    retx: RetxQueue,
 }
 
 impl Connection {
@@ -153,6 +155,7 @@ impl Connection {
             recv: RecvSequence { irs: th.seq, nxt: th.seq.wrapping_add(1), wnd },
             local: (ip_dst, th.dst_port),
             remote: (ip_src, th.src_port),
+            retx: RetxQueue::default(),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -185,14 +188,22 @@ impl Connection {
             recv: RecvSequence { irs: 0, nxt: 0, wnd },
             local,
             remote,
+            retx: RetxQueue::default(),
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
         (conn, syn)
     }
 
-    /// Handle a packet on an existing connection. Returns bytes to send back, if any.
+    /// Handle a packet on an existing connection. Convenience wrapper (timestamps with 0) for
+    /// callers/tests that don't track retransmission time.
     pub fn on_packet(&mut self, th: &TcpHeader, payload: &[u8]) -> Option<Vec<u8>> {
+        self.on_packet_at(th, payload, 0)
+    }
+
+    /// Time-aware packet handler: `now_ms` lets sent data be queued for retransmission and
+    /// incoming ACKs clear the queue. Returns bytes to send back, if any.
+    pub fn on_packet_at(&mut self, th: &TcpHeader, payload: &[u8], now_ms: u64) -> Option<Vec<u8>> {
         // Active open: we sent a SYN and are waiting for the peer's SYN-ACK.
         if self.state == State::SynSent {
             // Accept the SYN-ACK only if it acknowledges our SYN (ack == SND.NXT).
@@ -225,6 +236,7 @@ impl Connection {
             // of the earlier "store whatever they sent".
             if th.flags & ACK != 0 && seq::between(self.send.una, th.ack, self.send.nxt) {
                 self.send.una = th.ack;
+                self.retx.ack(self.send.una); // drop everything the peer just acknowledged
             }
 
             // Accept only IN-ORDER data (seq exactly == what we expect). Out-of-order or
@@ -240,6 +252,8 @@ impl Connection {
 
                 // The data we just sent consumes that many sequence numbers.
                 self.send.nxt = self.send.nxt.wrapping_add(payload.len() as u32);
+                // Queue it for retransmission until the peer ACKs it (end_seq = SND.NXT now).
+                self.retx.record(self.send.nxt, out.clone(), now_ms);
                 return Some(out);
             }
 
@@ -265,6 +279,13 @@ impl Connection {
         }
 
         None
+    }
+
+    /// Time-driven step: return any sent-but-unacknowledged segments whose RTO has elapsed, for
+    /// the caller (the event loop) to re-send. Resets each segment's timer.
+    #[allow(dead_code)] // wired into the event loop next step; exercised by tests now
+    pub fn on_tick(&mut self, now_ms: u64, rto_ms: u64) -> Vec<Vec<u8>> {
+        self.retx.due(now_ms, rto_ms)
     }
 
     #[cfg(test)]
@@ -595,6 +616,37 @@ mod tests {
         assert_eq!(t.src_port, 80);
         assert_eq!(t.dst_port, 0x1234);
         assert_eq!(tcp_checksum(ME, PEER, &rst[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn connection_retransmits_then_clears_on_ack() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+
+        // Client sends "hi"; we echo it at t=0 (queued for retransmission).
+        let data = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let echo = conn.on_packet_at(&data, b"hi", 0).expect("an echo");
+
+        assert!(conn.on_tick(50, 100).is_empty()); // before RTO: nothing resent
+        let resent = conn.on_tick(150, 100); // after RTO: the echo is resent
+        assert_eq!(resent, vec![echo]);
+
+        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 3,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 200);
+        assert!(conn.on_tick(400, 100).is_empty());
     }
 
     #[test]
