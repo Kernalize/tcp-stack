@@ -11,7 +11,7 @@
 
 use std::net::Ipv4Addr;
 
-use crate::{ip, utils};
+use crate::{ip, seq, utils};
 
 // TCP control-flag bit masks (RFC 9293 §3.1).
 pub const FIN: u8 = 0x01;
@@ -159,9 +159,11 @@ impl Connection {
         }
 
         if self.state == State::Established {
-            // Track acknowledgements of data we sent. (Simplification: we trust and store the
-            // peer's ack; a full stack validates it lies in (SND.UNA, SND.NXT] mod 2^32.)
-            if th.flags & ACK != 0 {
+            // Advance SND.UNA only if the ack is *acceptable*: SND.UNA < ACK <= SND.NXT, on the
+            // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
+            // out-of-window ack is ignored rather than blindly trusted — the defensive version
+            // of the earlier "store whatever they sent".
+            if th.flags & ACK != 0 && seq::between(self.send.una, th.ack, self.send.nxt) {
                 self.send.una = th.ack;
             }
 
