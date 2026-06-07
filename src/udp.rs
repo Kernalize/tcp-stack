@@ -7,7 +7,7 @@
 
 use std::net::Ipv4Addr;
 
-use crate::utils;
+use crate::{ip, utils};
 
 /// A parsed UDP header (RFC 768). `length` counts the header + data.
 #[derive(Debug, PartialEq, Eq)]
@@ -44,6 +44,44 @@ pub fn checksum(src: Ipv4Addr, dst: Ipv4Addr, segment: &[u8]) -> u16 {
     utils::checksum(&buf)
 }
 
+/// Build a UDP echo reply from a request (full IP packet). Like the ICMP reply: copy, swap IP
+/// src/dst, reset TTL, swap UDP ports, then recompute BOTH checksums (IP header, then the UDP
+/// pseudo-header checksum). The data echoes for free. `header_len` is the IP header length.
+/// Returns `None` if the packet is too short for an IP header + an 8-byte UDP header.
+pub fn build_echo_reply(request: &[u8], header_len: usize) -> Option<Vec<u8>> {
+    if request.len() < header_len + 8 {
+        return None;
+    }
+    let mut reply = request.to_vec();
+
+    // ── IP layer ── swap source/destination, reset TTL, recompute the header checksum.
+    let (mut s, mut d) = ([0u8; 4], [0u8; 4]);
+    s.copy_from_slice(&reply[12..16]);
+    d.copy_from_slice(&reply[16..20]);
+    reply[12..16].copy_from_slice(&d);
+    reply[16..20].copy_from_slice(&s);
+    reply[8] = 64;
+    ip::write_header_checksum(&mut reply[..header_len]);
+
+    // ── UDP layer ── swap the ports, then recompute the pseudo-header checksum.
+    let u = header_len;
+    let (mut sp, mut dp) = ([0u8; 2], [0u8; 2]);
+    sp.copy_from_slice(&reply[u..u + 2]);
+    dp.copy_from_slice(&reply[u + 2..u + 4]);
+    reply[u..u + 2].copy_from_slice(&dp);
+    reply[u + 2..u + 4].copy_from_slice(&sp);
+
+    // The checksum uses the NEW (swapped) addresses — the reply's src = us, dst = peer.
+    let src = Ipv4Addr::new(reply[12], reply[13], reply[14], reply[15]);
+    let dst = Ipv4Addr::new(reply[16], reply[17], reply[18], reply[19]);
+    reply[u + 6] = 0; // zero the checksum field before computing
+    reply[u + 7] = 0;
+    let c = checksum(src, dst, &reply[u..]);
+    reply[u + 6..u + 8].copy_from_slice(&c.to_be_bytes());
+
+    Some(reply)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +115,44 @@ mod tests {
         let c = checksum(ME, PEER, &seg);
         seg[6..8].copy_from_slice(&c.to_be_bytes());
         assert_eq!(checksum(ME, PEER, &seg), 0);
+    }
+
+    /// A full IPv4 + UDP packet (192.168.0.1:0x1234 → 192.168.0.2:7) carrying "hi".
+    fn udp_packet() -> Vec<u8> {
+        vec![
+            // IPv4 header (20 bytes): proto 17, total length 30 (20 + 8 + 2)
+            0x45, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x00, 0x00, 0xc0, 0xa8,
+            0x00, 0x01, 0xc0, 0xa8, 0x00, 0x02,
+            // UDP header (8 bytes): sport 0x1234, dport 7, len 10, checksum 0
+            0x12, 0x34, 0x00, 0x07, 0x00, 0x0a, 0x00, 0x00, // + data:
+            0x68, 0x69, // "hi"
+        ]
+    }
+
+    #[test]
+    fn echo_reply_is_well_formed() {
+        let req = udp_packet();
+        let reply = build_echo_reply(&req, 20).expect("a reply");
+
+        // IP addresses swapped, valid header checksum.
+        assert_eq!(&reply[12..16], &[192, 168, 0, 2]); // src = us
+        assert_eq!(&reply[16..20], &[192, 168, 0, 1]); // dst = peer
+        assert_eq!(utils::checksum(&reply[..20]), 0, "IP checksum invalid");
+
+        // UDP ports swapped: reply sport = request dport (7), dport = request sport (0x1234).
+        assert_eq!(&reply[20..22], &[0x00, 0x07]);
+        assert_eq!(&reply[22..24], &[0x12, 0x34]);
+
+        // UDP checksum (with the new addresses' pseudo-header) verifies to 0.
+        assert_eq!(checksum(ME, PEER, &reply[20..]), 0, "UDP checksum invalid");
+
+        // The data payload is echoed unchanged.
+        assert_eq!(&reply[28..], &[0x68, 0x69]);
+    }
+
+    #[test]
+    fn echo_rejects_too_short() {
+        // IP header but no full UDP header.
+        assert!(build_echo_reply(&[0u8; 24], 20).is_none());
     }
 }

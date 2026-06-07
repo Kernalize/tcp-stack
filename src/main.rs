@@ -140,19 +140,28 @@ fn main() -> std::io::Result<()> {
                                 connections.insert(quad, conn);
                                 println!("         → sent SYN-ACK (state SynRcvd)");
                             }
-                            None => {} // not a SYN to a closed port; ignore for now (no RST yet)
+                            None => {
+                                // Not a SYN to a closed/unknown connection → RST (RFC 9293).
+                                let rst = tcp::build_rst(hdr.src, hdr.dst, &th, payload.len());
+                                iface.send(&rst)?;
+                                println!("         → sent RST (no connection)");
+                            }
                         },
                     }
                 }
             }
 
-            // ── UDP ── (stateless: decode and log; no echo/listener yet)
+            // ── UDP ── (stateless: decode, then echo the datagram back)
             17 => {
                 if let Some(u) = udp::parse(l4) {
                     println!(
                         "         └── UDP {} → {}  len={}",
                         u.src_port, u.dst_port, u.length
                     );
+                    if let Some(reply) = udp::build_echo_reply(packet, hdr.header_len) {
+                        iface.send(&reply)?;
+                        println!("         → sent UDP echo ({} bytes)", reply.len());
+                    }
                 }
             }
 

@@ -282,6 +282,25 @@ fn tcp_checksum(src: Ipv4Addr, dst: Ipv4Addr, segment: &[u8]) -> u16 {
     utils::checksum(&buf)
 }
 
+/// Build a TCP RST for a segment that arrived for a closed/unknown connection (RFC 9293
+/// §3.10.7.1, the "CLOSED" rule). If the offending segment carries an ACK, reset with
+/// `seq = SEG.ACK` and no ACK flag; otherwise reset with `seq = 0, ack = SEG.SEQ + SEG.LEN`
+/// and the ACK flag set (SYN and FIN each occupy one sequence number). The RST is addressed
+/// back to the offending source. This is correct, polite TCP behavior — it tells the peer to
+/// stop retrying instead of silently dropping its segments.
+pub fn build_rst(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, payload_len: usize) -> Vec<u8> {
+    let (seq, ack, flags) = if th.flags & ACK != 0 {
+        (th.ack, 0, RST)
+    } else {
+        let seg_len = payload_len as u32
+            + if th.flags & SYN != 0 { 1 } else { 0 }
+            + if th.flags & FIN != 0 { 1 } else { 0 };
+        (0, th.seq.wrapping_add(seg_len), RST | ACK)
+    };
+    // src = us (the offending packet's destination), dst = the offending source. Window 0.
+    build_packet((ip_dst, th.dst_port), (ip_src, th.src_port), seq, ack, flags, 0, &[])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +452,27 @@ mod tests {
         seg[13] = ACK; // an ACK to a closed connection is not a valid open
         let th = parse(&seg).unwrap();
         assert!(Connection::accept(PEER, ME, &th).is_none());
+    }
+
+    #[test]
+    fn rst_for_stray_ack() {
+        // A stray ACK to a closed port: reset with seq = SEG.ACK, no ACK flag.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 100, ack: 500,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let rst = build_rst(PEER, ME, &ack, 0);
+
+        let iph = ip::parse(&rst).unwrap();
+        assert_eq!(iph.src, ME); // RST comes from us
+        assert_eq!(iph.dst, PEER);
+        assert_eq!(utils::checksum(&rst[..20]), 0, "IP checksum invalid");
+
+        let t = parse(&rst[20..]).unwrap();
+        assert_eq!(t.flags, RST);
+        assert_eq!(t.seq, 500); // SEG.ACK
+        assert_eq!(t.src_port, 80);
+        assert_eq!(t.dst_port, 0x1234);
+        assert_eq!(tcp_checksum(ME, PEER, &rst[20..]), 0, "TCP checksum invalid");
     }
 }
