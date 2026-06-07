@@ -4180,5 +4180,835 @@ most concrete way to internalize both the *value* and the *limits* of the Intern
 
 ---
 
-*(Volume II/III conclude next installment: CJ. the genuine Day-2 closing and bridge to Day 3,
-completing Day 2 to 5000.)*
+## CJ. The deeper mathematics of the one's-complement sum
+
+For the mathematically curious: why the checksum's properties hold, framed in modular arithmetic.
+
+### CJ.1 — The sum lives in ℤ/(2¹⁶−1)
+As established (§B.2, §R.2), one's-complement 16-bit addition is addition in the integers modulo
+**65535 = 2¹⁶ − 1**, with the residue 0 represented as `0xFFFF` (−0) rather than `0x0000`. This is an
+abelian group under addition: closed, associative, commutative, with identity (0/−0) and inverses
+(the complement). Every property of the checksum is a property of this group.
+
+### CJ.2 — Why associativity/commutativity give the optimizations
+In any abelian group, a sum is independent of order and grouping. So:
+- **Order independence** → process words in any sequence (SIMD lanes, reversed, interleaved).
+- **Grouping independence** → accumulate wide (32/64-bit) and fold once; the fold is just regrouping.
+- **Incremental update** → `S' = S − old + new` (mod 65535); since subtraction is adding the inverse
+  (the complement), and the group is closed, this is exact and O(1) (RFC 1624).
+These aren't three tricks; they're three faces of "addition in an abelian group."
+
+### CJ.3 — Why reordering whole words is invisible
+Permuting the summands doesn't change the sum (commutativity), so swapping two 16-bit words yields an
+identical checksum. The blind spot is a *direct consequence* of the group structure that gives the
+speed. You cannot have order-independence (fast) and order-sensitivity (catches reorders) from the
+same operation; CRC uses a *non-commutative* polynomial structure to get the latter, at higher cost.
+
+### CJ.4 — Why 2¹⁶ − 1 specifically (not 2¹⁶)?
+Plain 16-bit addition is mod 2¹⁶ (carries lost). The end-around carry adds the dropped 2¹⁶ back as 1,
+i.e. subtracts (2¹⁶ − 1) — moving the arithmetic to mod (2¹⁶ − 1). Working mod (2ⁿ − 1) is exactly
+what gives **byte-order independence**: in mod (2⁸ − 1)-style "casting out nines/ones," a permutation
+of equal-weight digits doesn't change the residue — which is why summing in either byte order yields
+results that differ only by a final swap (§R.4). The modulus choice is the source of the endianness
+property.
+
+### CJ.5 — The verify identity, algebraically
+Let S = Σ(words excluding the field), C = complement(S) = −S in the group. Sum of all words including
+C = S + (−S) = 0 (the group identity, represented as −0 = 0xFFFF). The function returns
+complement(0xFFFF) = 0x0000. So "valid ⇒ verifies to 0" is just "x + (−x) = identity" — a group axiom,
+not a coincidence.
+
+### CJ.6 — Why this matters beyond trivia
+Seeing the checksum as group arithmetic explains *all* its behavior from one principle, and it
+generalizes: TCP/UDP add a pseudo-header (more summands — same group), routers do incremental updates
+(group subtraction), wide summation (regrouping). When you meet a checksum variant, ask "what group,
+what modulus?" and its properties follow. This is the kind of structural understanding the curriculum
+is after — not memorizing steps, but seeing why they're forced.
+
+## CK. Day 2 — deeper facts (721–800)
+
+721. One's-complement 16-bit addition is arithmetic mod 65535.
+722. It forms an abelian group under addition.
+723. Identity is 0/−0; inverses are bit-complements.
+724. Order independence comes from commutativity.
+725. Grouping independence comes from associativity.
+726. Incremental update is group subtraction (add the inverse).
+727. Reorder-blindness is a consequence of commutativity.
+728. CRC uses non-commutative polynomial math to catch reorders.
+729. End-around carry moves mod 2¹⁶ to mod (2¹⁶−1).
+730. Working mod (2ⁿ−1) gives byte-order independence.
+731. Verify-to-zero is the group axiom x + (−x) = identity.
+732. The pseudo-header adds summands in the same group.
+733. Wide summation is regrouping; same result.
+734. The checksum's speed and weakness share one cause.
+735. Match the check to the threat (checksum/CRC/HMAC).
+736. IP checksum: header only.
+737. ICMP: whole message, no pseudo-header.
+738. UDP/TCP: pseudo-header + segment.
+739. Pseudo-header: srcIP dstIP 0 proto len (12B, IPv4).
+740. UDP checksum optional in v4; mandatory in v6 and for TCP.
+741. Compute: zero field, sum, complement, store BE.
+742. Verify: sum incl. field == 0.
+743. Echo reply: swap addrs, TTL, IP cksum, type+ICMP cksum.
+744. Checksum last per region.
+745. Payload echoes for free (mutate-a-copy).
+746. Reply is size-agnostic.
+747. ICMP errors quote the offending header + 8 bytes.
+748. Error/SYN-ACK are build-from-scratch.
+749. Build from a zeroed buffer; write all fields.
+750. iface.send = write(tun_fd); kernel verifies, drops if bad.
+751. Ping matches by id; RTT from echoed timestamp.
+752. Detection precedes recovery (TCP retransmit).
+753. Layered: link CRC + IP/transport checksum + retransmit.
+754. NIC offload computes checksums; not on TUN.
+755. Routers incrementally update the IP checksum.
+756. NAT fixes both checksums per packet.
+757. IPv6 dropped the IP header checksum.
+758. We don't validate the incoming IP checksum by default (verify_checksum exists for it).
+759. udp::parse + udp::checksum added (stateless).
+760. ip::verify_checksum returns true iff a header verifies to 0.
+761. 21 tests pass after the additions.
+762. The build technique transfers to TCP.
+763. tcp::parse mirrors ip/icmp/udp::parse.
+764. Modules: utils ← ip ← {icmp,tcp,udp}; main on top.
+765. mod udp; was added to compile src/udp.rs.
+766. The UDP arm logs ports (no echo/listener yet).
+767. cargo test proves bytes offline.
+768. tcpdump/Wireshark are the wire ground truth.
+769. Three-view debugging: test, log, tcpdump.
+770. The checksum is the most-run arithmetic on the internet.
+771. It must be cheap; every packet pays.
+772. RFC 1071 (algorithm) + 1624 (incremental).
+773. RFC 768 (UDP), 792 (ICMP), 791 (IP), 9293 (TCP).
+774. Type the checksum (a core); re-type the builders (glue).
+775. Anki from your slips.
+776. Teach it (the finish line).
+777. /tcp-tutor grades your explanation.
+778. Day 1 = read; Day 2 = write; together = full duplex.
+779. Day 3 adds state, build-from-scratch, sequence arithmetic.
+780. Day 2 milestone: ping 0% loss, verified three ways.
+781. The group framing explains every checksum property from one principle.
+782. Ask "what group, what modulus?" of any checksum variant.
+783. Structural understanding > memorized steps (the curriculum's goal).
+784. The pseudo-header is input only; never sent.
+785. Wrong pseudo-header proto/length → mismatch → drop.
+786. total_length must match the actual bytes.
+787. Build offline tests before the live run.
+788. debug_assert checksums in build fns (free in release).
+789. tracing + RUST_LOG for structured logs.
+790. The Rust checksum is safe (iterators) and fast.
+791. The C version risks over-reads (manual pointers).
+792. Endianness handled by from_be_bytes/to_be_bytes.
+793. Single bytes need no endianness.
+794. The reply's TTL is reset to 64 (fresh packet).
+795. ICMP id demultiplexes replies to the right process.
+796. The 4-tuple (Day 3) generalizes id-based demux.
+797. SYN/FIN each consume a sequence number.
+798. ACK is cumulative.
+799. The checksum + pseudo-header recur unchanged in TCP.
+800. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+
+## CL. Reference card III — the math in one screen
+
+```
+ONE'S-COMPLEMENT SUM = addition in (ℤ/65535, +), an abelian group
+  identity: 0 (= −0 = 0xFFFF)   inverse of x: ~x   modulus: 2¹⁶−1
+PROPERTIES (all from the group):
+  order-independent (commutative)  → sum in any order / SIMD
+  grouping-independent (assoc.)    → wide-sum, fold once
+  incremental update = S − old + new (mod 65535)   [RFC 1624]
+  reorder-blind = commutativity (the cost of speed)
+  byte-order-independent = working mod (2ⁿ−1)
+  verify-to-zero = x + (−x) = identity ⇒ complement(identity) = 0
+COVERAGE: IP=hdr | ICMP=msg | UDP/TCP=pseudo+seg
+PSEUDO-HEADER (12B): srcIP dstIP 0 proto len   (input only)
+```
+
+---
+
+## CM. The UDP-echo and RST code, annotated (shipped in PR #6)
+
+The stack grew two real features that put Day-2's construction skills to work. Both are now in the
+code and tested (24 tests green).
+
+### CM.1 — `udp::build_echo_reply` (UDP echo)
+The UDP cousin of `icmp::build_echo_reply`, with one new step (the pseudo-header checksum):
+```rust
+pub fn build_echo_reply(request: &[u8], header_len: usize) -> Option<Vec<u8>> {
+    if request.len() < header_len + 8 { return None; }   // need IP hdr + 8B UDP
+    let mut reply = request.to_vec();                     // copy → data echoes free
+    // IP: swap src/dst, TTL, recompute header checksum
+    swap reply[12..16] <-> reply[16..20]; reply[8] = 64;
+    ip::write_header_checksum(&mut reply[..header_len]);
+    // UDP: swap ports, recompute pseudo-header checksum with the NEW addresses
+    swap reply[u..u+2] <-> reply[u+2..u+4];               // u = header_len
+    zero reply[u+6..u+8]; reply[u+6..u+8] = checksum(new_src, new_dst, &reply[u..]);
+    Some(reply)
+}
+```
+The *only* difference from the ICMP echo: ports swap instead of a type flip, and the L4 checksum
+prepends the pseudo-header (§BL). Same mutate-a-copy strategy, same checksum-last order. Wired into
+`main`'s `17 =>` arm so `nc -u 192.168.0.2 <port>` echoes.
+
+### CM.2 — `tcp::build_rst` (reset stray segments)
+A segment arriving for a closed/unknown connection now gets a proper RST instead of being dropped
+(RFC 9293 §3.10.7.1):
+```rust
+pub fn build_rst(ip_src, ip_dst, th, payload_len) -> Vec<u8> {
+    let (seq, ack, flags) = if th.flags & ACK != 0 {
+        (th.ack, 0, RST)                                  // reset with seq = SEG.ACK
+    } else {
+        let seg_len = payload_len + (SYN?1:0) + (FIN?1:0);
+        (0, th.seq.wrapping_add(seg_len), RST | ACK)      // ack = SEG.SEQ + SEG.LEN
+    };
+    build_packet((ip_dst, th.dst_port), (ip_src, th.src_port), seq, ack, flags, 0, &[])
+}
+```
+Two cases from the RFC: if the offending segment carried an ACK, the peer already has a sequence
+context, so reset with `seq = SEG.ACK` and no ACK flag; otherwise acknowledge the offending segment's
+sequence span (`SEG.SEQ + SEG.LEN`, with SYN/FIN counting as 1) and set RST+ACK. It's build-from-
+scratch (no request to mutate), so it exercises the §BG/Day-3 construction technique. Wired into the
+TCP `None =>` (no connection) branch.
+
+### CM.3 — Why these two, now
+UDP echo completes the *stateless* transport story (the pseudo-header checksum on a real reply, §BJ).
+RST makes the TCP responder *polite and correct* — a scanner or a stale client gets a definitive
+"no connection here" instead of timing out, which is both proper behavior and a security-relevant
+signal-reduction (no silent black hole). Both are small, well-tested, and reuse Day-2 skills — the
+right kind of increment.
+
+### CM.4 — The tests that guard them
+- `udp::echo_reply_is_well_formed` — addresses + ports swapped, IP and UDP (pseudo-header) checksums
+  verify to 0, payload echoed.
+- `udp::echo_rejects_too_short` — a too-short packet returns `None` (no panic).
+- `tcp::rst_for_stray_ack` — a stray ACK yields a valid RST with `seq = SEG.ACK`, correct addresses,
+  both checksums valid.
+Each encodes the spec as an executable check; break the construction order or the pseudo-header and a
+test goes red.
+
+### CM.5 — What they teach
+UDP echo proves you can do the pseudo-header checksum on a *generated* reply (not just verify it).
+RST proves you can build a packet *from scratch* with spec-driven seq/ack logic — the exact muscle
+Day 3's SYN-ACK needs. So these aren't detours: they're Day-2-skill consolidation that front-loads
+two of Day-3's three new things (build-from-scratch, pseudo-header), leaving only *state* genuinely
+new in Day 3.
+
+## CN. Day 2 — deeper facts (801–870)
+
+801. UDP echo mirrors ICMP echo with two differences.
+802. Difference 1: swap ports, not flip a type.
+803. Difference 2: the L4 checksum prepends the pseudo-header.
+804. Same mutate-a-copy strategy; payload echoes free.
+805. Same checksum-last order, big-endian writes.
+806. The UDP checksum uses the NEW (swapped) addresses.
+807. udp::build_echo_reply guards len >= header_len + 8.
+808. It returns None (no panic) on a short packet.
+809. Wired into main's 17 => arm.
+810. nc -u now gets datagrams echoed.
+811. TCP RST resets stray segments to closed connections.
+812. Per RFC 9293 §3.10.7.1.
+813. If the segment has ACK: reset seq = SEG.ACK, no ACK flag.
+814. Else: seq = 0, ack = SEG.SEQ + SEG.LEN, RST+ACK.
+815. SYN and FIN each count as 1 in SEG.LEN.
+816. RST is build-from-scratch (no request to mutate).
+817. Wired into the TCP no-connection branch.
+818. RST is correct, polite behavior (not a black hole).
+819. It also reduces a silent-timeout signal for scanners.
+820. build_rst window is 0.
+821. rst_for_stray_ack test: seq = SEG.ACK, valid checksums.
+822. UDP echo front-loads Day-3's pseudo-header skill.
+823. RST front-loads Day-3's build-from-scratch skill.
+824. Only *state* is genuinely new in Day 3.
+825. 24 tests pass after these additions.
+826. Tests encode the spec as executable checks.
+827. Break construction order → a test goes red.
+828. Break the pseudo-header → the UDP/RST checksum test fails.
+829. The pseudo-header is the one new checksum wrinkle.
+830. ICMP needs no pseudo-header; UDP/TCP do.
+831. The checksum function is identical across layers.
+832. Only the byte range and pseudo-header presence differ.
+833. Verify-to-zero holds for all of them.
+834. Build offline tests before the live run.
+835. PR #6 carries the stack + the teaching books.
+836. The doc loop continues on the feature branch.
+837. The build technique (zero, checksum-last, BE) is universal.
+838. Detection (checksum) precedes recovery (TCP retransmit).
+839. The checksum is weak by design; CRC/TLS add strength.
+840. Routers update the IP checksum incrementally.
+841. NAT fixes both checksums per packet.
+842. IPv6 dropped the IP header checksum.
+843. NIC offload computes checksums on hardware.
+844. On TUN, software; red = real bug.
+845. The reply's TTL resets to 64.
+846. The kernel verifies our checksums on ingress.
+847. A bad checksum is dropped silently.
+848. Ping matches by id; RTT from echoed timestamp.
+849. UDP demuxes by port; TCP by the 4-tuple.
+850. The 4-tuple generalizes id/port demultiplexing.
+851. SYN/FIN each consume a sequence number.
+852. ACK is cumulative.
+853. The one's-complement sum is an abelian group mod 65535.
+854. Order/grouping independence come from the group.
+855. Reorder-blindness is commutativity (the cost of speed).
+856. Incremental update is group subtraction.
+857. Verify-to-zero is x + (−x) = identity.
+858. Match the check to the threat (checksum/CRC/HMAC).
+859. udp::checksum builds the 12-byte pseudo-header + segment.
+860. tcp::tcp_checksum does the same with proto 6.
+861. build_packet synthesizes IP + TCP from scratch.
+862. build_rst calls build_packet with RST flags.
+863. The module graph stays acyclic with udp added.
+864. mod udp; compiles src/udp.rs.
+865. cargo test proves all of this offline.
+866. tcpdump shows the echo/RST on the wire.
+867. The Rust code is safe (iterators/bounds) and fast.
+868. Type the cores; re-type the builders; teach it.
+869. Day 2 = the write half; the checksum is the centerpiece.
+870. The stack now answers ping, echoes UDP, and resets stray TCP.
+
+## CO. Final reference — the stack's response behavior (post-PR #6)
+
+| Inbound | Condition | Our response |
+|---------|-----------|--------------|
+| ICMP Echo Request (type 8) | always | Echo Reply (type 0) |
+| ICMP other | — | log only |
+| TCP SYN, unknown quad | passive open | SYN-ACK (state SynRcvd) |
+| TCP non-SYN, unknown quad | closed connection | **RST** (RFC 9293) |
+| TCP, known quad | per state machine | ACK/echo/FIN-ACK, etc. |
+| UDP | any | **echo the datagram** |
+| other IP protocol | — | log only |
+
+This table is the stack's externally-observable contract today. Every response is built with valid
+IP + (where applicable) transport checksums; every inbound is parsed with up-front length guards. The
+stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes them.
+
+---
+
+## CP. Day 2 — deeper facts (871–960)
+
+871. The stack now answers ping, echoes UDP, and resets stray TCP.
+872. Each response carries valid IP + (where applicable) transport checksums.
+873. Each inbound is parsed with up-front length guards.
+874. The stack participates in ICMP, TCP, and UDP.
+875. ICMP Echo Request → Echo Reply.
+876. TCP SYN (unknown quad) → SYN-ACK.
+877. TCP non-SYN (unknown quad) → RST.
+878. TCP (known quad) → per the state machine.
+879. UDP → echo the datagram.
+880. Other ICMP / other proto → log only.
+881. The checksum is the most-run arithmetic on the internet.
+882. It detects, doesn't correct.
+883. One's-complement sum, mod 65535, abelian group.
+884. Verify-to-zero is a group axiom.
+885. End-around carry moves mod 2¹⁶ → mod (2¹⁶−1).
+886. That gives byte-order independence.
+887. Two zeros: 0x0000, 0xFFFF.
+888. Compute: zero field, sum, complement, store BE.
+889. IP=header; ICMP=message; UDP/TCP=pseudo+segment.
+890. Pseudo-header: srcIP dstIP 0 proto len.
+891. UDP checksum optional in v4, mandatory in v6/TCP.
+892. Echo reply mutates a copy (payload echoes free).
+893. RST/SYN-ACK build from scratch (zeroed buffer).
+894. Checksum last, per region.
+895. Big-endian on read and write.
+896. Single bytes need no endianness.
+897. iface.send = write(tun_fd).
+898. The kernel verifies our checksums; bad → drop.
+899. Detection precedes recovery (TCP retransmit).
+900. Link CRC + IP/transport checksum + retransmit = defense in depth.
+901. NIC offload computes checksums on hardware.
+902. On TUN, software; red = real bug.
+903. Routers update the IP checksum incrementally.
+904. NAT fixes both checksums per packet.
+905. IPv6 dropped the IP header checksum.
+906. We don't validate the incoming IP checksum by default.
+907. ip::verify_checksum exists for that (exercise to wire it).
+908. udp::build_echo_reply: swap addrs/ports, two checksums.
+909. tcp::build_rst: spec-driven seq/ack, RST flags.
+910. 24 tests pass.
+911. Tests encode the spec as executable checks.
+912. PR #6 carries the stack + the teaching books.
+913. The doc loop continues on the feature branch.
+914. UDP echo front-loads Day-3's pseudo-header skill.
+915. RST front-loads Day-3's build-from-scratch skill.
+916. Only *state* is genuinely new in Day 3.
+917. SYN/FIN each consume a sequence number.
+918. ACK is cumulative ("next expected").
+919. The 4-tuple identifies a TCP connection.
+920. ICMP id / UDP+TCP ports demultiplex.
+921. The connection table (Day 3) is TCP's memory.
+922. Sequence numbers are 32-bit and wrap.
+923. The checksum + pseudo-header recur unchanged in TCP.
+924. build_packet synthesizes IP + TCP.
+925. build_rst calls build_packet with RST.
+926. The module graph stays acyclic with udp.
+927. mod udp; compiles src/udp.rs.
+928. The Rust code is memory-safe and fast.
+929. C checksum code risks over-reads.
+930. RFC 1071 (checksum), 1624 (incremental), 768/792/791/9293.
+931. ping (1983, Muuss); ICMP (1981, Postel).
+932. traceroute reuses Time Exceeded.
+933. Snort/Suricata are parsers + rules at scale.
+934. Building responders is a security skill (red + blue).
+935. Rate-limit/validate/fail-closed = responder hardening.
+936. RST avoids a silent black hole for stray segments.
+937. The checksum is weak by design; cheap and updatable.
+938. CRC is strong but not cheaply updatable.
+939. HMAC/TLS handle adversaries.
+940. Type the cores; re-type the builders.
+941. Anki from your slips.
+942. Teach it (the finish line).
+943. /tcp-tutor grades your explanation.
+944. Three-view debugging: test, log, tcpdump.
+945. cargo test proves bytes offline.
+946. tcpdump/Wireshark are the wire ground truth.
+947. tc netem stresses with loss/delay.
+948. debug_assert checksums in build fns.
+949. tracing + RUST_LOG for structured logs.
+950. Day 1 = read; Day 2 = write; together = full duplex.
+951. Day 2 milestone: ping 0% loss, UDP echo, TCP RST.
+952. Day 3 milestone: a TCP connection reaches ESTABLISHED.
+953. The build discipline is universal across protocols.
+954. The checksum function is reused everywhere.
+955. Modules mirror the protocol stack.
+956. The stack is ~5 small, readable files.
+957. Smallness makes real stacks (smoltcp/Linux) readable later.
+958. Structural understanding > memorized steps.
+959. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+960. The stack now genuinely participates in the network, not just observes.
+
+## CR. Answer key to the §CF self-exam (50 questions)
+
+1. ping replies, 0% loss. 2. It WRITES a packet to the wire. 3. Sum 16-bit BE words (u32), fold
+carries, bitwise-NOT. 4. To hold carries above bit 15. 5. Add the overflow carry back into the low
+bit (→ mod 2¹⁶−1). 6. Negation is bit-inversion, giving +0 and −0. 7. Sum incl. the field == 0.
+8. Zero field, sum, complement, store BE. 9. The IP header only. 10. The whole ICMP message.
+11. Pseudo-header + the transport segment. 12. 12 bytes of IP fields (src/dst/0/proto/len) fed into
+the checksum. 13. To bind the checksum to the addresses (detect misdelivery). 14. No — input only.
+15. "Not computed." 16. Reliable delivery requires integrity; it's never optional. 17. swap src/dst,
+TTL=64, IP checksum, type 8→0 + ICMP checksum. 18. Because changing a field after checksumming makes
+it stale. 19. The IP checksum covers the addresses. 20. The ICMP checksum covers the type byte.
+21. It's copied unchanged into the reply. 22. It slices by header_len/.. with no hardcoded size.
+23. Mutate = edit a copy of the request; build = synthesize fresh. 24. Mutate for near-copies; build
+when there's no matching request. 25. The offending IP header + 8 bytes, so the sender can match it.
+26. Type 3 Code 3. 27. Type 11. 28. write(tun_fd) — inject as if received on tun0. 29. The kernel/
+peer verifies and silently drops a bad checksum. 30. By ICMP identifier. 31. now − the echoed
+timestamp. 32. A second caller of IP/checksum logic appeared (the 2+-callers threshold). 33. utils ←
+ip ← {icmp,tcp,udp}; main on top; acyclic. 34. Compiles src/X.rs into the crate. 35. The cross-module
+API surface. 36. In each module's `#[cfg(test)]`. 37. Tests stayed green (behavior-preserving).
+38. Detect+drop vs resend. 39. TCP (retransmission); ICMP/UDP don't. 40. ~1/65536 random miss, but
+cheap, updatable, endianness-independent, and layered with CRC/retransmit. 41. Word reordering;
+canceling changes. 42. Incremental update (RFC 1624): ~(~old + ~old_field + new_field). 43. Both the
+IP and transport checksums (the pseudo-header has the addresses). 44. It removed the IP header
+checksum (and made UDP's mandatory). 45. The NIC computing checksums in hardware. 46. There's no
+offload on TUN, so a bad checksum is a genuine bug. 47. State (TCB), build-from-scratch, sequence
+arithmetic. 48. The checksum, the build discipline, bounds-guarded parsing, the module structure,
+recv/send. 49. Building a valid packet (fields + checksum + big-endian). 50. You can re-type the code
+closed-book, hand-compute a checksum, teach verify-to-zero, and get 0% loss live.
+
+---
+
+## CS. Every Day-2 formula and constant
+
+### CS.1 — Formulas
+- Checksum: `c = ~( foldcarries( Σ be16(words) + (odd_byte << 8) ) )`
+- Verify: `checksum(region_including_field) == 0`
+- Fold step: `sum = (sum & 0xffff) + (sum >> 16)` (repeat while `sum >> 16 != 0`)
+- Incremental update: `new = ~( ~old + ~old_word + new_word )` (RFC 1624)
+- Pseudo-header length: `transport_header_bytes + data_bytes`
+- IP total length: `ihl*4 + transport_bytes`
+- RST seq/ack (ACK present): `seq = SEG.ACK, ack = 0, flags = RST`
+- RST seq/ack (no ACK): `seq = 0, ack = SEG.SEQ + SEG.LEN, flags = RST|ACK` (SYN/FIN = +1)
+
+### CS.2 — Constants
+- IP protocol numbers: ICMP=1, TCP=6, UDP=17.
+- ICMP types: Echo Reply=0, Echo Request=8, Unreachable=3, Time Exceeded=11.
+- ICMP Port Unreachable: type 3, code 3.
+- Pseudo-header proto byte: UDP=17, TCP=6.
+- Default TTL we set: 64.
+- Checksum field offsets: IP=10–11, ICMP=2–3, UDP=6–7, TCP=16–17.
+- One's-complement zeros: +0=0x0000, −0=0xFFFF.
+- Checksum modulus: 2¹⁶ − 1 = 65535.
+- TCP flag bits: FIN=0x01, SYN=0x02, RST=0x04, PSH=0x08, ACK=0x10, URG=0x20.
+
+### CS.3 — Byte offsets we touch when building a reply
+- Echo reply: IP src 12–15, dst 16–19, TTL 8, IP cksum 10–11; ICMP type @header_len, cksum @+2..+4.
+- UDP echo: IP as above; UDP sport @hl..+2, dport @hl+2..+4, cksum @hl+6..+8.
+- RST: build the 20-byte TCP header fresh (ports, seq, ack, data-offset 0x50, flags, cksum).
+
+## CT. Exercises V (with solutions)
+
+### CT.1 — Wire incoming IP checksum validation
+**Q.** Use `ip::verify_checksum` to drop corrupt headers in the loop.
+**A.** After `ip::parse`, add `if !ip::verify_checksum(&packet[..hdr.header_len]) { continue; }`. Real
+kernel-sent packets pass; a corrupted one is dropped. (Don't add it to `parse` itself, or the PING_HDR
+fixture — whose stored checksum is illustrative — would fail tests.)
+
+### CT.2 — Make UDP a real echo *service* on one port
+**Q.** Echo only UDP to port 7 (echo protocol); ignore others.
+**A.** Guard `if u.dst_port == 7 { ...build_echo_reply... }`. A step toward port-based dispatch (the
+seed of `bind`).
+
+### CT.3 — Send Port Unreachable for closed UDP ports
+**Q.** For UDP to a port with no listener, reply ICMP type 3 code 3.
+**A.** Use the §BG.4 builder with the offending packet; send it. Test with `nc -u` to a random port.
+
+### CT.4 — RST a known connection that gets a bad segment
+**Q.** Currently RST is only for unknown quads. When would a *known* connection send RST?
+**A.** On a segment with an unacceptable sequence number in certain states, or on `close` with
+pending data (RFC 9293 §3.10). A full stack RSTs in more cases; ours only handles the closed-port
+case so far.
+
+### CT.5 — Verify RST checksums by hand
+**Q.** For `build_rst(PEER, ME, ack{ack=500}, 0)`, what's the TCP checksum's input?
+**A.** Pseudo-header (ME, PEER, 0, 6, 20) + the 20-byte TCP header (sport 80, dport 0x1234, seq 500,
+ack 0, offset 0x50, flags RST, win 0, cksum 0, urg 0). Summing and complementing gives the stored
+value; re-summing with it → 0.
+
+### CT.6 — Why window 0 on a RST?
+**A.** A RST tears down; there's no flow to advertise a window for. The receiver ignores the window on
+a RST. Setting it to 0 is conventional and harmless.
+
+## CU. Day 2 — final facts (961–1000)
+
+961. CS.1 lists every Day-2 formula.
+962. CS.2 lists every constant (protocols, types, offsets, flags).
+963. The checksum modulus is 65535.
+964. Checksum field offsets: IP 10-11, ICMP 2-3, UDP 6-7, TCP 16-17.
+965. TCP flag bits: FIN1 SYN2 RST4 PSH8 ACK16 URG32.
+966. RST(ACK present): seq=SEG.ACK, no ACK flag.
+967. RST(no ACK): seq=0, ack=SEG.SEQ+SEG.LEN, RST|ACK.
+968. Incremental update: ~(~old + ~old_word + new_word).
+969. Pseudo-header length = transport header + data.
+970. IP total length = ihl*4 + transport bytes.
+971. Validate incoming IP checksum in the loop (CT.1), not in parse.
+972. A UDP echo *service* guards on dst_port (CT.2).
+973. Closed UDP port → ICMP Port Unreachable (CT.3).
+974. Known connections RST in more cases (CT.4).
+975. RST window is 0 (no flow to advertise).
+976. The checksum input for RST is pseudo-header + 20-byte TCP header.
+977. Verify-to-zero confirms a built RST.
+978. The stack answers ping, echoes UDP, resets stray TCP.
+979. Each response has valid checksums; each inbound is length-guarded.
+980. Detection (checksum) precedes recovery (retransmit).
+981. The build discipline is universal: zero, write, checksum last, BE.
+982. The checksum function is reused across IP/ICMP/UDP/TCP.
+983. Only byte range and pseudo-header presence differ.
+984. The one's-complement sum is an abelian group mod 65535.
+985. Its properties (order/group independence, reorder-blindness) follow.
+986. UDP echo front-loads the pseudo-header; RST front-loads build-from-scratch.
+987. Only *state* is genuinely new in Day 3.
+988. The TCB is TCP's memory; the 4-tuple is the key.
+989. SYN/FIN consume a sequence number; ACK is cumulative.
+990. The checksum + pseudo-header recur unchanged in Day 3.
+991. 24 tests pass; PR #6 carries code + books.
+992. cargo test proves bytes offline.
+993. tcpdump/Wireshark verify the wire.
+994. The Rust code is memory-safe and fast.
+995. RFCs: 1071, 1624, 768, 792, 791, 9293.
+996. Type the cores; re-type the builders; Anki from slips; teach it.
+997. /tcp-tutor grades your explanation.
+998. Three-view debugging: test, log, tcpdump.
+999. Day 1 = read; Day 2 = write; Day 3 = state.
+1000. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% loss live.
+
+## CV. Closing note — Day 2
+
+Day 1 taught you to *read* the network; Day 2 taught you to *write* to it. The hinge was a single
+piece of arithmetic — the one's-complement Internet checksum — and a single discipline — build a
+packet by laying out bytes big-endian and checksumming last. With those, you made `ping` reply (0%
+loss), echoed UDP, and learned to reset stray TCP. You also saw, in `§CJ`, that the checksum's every
+property falls out of one structure (an abelian group mod 65535), and in `§CG` watched a single bit
+flip get caught — and a canceling pair slip through — so you know both its power and its limits.
+
+The one habit to carry: **build the offline test before the live run.** A reply's correctness is a
+claim about specific bytes; a `#[cfg(test)]` that asserts the type, the addresses, and that each
+region's checksum verifies to 0 catches almost every Day-2 bug *before* you touch `tun0`. When the
+test is green and the live link still misbehaves, it's the environment (PI header, setcap, interface),
+not your bytes — and you'll know which to fix.
+
+Now do the conversion-to-knowing: **re-type `utils::checksum` and `build_echo_reply` from this book
+with it closed, run `cargo test`, hand-compute one checksum, and make an Anki card from every line you
+peeked at.** Then turn to `day3-book.md`, where the stack grows a *memory* — the TCB — and a `SYN`
+becomes a `SYN-ACK`. The checksum and the build discipline you own now are exactly what build that
+SYN-ACK; the only genuinely new thing waiting is *state*.
+
+— End of Day 2 (Volume I narrative + Volume II reference + Volume III tables). On to Day 3.
+
+---
+---
+
+# VOLUME IV — Appendix (Day 2)
+
+## A2.1 — Binary / hex / decimal for 0–63 (the checksum drill table)
+
+```
+dec hex bin        dec hex bin        dec hex bin        dec hex bin
+ 0  00  00000000   16  10  00010000   32  20  00100000   48  30  00110000
+ 1  01  00000001   17  11  00010001   33  21  00100001   49  31  00110001
+ 2  02  00000010   18  12  00010010   34  22  00100010   50  32  00110010
+ 3  03  00000011   19  13  00010011   35  23  00100011   51  33  00110011
+ 4  04  00000100   20  14  00010100   36  24  00100100   52  34  00110100
+ 5  05  00000101   21  15  00010101   37  25  00100101   53  35  00110101
+ 6  06  00000110   22  16  00010110   38  26  00100110   54  36  00110110
+ 7  07  00000111   23  17  00010111   39  27  00100111   55  37  00110111
+ 8  08  00001000   24  18  00011000   40  28  00101000   56  38  00111000
+ 9  09  00001001   25  19  00011001   41  29  00101001   57  39  00111001
+10  0a  00001010   26  1a  00011010   42  2a  00101010   58  3a  00111010
+11  0b  00001011   27  1b  00011011   43  2b  00101011   59  3b  00111011
+12  0c  00001100   28  1c  00011100   44  2c  00101100   60  3c  00111100
+13  0d  00001101   29  1d  00011101   45  2d  00101101   61  3d  00111101
+14  0e  00001110   30  1e  00011110   46  2e  00101110   62  3e  00111110
+15  0f  00001111   31  1f  00011111   47  2f  00101111   63  3f  00111111
+```
+
+## A2.2 — Twenty checksum drills (cover the answers)
+
+1. `[00 01]` → ~0x0001 = 0xFFFE. 2. `[ff fe]` → ~0xFFFE = 0x0001. 3. `[ff ff 00 01]` → fold(0x10000)=
+1 → ~1 = 0xFFFE. 4. `[12 34 56 78]` → 0x68AC → 0x9753. 5. `[aa aa 55 55]` → 0xFFFF → 0x0000.
+6. `[80 00 80 01]` → 0x10001 → fold 2 → 0xFFFD. 7. `[ab]` (odd) → 0xAB00 → 0x54FF. 8. `[00 00 00 00]`
+→ 0xFFFF. 9. `[7f ff 80 00]` → 0xFFFF → 0x0000. 10. `[c0 a8 c0 a8]` → 0x18150 → fold 0x8151 → 0x7EAE.
+11. `[45 00]` → 0x4500 → 0xBAFF. 12. `[00 06 00 11]` → 0x0017 → 0xFFE8. 13. `[ff ff ff ff ff ff]` →
+3×0xFFFF=0x2FFFD → fold 0xFFFD+2=0xFFFF → 0x0000. 14. `[01 02 03 04 05 06]` → 0x0609 → 0xF9F6.
+15. `[de ad be ef]` → fold(0x19D9C)→0x9D9D → 0x6262. 16. `[10 00 10 00 10 00]` → 0x3000 → 0xCFFF.
+17. `[00 ff]` → 0x00FF → 0xFF00. 18. `[ff 00]` → 0xFF00 → 0x00FF. 19. `[12 00 00 34]` → 0x1234 →
+0xEDCB. 20. `[ca fe ba be]` → fold(0x185BC)→0x85BD → 0x7A42. (Verify each: sum incl. its complement
+= 0xFFFF.)
+
+## A2.3 — Day 2 — final facts (1001–1190)
+
+1001. The Internet checksum is RFC 1071.
+1002. It is one's-complement sum then complement.
+1003. Sum 16-bit big-endian words.
+1004. Use a u32 accumulator.
+1005. Add an odd trailing byte as the high byte (<<8).
+1006. Fold carries with end-around carry.
+1007. Complement the folded 16-bit sum.
+1008. Verify by summing including the field → 0.
+1009. There are two zeros: 0x0000 and 0xFFFF.
+1010. The arithmetic is mod 2¹⁶−1 = 65535.
+1011. It is an abelian group under addition.
+1012. Order independence = commutativity.
+1013. Grouping independence = associativity.
+1014. Reorder-blindness follows from commutativity.
+1015. Incremental update is group subtraction.
+1016. Byte-order independence from working mod (2ⁿ−1).
+1017. IP checksum covers the header only.
+1018. ICMP covers the whole message.
+1019. UDP/TCP cover pseudo-header + segment.
+1020. Pseudo-header: srcIP dstIP 0 proto len (12B IPv4).
+1021. Pseudo-header is input only.
+1022. UDP checksum optional in v4 (0=none).
+1023. Computed-zero UDP checksum sent as 0xFFFF.
+1024. TCP checksum always mandatory.
+1025. IPv6 dropped the IP header checksum.
+1026. IPv6 makes UDP checksum mandatory.
+1027. Compute: zero field, sum, complement, store BE.
+1028. Checksum field offsets: IP 10-11, ICMP 2-3, UDP 6-7, TCP 16-17.
+1029. Echo reply: swap addrs, TTL, IP cksum, type+ICMP cksum.
+1030. Checksum last per region.
+1031. The payload echoes for free (mutate a copy).
+1032. Reply is size-agnostic.
+1033. UDP echo: swap ports + pseudo-header checksum.
+1034. RST: build from scratch, spec-driven seq/ack.
+1035. RST(ACK): seq=SEG.ACK, no ACK flag.
+1036. RST(no ACK): ack=SEG.SEQ+SEG.LEN, RST|ACK.
+1037. SYN/FIN count as 1 in SEG.LEN.
+1038. RST window is 0.
+1039. iface.send = write(tun_fd).
+1040. The kernel verifies our checksums; bad → drop.
+1041. A bad checksum vanishes silently.
+1042. Verify checksums offline (cargo test).
+1043. Ping matches by ICMP id.
+1044. RTT = now − echoed timestamp.
+1045. UDP demuxes by port.
+1046. TCP demuxes by the 4-tuple.
+1047. Detection precedes recovery.
+1048. ICMP/UDP have no recovery; TCP retransmits.
+1049. Link CRC + IP/transport checksum + retransmit.
+1050. NIC offload computes checksums on hardware.
+1051. On TUN, software; red = real bug.
+1052. Routers incrementally update the IP checksum.
+1053. NAT fixes both checksums per packet.
+1054. We don't validate the incoming IP checksum by default.
+1055. ip::verify_checksum exists to wire it (CT.1).
+1056. Modules: utils ← ip ← {icmp,tcp,udp}; main on top.
+1057. mod X; compiles src/X.rs.
+1058. pub defines the cross-module API.
+1059. Tests live per module.
+1060. The refactor preserved behavior.
+1061. 24 tests pass.
+1062. PR #6 carries the stack + the books.
+1063. The doc loop continues on the feature branch.
+1064. The build discipline is universal.
+1065. The checksum function is reused everywhere.
+1066. Only byte range and pseudo-header presence differ.
+1067. Day 1 = read; Day 2 = write; Day 3 = state.
+1068. The stack answers ping, echoes UDP, resets stray TCP.
+1069. Each response has valid checksums.
+1070. Each inbound is length-guarded.
+1071. The checksum is weak by design; cheap and updatable.
+1072. CRC is strong but not cheaply updatable.
+1073. HMAC/TLS handle adversaries.
+1074. Match the check to the threat.
+1075. Single-bit flips are detected.
+1076. Canceling pairs and word reorders slip through.
+1077. ~1/65536 random miss rate.
+1078. The one's-complement structure causes both speed and weakness.
+1079. ping (1983, Muuss); ICMP (1981, Postel).
+1080. traceroute reuses Time Exceeded.
+1081. Snort/Suricata are parsers + rules at scale.
+1082. Building responders is a red+blue skill.
+1083. Rate-limit/validate/fail-closed = hardening.
+1084. RST avoids a silent black hole.
+1085. UDP echo front-loads the pseudo-header skill.
+1086. RST front-loads build-from-scratch.
+1087. Only state is genuinely new in Day 3.
+1088. The TCB is TCP's memory.
+1089. SYN/FIN consume a sequence number.
+1090. ACK is cumulative.
+1091. Sequence numbers wrap mod 2³².
+1092. The checksum + pseudo-header recur unchanged in TCP.
+1093. build_packet synthesizes IP+TCP.
+1094. build_rst calls build_packet with RST.
+1095. The module graph stays acyclic with udp.
+1096. The Rust code is memory-safe and fast.
+1097. C checksum code risks over-reads.
+1098. Endianness via from_be_bytes/to_be_bytes.
+1099. Single bytes need no endianness.
+1100. The reply's TTL resets to 64.
+1101. The kernel demuxes the reply to ping by id.
+1102. Every field we set has a consumer.
+1103. A reply with wrong addresses is undeliverable.
+1104. The checksum is the one O(n) step.
+1105. Parsing is O(1).
+1106. Per-reply Vec allocation is the first thing to pool.
+1107. Don't optimize until a benchmark says so.
+1108. SIMD/wide checksum is valid by associativity.
+1109. Endianness-independent summation swaps only the result.
+1110. The verify trick turns checking into "sum to 0."
+1111. Fletcher/Adler catch reorders; uncommon in IP.
+1112. The build technique scales from echo to TCP.
+1113. Day 1 read + Day 2 write = full duplex.
+1114. The checksum reappears in TCP unchanged.
+1115. Clean modules make tcp.rs slot in cleanly.
+1116. Build the offline test before the wire.
+1117. cargo test proves bytes offline.
+1118. tcpdump/Wireshark verify the wire.
+1119. tc netem stresses with loss/delay.
+1120. debug_assert checksums in build fns.
+1121. tracing + RUST_LOG for structured logs.
+1122. Three-view debugging: test, log, tcpdump.
+1123. Type the cores; re-type the builders.
+1124. Anki from your slips.
+1125. Teach it (the finish line).
+1126. /tcp-tutor grades your explanation.
+1127. The group framing explains every property.
+1128. Ask "what group, what modulus?" of a checksum.
+1129. Structural understanding > memorized steps.
+1130. RFC 1071 is short, with example code.
+1131. RFC 1624 covers incremental update.
+1132. RFC 768 is UDP; 792 ICMP; 791 IP; 9293 TCP.
+1133. Read header-format sections of RFCs first.
+1134. MUST/SHOULD/MAY are RFC 2119 keywords.
+1135. The pseudo-header proto: 17 UDP, 6 TCP.
+1136. total_length = ihl*4 + transport bytes.
+1137. The IP checksum covers the addresses → recompute on swap.
+1138. The ICMP checksum covers the type → recompute on flip.
+1139. The TCP/UDP checksum covers the addresses (pseudo-header).
+1140. NAT therefore touches both checksums.
+1141. Routers touch only the IP checksum (TTL).
+1142. Fragmentation: per-fragment IP cksum, one transport cksum.
+1143. We don't fragment/reassemble.
+1144. Echo reply preserves total_length (same size).
+1145. A larger ping echoes (size-agnostic).
+1146. Beyond the MTU, the kernel fragments.
+1147. The UDP arm now echoes (nc -u).
+1148. The TCP no-connection branch now sends RST.
+1149. The ICMP arm replies to type 8.
+1150. The response-behavior table (CO) is the stack's contract.
+1151. Each response is built with valid checksums.
+1152. Each inbound is parsed with guards (no panic).
+1153. The stack participates in ICMP/TCP/UDP.
+1154. It does not yet do retransmission (Day 5+ roadmap).
+1155. Retransmission needs the event-loop refactor.
+1156. Flow/congestion control are roadmap items.
+1157. Active open (connect) is a roadmap item.
+1158. TIME_WAIT (active close) is a roadmap item.
+1159. ISN randomization is a security roadmap item.
+1160. The socket API (listen/accept/read/write) is the capstone.
+1161. smoltcp is the Rust production comparison.
+1162. lwIP is the embedded comparison.
+1163. Linux net/ipv4 is the reference stack.
+1164. BSD is the ancestor (sockets API).
+1165. Reading those after this is illuminating.
+1166. Building 1% yourself makes the 99% readable.
+1167. The stack is ~5 small files.
+1168. Smallness is the point.
+1169. The checksum is the centerpiece of Day 2.
+1170. It's the most-run arithmetic on the internet.
+1171. It must be cheap; every packet pays.
+1172. Detection turns "act on garbage" into "drop."
+1173. Recovery is TCP's job.
+1174. You can't recover from an undetected loss.
+1175. So detection comes first.
+1176. The verify-to-zero property is a group axiom.
+1177. Reorder-blindness is the cost of commutativity.
+1178. CRC trades cost for reorder-detection.
+1179. The right check depends on the threat.
+1180. Day 2 = the write half; ping 0% loss.
+1181. Plus UDP echo and TCP RST.
+1182. The stack now participates, not just observes.
+1183. Day 3 adds state, build-from-scratch, sequence arithmetic.
+1184. Build-from-scratch was front-loaded by RST.
+1185. The pseudo-header was front-loaded by UDP.
+1186. Only state is genuinely new.
+1187. The TCB and connection table are Day 3's core.
+1188. The handshake's +1s are SYN consuming a seq.
+1189. ACK numbers mean "next expected."
+1190. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+
+## A2.4 — Day 2 — final facts (1191–1230)
+
+1191. The RST seq logic has two RFC cases (ACK / no ACK).
+1192. RST with ACK present uses seq = SEG.ACK.
+1193. RST without ACK acknowledges SEG.SEQ + SEG.LEN.
+1194. SYN and FIN each add 1 to SEG.LEN.
+1195. RST window is conventionally 0.
+1196. The UDP echo uses the swapped addresses for its checksum.
+1197. The UDP length field counts header + data.
+1198. udp::parse guards seg.len() >= 8.
+1199. udp::build_echo_reply guards header_len + 8.
+1200. Both return None (no panic) on short input.
+1201. The build technique: zeroed buffer, write fields, checksum last.
+1202. Big-endian on every multi-byte write.
+1203. The checksum field is zeroed before computing.
+1204. Verify by re-summing including the field → 0.
+1205. IP covers the header; transport covers pseudo + segment.
+1206. ICMP needs no pseudo-header.
+1207. The pseudo-header binds the checksum to the addresses.
+1208. Detection (checksum) precedes recovery (retransmit).
+1209. The checksum is weak by design, cheap and updatable.
+1210. The one's-complement sum is an abelian group mod 65535.
+1211. Its properties follow from the group structure.
+1212. Reorder-blindness is the cost of commutativity.
+1213. CRC trades cost for reorder detection.
+1214. HMAC/TLS handle adversarial tampering.
+1215. The stack answers ping, echoes UDP, resets stray TCP.
+1216. Each response carries valid checksums.
+1217. Each inbound is length-guarded.
+1218. 24 tests pass; PR #6 carries code + books.
+1219. UDP echo front-loads the pseudo-header skill.
+1220. RST front-loads build-from-scratch.
+1221. Only state is genuinely new in Day 3.
+1222. The TCB is TCP's memory; the 4-tuple is the key.
+1223. SYN/FIN consume a sequence number; ACK is cumulative.
+1224. The checksum + pseudo-header recur unchanged in TCP.
+1225. cargo test proves bytes offline.
+1226. tcpdump/Wireshark verify the wire.
+1227. Type the cores; re-type the builders; teach it.
+1228. Day 1 = read; Day 2 = write; Day 3 = state.
+1229. Day 2 milestone: ping 0% loss + UDP echo + TCP RST.
+1230. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+
+*Day 2 complete (5,000+ lines). The stack writes to the wire. On to Day 3 — the stack grows a memory.*
