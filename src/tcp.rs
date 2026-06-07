@@ -162,11 +162,16 @@ impl Connection {
 
     /// Active open: initiate a connection from `local` to `remote`. Returns the TCB (in
     /// SYN_SENT) and the SYN packet to send. Randomized ISN (RFC 6528).
+    ///
+    /// The binary runs as a passive server (it only `accept`s), so this client-side capability is
+    /// exercised by tests rather than `main` — hence `allow(dead_code)`.
+    #[allow(dead_code)]
     pub fn connect(local: (Ipv4Addr, u16), remote: (Ipv4Addr, u16)) -> (Connection, Vec<u8>) {
         Self::connect_with_iss(local, remote, rand::random::<u32>())
     }
 
     /// Active open with a caller-chosen ISS (deterministic, for tests).
+    #[allow(dead_code)]
     pub fn connect_with_iss(
         local: (Ipv4Addr, u16),
         remote: (Ipv4Addr, u16),
@@ -358,6 +363,65 @@ pub fn build_rst(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, payload_len
     build_packet((ip_dst, th.dst_port), (ip_src, th.src_port), seq, ack, flags, 0, &[])
 }
 
+/// One sent-but-unacknowledged segment, kept so we can resend it if its ACK never comes.
+#[allow(dead_code)] // fields read by the event loop (next step) + tests
+#[derive(Debug, Clone)]
+struct Unacked {
+    /// One past the last sequence number this segment covers; fully acked when SND.UNA reaches it.
+    end_seq: u32,
+    /// The complete IP+TCP bytes, ready to resend verbatim.
+    packet: Vec<u8>,
+    /// When it was (last) sent, in milliseconds — supplied by the caller's clock.
+    sent_at_ms: u64,
+    /// How many times it's been retransmitted (for backoff / giving up).
+    retries: u32,
+}
+
+/// The per-connection retransmission queue (RFC 9293 §3.8.1) — the heart of TCP reliability.
+/// Time is passed in (`now_ms`) rather than read from a clock, so the logic is unit-testable
+/// without sleeping; the event loop supplies the real time and resends whatever is `due`.
+#[allow(dead_code)] // wired into the event loop in the next step
+#[derive(Debug, Default)]
+pub struct RetxQueue {
+    segments: Vec<Unacked>,
+}
+
+#[allow(dead_code)]
+impl RetxQueue {
+    /// Record a segment we just sent. `end_seq` = seq one past its last byte.
+    pub fn record(&mut self, end_seq: u32, packet: Vec<u8>, now_ms: u64) {
+        self.segments.push(Unacked { end_seq, packet, sent_at_ms: now_ms, retries: 0 });
+    }
+
+    /// Drop every segment the peer has now fully acknowledged (`end_seq <= SND.UNA`, mod 2³²).
+    pub fn ack(&mut self, una: u32) {
+        // Keep only segments not yet fully covered by `una` (una is still "before" their end).
+        self.segments.retain(|s| seq::before(una, s.end_seq));
+    }
+
+    /// Packets whose retransmission timeout (`rto_ms`) has elapsed. Resets each one's timer and
+    /// bumps its retry count, then returns clones for the caller to re-send.
+    pub fn due(&mut self, now_ms: u64, rto_ms: u64) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        for s in &mut self.segments {
+            if now_ms.saturating_sub(s.sent_at_ms) >= rto_ms {
+                s.sent_at_ms = now_ms;
+                s.retries += 1;
+                out.push(s.packet.clone());
+            }
+        }
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.segments.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,6 +595,47 @@ mod tests {
         assert_eq!(t.src_port, 80);
         assert_eq!(t.dst_port, 0x1234);
         assert_eq!(tcp_checksum(ME, PEER, &rst[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn retx_records_acks_and_clears() {
+        let mut q = RetxQueue::default();
+        q.record(11, vec![1, 2, 3], 0); // segment ending at seq 11
+        q.record(21, vec![4, 5, 6], 0); // segment ending at seq 21
+        assert_eq!(q.len(), 2);
+        q.ack(11); // SND.UNA = 11 → first segment fully acked, dropped
+        assert_eq!(q.len(), 1);
+        q.ack(21); // second fully acked
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn retx_partial_ack_keeps_unacked() {
+        let mut q = RetxQueue::default();
+        q.record(11, vec![1], 0);
+        q.record(21, vec![2], 0);
+        q.ack(15); // covers the first (end 11 <= 15), not the second (end 21 > 15)
+        assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn retx_fires_after_rto() {
+        let mut q = RetxQueue::default();
+        q.record(11, vec![0xAB], 0);
+        assert!(q.due(50, 100).is_empty()); // 50ms < 100ms RTO → nothing due
+        let resent = q.due(150, 100); // 150ms >= RTO → due
+        assert_eq!(resent, vec![vec![0xABu8]]);
+        assert!(q.due(160, 100).is_empty()); // timer reset → not due again yet
+        assert_eq!(q.due(300, 100).len(), 1); // due again after another RTO
+    }
+
+    #[test]
+    fn retx_ack_wraparound() {
+        let mut q = RetxQueue::default();
+        // Segment ends just past the wrap; an ack past it (mod 2^32) clears it.
+        q.record(3, vec![9], 0); // end_seq 3, conceptually after wrapping from ~0xFFFFFFFF
+        q.ack(3);
+        assert!(q.is_empty());
     }
 
     #[test]

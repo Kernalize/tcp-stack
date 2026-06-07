@@ -69,6 +69,13 @@ fn main() -> std::io::Result<()> {
             }
         };
 
+        // Defensive: drop a packet whose IPv4 header checksum doesn't verify (corrupted in
+        // transit). Real kernel-sent packets are valid; this rejects garbage before we act on it.
+        if !ip::verify_checksum(&packet[..hdr.header_len]) {
+            println!("[#{count:04}] bad IP header checksum — dropping");
+            continue;
+        }
+
         println!(
             "[#{count:04}] IPv4  {} → {}  proto={} ({})  total={}B ttl={}",
             hdr.src,
