@@ -60,13 +60,19 @@ pub fn parse(seg: &[u8]) -> Option<TcpHeader> {
     if seg.len() < 20 {
         return None;
     }
+    // Byte 12 high nibble = data offset in 32-bit words = TCP header length. It must be at least
+    // 5 words (20 bytes) and must not claim more bytes than the segment actually holds — reject a
+    // malformed/hostile header rather than trusting an out-of-range length downstream.
+    let data_offset = ((seg[12] >> 4) as usize) * 4;
+    if data_offset < 20 || data_offset > seg.len() {
+        return None;
+    }
     Some(TcpHeader {
         src_port: u16::from_be_bytes([seg[0], seg[1]]),
         dst_port: u16::from_be_bytes([seg[2], seg[3]]),
         seq: u32::from_be_bytes([seg[4], seg[5], seg[6], seg[7]]),
         ack: u32::from_be_bytes([seg[8], seg[9], seg[10], seg[11]]),
-        // Byte 12 high nibble = data offset in 32-bit words.
-        data_offset: ((seg[12] >> 4) as usize) * 4,
+        data_offset,
         flags: seg[13],
         window: u16::from_be_bytes([seg[14], seg[15]]),
     })
@@ -470,6 +476,16 @@ mod tests {
         assert_eq!(th.seq, 100);
         assert_eq!(th.data_offset, 20);
         assert_eq!(th.flags, SYN);
+    }
+
+    #[test]
+    fn rejects_bad_data_offset() {
+        let mut small = syn_segment();
+        small[12] = 0x40; // 4 words = 16 bytes < 20-byte minimum → reject
+        assert!(parse(&small).is_none());
+        let mut big = syn_segment();
+        big[12] = 0xf0; // 15 words = 60 bytes, more than the 20-byte segment → reject
+        assert!(parse(&big).is_none());
     }
 
     #[test]

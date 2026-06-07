@@ -29,6 +29,8 @@ pub enum ParseError {
     TooShort { have: usize, need: usize },
     NotIpv4 { version: u8 },
     HeaderLongerThanPacket { header_len: usize, have: usize },
+    /// Declared total length is smaller than the header itself — malformed.
+    BadTotalLength { total_len: usize, header_len: usize },
 }
 
 /// Parse an IPv4 header from the front of `packet`. Borrows; copies only the few fields
@@ -50,6 +52,11 @@ pub fn parse(packet: &[u8]) -> Result<Ipv4Header, ParseError> {
     }
 
     let total_len = u16::from_be_bytes([packet[2], packet[3]]) as usize; // big-endian!
+    // The declared datagram length can't be smaller than the header it includes. We only log
+    // total_len today, but rejecting a nonsensical value is correct defensive parsing.
+    if total_len < header_len {
+        return Err(ParseError::BadTotalLength { total_len, header_len });
+    }
     let ttl = packet[8];
     let protocol = packet[9];
     let src = Ipv4Addr::new(packet[12], packet[13], packet[14], packet[15]);
@@ -109,6 +116,14 @@ mod tests {
         let mut p = PING_HDR;
         p[0] = 0x60;
         assert!(matches!(parse(&p), Err(ParseError::NotIpv4 { version: 6 })));
+    }
+
+    #[test]
+    fn rejects_total_length_below_header() {
+        let mut p = PING_HDR;
+        p[2] = 0;
+        p[3] = 10; // total_len = 10 < 20-byte header → malformed
+        assert!(matches!(parse(&p), Err(ParseError::BadTotalLength { .. })));
     }
 
     #[test]

@@ -44,7 +44,7 @@ sudo setcap cap_net_admin=eip /home/daasa/.tcp-stack-target/debug/tcp-stack
 Terminal 2 (wire up + ping):
 ```bash
 sudo ip addr add 192.168.0.1/24 dev tun0 && sudo ip link set tun0 up
-ping -c3 192.168.0.2          # 100% loss is CORRECT until ICMP echo reply (Day 2)
+ping -c3 192.168.0.2          # echo reply implemented → expect 0% loss
 ```
 Optional Terminal 3: `sudo apt install -y tcpdump` then `sudo tcpdump -i tun0 -n -v`.
 
