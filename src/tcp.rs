@@ -196,7 +196,8 @@ impl Connection {
     }
 
     /// Handle a packet on an existing connection. Convenience wrapper (timestamps with 0) for
-    /// callers/tests that don't track retransmission time.
+    /// callers/tests that don't track retransmission time. (`main` uses `on_packet_at`.)
+    #[allow(dead_code)]
     pub fn on_packet(&mut self, th: &TcpHeader, payload: &[u8]) -> Option<Vec<u8>> {
         self.on_packet_at(th, payload, 0)
     }

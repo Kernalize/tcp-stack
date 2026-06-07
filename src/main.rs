@@ -53,11 +53,34 @@ fn main() -> std::io::Result<()> {
     // The connection table: one TCB per active 4-tuple. This is TCP's "memory".
     let mut connections: HashMap<tcp::Quad, tcp::Connection> = HashMap::new();
 
+    // Non-blocking I/O so one thread can both read packets AND fire retransmission timers.
+    iface.set_non_blocking()?;
+    let clock = std::time::Instant::now();
+    const RTO_MS: u64 = 200; // fixed retransmission timeout (a real stack estimates RTT, RFC 6298)
+
     let mut buf = [0u8; 1504];
     let mut count: u64 = 0;
 
     loop {
-        let n = iface.recv(&mut buf)?; // blocks until a packet arrives
+        let now_ms = clock.elapsed().as_millis() as u64;
+
+        // Retransmission timers: resend any segment whose ACK hasn't arrived within the RTO.
+        for conn in connections.values_mut() {
+            for pkt in conn.on_tick(now_ms, RTO_MS) {
+                iface.send(&pkt)?;
+                println!("         ↻ retransmit ({} bytes)", pkt.len());
+            }
+        }
+
+        // Read one packet if available; if none is ready, nap briefly so timers keep firing.
+        let n = match iface.recv(&mut buf) {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         count += 1;
         let packet = &buf[..n];
 
@@ -130,7 +153,7 @@ fn main() -> std::io::Result<()> {
                     match connections.get_mut(&quad) {
                         // Existing connection: let it advance its state machine.
                         Some(conn) => {
-                            if let Some(out) = conn.on_packet(&th, payload) {
+                            if let Some(out) = conn.on_packet_at(&th, payload, now_ms) {
                                 iface.send(&out)?;
                             }
                             let state = conn.state();
