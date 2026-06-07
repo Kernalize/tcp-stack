@@ -64,12 +64,20 @@ fn main() -> std::io::Result<()> {
     loop {
         let now_ms = clock.elapsed().as_millis() as u64;
 
-        // Retransmission timers: resend any segment whose ACK hasn't arrived within the RTO.
-        for conn in connections.values_mut() {
+        // Timers: resend any segment past its RTO, and reap connections whose TIME_WAIT expired.
+        let mut closed = Vec::new();
+        for (quad, conn) in connections.iter_mut() {
             for pkt in conn.on_tick(now_ms, RTO_MS) {
                 iface.send(&pkt)?;
                 println!("         ↻ retransmit ({} bytes)", pkt.len());
             }
+            if conn.state() == tcp::State::Closed {
+                closed.push(*quad);
+            }
+        }
+        for quad in closed {
+            connections.remove(&quad);
+            println!("         · TIME_WAIT expired, connection removed");
         }
 
         // Read one packet if available; if none is ready, nap briefly so timers keep firing.
