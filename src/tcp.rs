@@ -118,16 +118,28 @@ impl Connection {
     }
 
     /// Passive open: a SYN arrived for a connection we don't have yet. Create the TCB in
-    /// SYN_RCVD and return it together with the SYN-ACK packet bytes to send.
-    /// Returns `None` if the incoming segment isn't a SYN (we only open on a SYN).
+    /// SYN_RCVD and return it together with the SYN-ACK packet bytes to send. Returns `None` if
+    /// the incoming segment isn't a SYN (we only open on a SYN).
+    ///
+    /// The ISN is **randomized** (RFC 6528): a predictable initial sequence number lets an
+    /// off-path attacker forge segments / spoof connections. `accept_with_iss` takes a fixed ISN
+    /// for deterministic tests.
     pub fn accept(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader) -> Option<(Connection, Vec<u8>)> {
+        Self::accept_with_iss(ip_src, ip_dst, th, rand::random::<u32>())
+    }
+
+    /// Passive open with a caller-chosen initial send sequence number (ISS). `accept` wraps this
+    /// with a random ISS; tests pass a fixed ISS so the handshake's seq/ack numbers are predictable.
+    pub fn accept_with_iss(
+        ip_src: Ipv4Addr,
+        ip_dst: Ipv4Addr,
+        th: &TcpHeader,
+        iss: u32,
+    ) -> Option<(Connection, Vec<u8>)> {
         if th.flags & SYN == 0 {
             return None;
         }
 
-        // ISS = our initial send sequence number. Real stacks randomize this (RFC 6528,
-        // anti-spoofing); we use 0 so the arithmetic is easy to follow and test. See book.
-        let iss = 0;
         let wnd = 1024;
 
         let conn = Connection {
@@ -334,7 +346,7 @@ mod tests {
     #[test]
     fn accept_produces_valid_synack() {
         let th = parse(&syn_segment()).unwrap();
-        let (conn, synack) = Connection::accept(PEER, ME, &th).expect("a SYN-ACK");
+        let (conn, synack) = Connection::accept_with_iss(PEER, ME, &th, 0).expect("a SYN-ACK");
 
         assert_eq!(conn.state(), State::SynRcvd);
         assert_eq!(synack.len(), 40); // 20 IP + 20 TCP, no payload
@@ -361,7 +373,7 @@ mod tests {
     #[test]
     fn final_ack_reaches_established() {
         let th = parse(&syn_segment()).unwrap();
-        let (mut conn, _synack) = Connection::accept(PEER, ME, &th).unwrap();
+        let (mut conn, _synack) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
 
         // Client's final ACK: seq 101, ack 1 (acks our ISS+1), flags ACK.
         let ack = TcpHeader {
@@ -381,7 +393,7 @@ mod tests {
     fn established_echoes_data() {
         // Establish the connection first.
         let th = parse(&syn_segment()).unwrap();
-        let (mut conn, _synack) = Connection::accept(PEER, ME, &th).unwrap();
+        let (mut conn, _synack) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
         let handshake_ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: ACK, window: 0xffff,
@@ -417,7 +429,7 @@ mod tests {
     #[test]
     fn passive_close_via_fin() {
         let th = parse(&syn_segment()).unwrap();
-        let (mut conn, _s) = Connection::accept(PEER, ME, &th).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
         let hs_ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: ACK, window: 0xffff,
