@@ -37,8 +37,16 @@ pub enum State {
     /// Passive open: we received a SYN and sent a SYN-ACK; await the peer's ACK.
     SynRcvd,
     Established,
-    /// We've sent our FIN and await the peer's final ACK (passive close).
+    /// Passive close: we received the peer's FIN and sent our FIN; await the final ACK.
     LastAck,
+    /// Active close: we sent our FIN; await its ACK and/or the peer's FIN.
+    FinWait1,
+    /// Active close: our FIN was ACKed; await the peer's FIN.
+    FinWait2,
+    /// Simultaneous close: both sent FIN; await the ACK of ours.
+    Closing,
+    /// Active close complete; linger for 2·MSL to absorb retransmitted FINs, then CLOSED.
+    TimeWait,
     /// Fully closed — `main` removes the connection from the table.
     Closed,
 }
@@ -121,6 +129,8 @@ pub struct Connection {
     remote: (Ipv4Addr, u16), // the peer
     /// Sent-but-unacknowledged data segments, for retransmission (RFC 9293 §3.8.1).
     retx: RetxQueue,
+    /// Time (ms) we entered TIME_WAIT, so `on_tick` can expire it after 2·MSL.
+    time_wait_ms: u64,
 }
 
 impl Connection {
@@ -162,6 +172,7 @@ impl Connection {
             local: (ip_dst, th.dst_port),
             remote: (ip_src, th.src_port),
             retx: RetxQueue::default(),
+            time_wait_ms: 0,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -195,10 +206,24 @@ impl Connection {
             local,
             remote,
             retx: RetxQueue::default(),
+            time_wait_ms: 0,
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
         (conn, syn)
+    }
+
+    /// Active close: send our FIN (valid only from ESTABLISHED) and enter FIN_WAIT_1. A real
+    /// application calls this; the server binary closes passively, so it's exercised by tests.
+    #[allow(dead_code)]
+    pub fn close(&mut self) -> Option<Vec<u8>> {
+        if self.state != State::Established {
+            return None;
+        }
+        let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
+        self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes a sequence number
+        self.state = State::FinWait1;
+        Some(out)
     }
 
     /// Handle a packet on an existing connection. Convenience wrapper (timestamps with 0) for
@@ -285,13 +310,61 @@ impl Connection {
             return None;
         }
 
+        // ── Active-close states (we initiated the close via `close()`) ──
+        if self.state == State::FinWait1 {
+            let acked_our_fin = th.flags & ACK != 0 && th.ack == self.send.nxt;
+            // The peer also sent its FIN (in order) — acknowledge it.
+            if th.flags & FIN != 0 && th.seq == self.recv.nxt {
+                self.recv.nxt = self.recv.nxt.wrapping_add(1);
+                let out = self.segment(self.send.nxt, self.recv.nxt, ACK, &[]);
+                if acked_our_fin {
+                    self.state = State::TimeWait; // our FIN acked AND theirs received
+                    self.time_wait_ms = now_ms;
+                } else {
+                    self.state = State::Closing; // simultaneous close: still need our FIN's ACK
+                }
+                return Some(out);
+            }
+            if acked_our_fin {
+                self.state = State::FinWait2;
+            }
+            return None;
+        }
+
+        if self.state == State::FinWait2 {
+            // Await the peer's FIN; acknowledge it and enter TIME_WAIT.
+            if th.flags & FIN != 0 && th.seq == self.recv.nxt {
+                self.recv.nxt = self.recv.nxt.wrapping_add(1);
+                let out = self.segment(self.send.nxt, self.recv.nxt, ACK, &[]);
+                self.state = State::TimeWait;
+                self.time_wait_ms = now_ms;
+                return Some(out);
+            }
+            return None;
+        }
+
+        if self.state == State::Closing {
+            // Simultaneous close: we've ACKed their FIN; now wait for the ACK of ours.
+            if th.flags & ACK != 0 && th.ack == self.send.nxt {
+                self.state = State::TimeWait;
+                self.time_wait_ms = now_ms;
+            }
+            return None;
+        }
+
         None
     }
 
     /// Time-driven step: return any sent-but-unacknowledged segments whose RTO has elapsed, for
     /// the caller (the event loop) to re-send. Resets each segment's timer.
-    #[allow(dead_code)] // wired into the event loop next step; exercised by tests now
     pub fn on_tick(&mut self, now_ms: u64, rto_ms: u64) -> Vec<Vec<u8>> {
+        // Expire TIME_WAIT after 2·MSL so the connection can finally be reaped (RFC 9293).
+        const TIME_WAIT_MS: u64 = 2 * 120_000; // 2·MSL, with MSL = 2 minutes
+        if self.state == State::TimeWait
+            && now_ms.saturating_sub(self.time_wait_ms) >= TIME_WAIT_MS
+        {
+            self.state = State::Closed;
+        }
         self.retx.due(now_ms, rto_ms)
     }
 
@@ -569,6 +642,51 @@ mod tests {
         assert_eq!(eth.ack, 103); // acknowledges the 2 bytes we received
         assert_eq!(&echo[20 + eth.data_offset..], b"hi"); // echoed payload
         assert_eq!(tcp_checksum(ME, PEER, &echo[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn active_close_to_timewait_then_closed() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+
+        // We actively close → our FIN, FIN_WAIT_1.
+        let fin = conn.close().expect("our FIN");
+        assert_eq!(conn.state(), State::FinWait1);
+        let finh = parse(&fin[20..]).unwrap();
+        assert_eq!(finh.flags, FIN | ACK);
+        assert_eq!(finh.seq, 1); // SND.NXT before its +1
+        assert_eq!(tcp_checksum(ME, PEER, &fin[20..]), 0);
+
+        // Peer ACKs our FIN (SND.NXT is now 2) → FIN_WAIT_2.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&ack, &[], 0).is_none());
+        assert_eq!(conn.state(), State::FinWait2);
+
+        // Peer sends its FIN → we ACK it and enter TIME_WAIT.
+        let peer_fin = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: FIN | ACK, window: 0xffff,
+        };
+        let our_ack = conn.on_packet_at(&peer_fin, &[], 1000).expect("ACK of their FIN");
+        assert_eq!(conn.state(), State::TimeWait);
+        let ah = parse(&our_ack[20..]).unwrap();
+        assert_eq!(ah.flags, ACK);
+        assert_eq!(ah.ack, 102); // their FIN at seq 101, +1
+
+        // TIME_WAIT expires after 2·MSL → CLOSED.
+        conn.on_tick(1000, 200); // before timeout: still TIME_WAIT
+        assert_eq!(conn.state(), State::TimeWait);
+        conn.on_tick(1000 + 240_000, 200); // after 2·MSL
+        assert_eq!(conn.state(), State::Closed);
     }
 
     #[test]
