@@ -17,6 +17,7 @@
 
 mod icmp; // ICMP: parse + echo reply
 mod ip; // IPv4: parse + header checksum + (used by tcp) checksum writer
+mod rtt; // RTT estimation + adaptive RTO (RFC 6298)
 mod seq; // 32-bit wrapping sequence-number arithmetic (used by tcp)
 mod tcp; // TCP: parse + connection state machine (handshake)
 mod udp; // UDP: parse + pseudo-header checksum (stateless)
