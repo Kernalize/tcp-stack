@@ -32,6 +32,9 @@ pub struct Quad {
 /// The subset of the TCP state machine we implement so far.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
+    /// Active open: we sent a SYN and await the peer's SYN-ACK.
+    SynSent,
+    /// Passive open: we received a SYN and sent a SYN-ACK; await the peer's ACK.
     SynRcvd,
     Established,
     /// We've sent our FIN and await the peer's final ACK (passive close).
@@ -157,8 +160,48 @@ impl Connection {
         Some((conn, synack))
     }
 
+    /// Active open: initiate a connection from `local` to `remote`. Returns the TCB (in
+    /// SYN_SENT) and the SYN packet to send. Randomized ISN (RFC 6528).
+    pub fn connect(local: (Ipv4Addr, u16), remote: (Ipv4Addr, u16)) -> (Connection, Vec<u8>) {
+        Self::connect_with_iss(local, remote, rand::random::<u32>())
+    }
+
+    /// Active open with a caller-chosen ISS (deterministic, for tests).
+    pub fn connect_with_iss(
+        local: (Ipv4Addr, u16),
+        remote: (Ipv4Addr, u16),
+        iss: u32,
+    ) -> (Connection, Vec<u8>) {
+        let wnd = 1024;
+        let conn = Connection {
+            state: State::SynSent,
+            send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd },
+            // The peer's sequence space is unknown until its SYN-ACK arrives.
+            recv: RecvSequence { irs: 0, nxt: 0, wnd },
+            local,
+            remote,
+        };
+        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
+        let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
+        (conn, syn)
+    }
+
     /// Handle a packet on an existing connection. Returns bytes to send back, if any.
     pub fn on_packet(&mut self, th: &TcpHeader, payload: &[u8]) -> Option<Vec<u8>> {
+        // Active open: we sent a SYN and are waiting for the peer's SYN-ACK.
+        if self.state == State::SynSent {
+            // Accept the SYN-ACK only if it acknowledges our SYN (ack == SND.NXT).
+            if th.flags & (SYN | ACK) == (SYN | ACK) && th.ack == self.send.nxt {
+                self.recv.irs = th.seq;
+                self.recv.nxt = th.seq.wrapping_add(1);
+                self.send.una = th.ack;
+                self.state = State::Established;
+                // Complete the handshake with the final ACK.
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+            }
+            return None; // not the SYN-ACK we expect → ignore
+        }
+
         // Complete the handshake if we're still waiting for the client's ACK. (That ACK may
         // also piggyback data, so we fall through to data handling afterwards.)
         if self.state == State::SynRcvd {
@@ -488,5 +531,36 @@ mod tests {
         assert_eq!(t.src_port, 80);
         assert_eq!(t.dst_port, 0x1234);
         assert_eq!(tcp_checksum(ME, PEER, &rst[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn active_open_completes() {
+        // We initiate: connect from ME:50000 to PEER:80, ISS 0.
+        let (mut conn, syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0);
+        assert_eq!(conn.state(), State::SynSent);
+
+        // The SYN we emit: flags SYN, seq 0, from us to the peer, valid checksums.
+        let synh = parse(&syn[20..]).unwrap();
+        assert_eq!(synh.flags, SYN);
+        assert_eq!(synh.seq, 0);
+        assert_eq!(synh.src_port, 50000);
+        assert_eq!(synh.dst_port, 80);
+        assert_eq!(utils::checksum(&syn[..20]), 0);
+        assert_eq!(tcp_checksum(ME, PEER, &syn[20..]), 0);
+
+        // The peer answers SYN-ACK: its seq 900, ack 1 (acks our ISS+1).
+        let synack = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 900, ack: 1,
+            data_offset: 20, flags: SYN | ACK, window: 0xffff,
+        };
+        let out = conn.on_packet(&synack, &[]).expect("the final ACK");
+        assert_eq!(conn.state(), State::Established);
+
+        // The ACK we send: seq = our SND.NXT (1), ack = peer seq + 1 (901), flags ACK.
+        let ackh = parse(&out[20..]).unwrap();
+        assert_eq!(ackh.flags, ACK);
+        assert_eq!(ackh.seq, 1);
+        assert_eq!(ackh.ack, 901);
+        assert_eq!(tcp_checksum(ME, PEER, &out[20..]), 0, "TCP checksum invalid");
     }
 }
