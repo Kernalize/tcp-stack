@@ -3,7 +3,7 @@
 > **Build a complete TCP/IP network stack in Rust — no kernel modules, no magic, just bytes, RFCs, and your brain.**  
 > 12 weeks · 1–2 hours/day · Production-grade understanding of how the internet works.
 
-[![Build](https://img.shields.io/github/actions/workflow/status/yourname/tcp-stack/ci.yml?label=CI&style=flat-square)](https://github.com/yourname/tcp-stack/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/Mannava-Daasaradhi/tcp-stack/ci.yml?label=CI&style=flat-square)](https://github.com/Mannava-Daasaradhi/tcp-stack/actions)
 [![Packetdrill](https://img.shields.io/badge/packetdrill-10%2F10%20passing-brightgreen?style=flat-square)](tests/packetdrill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.78%2B-orange?style=flat-square)](https://rustup.rs)
@@ -197,7 +197,7 @@ cd packetdrill/gtests/net/packetdrill && ./configure && make && sudo make instal
 
 ```bash
 # 1. Clone
-git clone https://github.com/yourname/tcp-stack
+git clone https://github.com/Mannava-Daasaradhi/tcp-stack
 cd tcp-stack
 
 # 2. Build
@@ -1245,7 +1245,7 @@ Contributions welcome! This is a learning project, so the bar for contribution i
 
 **To contribute:**
 ```bash
-git clone https://github.com/yourname/tcp-stack
+git clone https://github.com/Mannava-Daasaradhi/tcp-stack
 cd tcp-stack
 cargo test
 cargo clippy -- -D warnings
@@ -2934,7 +2934,7 @@ docker run --cap-add=NET_ADMIN --device=/dev/net/tun:/dev/net/tun \
     -it rust:latest bash
 
 # Inside the container:
-git clone https://github.com/yourname/tcp-stack
+git clone https://github.com/Mannava-Daasaradhi/tcp-stack
 cd tcp-stack && cargo build --release
 ./target/release/tcp-stack
 ```
@@ -3436,7 +3436,7 @@ If you get stuck on any week of the curriculum, these are the best places to fin
 | **CS144 Piazza (public)** | Questions about the TCP labs that share this project's goals | Archived at cs144.github.io |
 | **Networking StackExchange** | Protocol-level questions ("why does RFC 793 say X?") | [networkengineering.stackexchange.com](https://networkengineering.stackexchange.com) |
 | **Jon Gjengset's Discord** | Questions about his TCP-in-Rust stream (most directly relevant) | Linked in his YouTube channel |
-| **This repo's Discussions tab** | Questions specific to this codebase | github.com/yourname/tcp-stack/discussions |
+| **This repo's Discussions tab** | Questions specific to this codebase | github.com/Mannava-Daasaradhi/tcp-stack/discussions |
 
 ### Conference Talks Worth Watching
 

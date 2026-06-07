@@ -1,0 +1,10 @@
+# Build artifacts go to a WSL-native path, NOT the default ./target (which lives on /mnt/c).
+# Why this exists:
+#   1. `setcap cap_net_admin=eip` CANNOT set Linux file capabilities on the DrvFs (/mnt/c)
+#      filesystem — it has no Linux extended attributes. The binary must live on native ext4.
+#   2. Building on the 9p-backed /mnt/c mount is several times slower than native fs.
+# Effect: plain `cargo build` / `cargo test` inside WSL "just work", and the binary lands at
+#   /home/daasa/.tcp-stack-target/debug/tcp-stack
+# (machine-specific absolute path; this project only ever builds inside this WSL instance.)
+[build]
+target-dir = "/home/daasa/.tcp-stack-target"
