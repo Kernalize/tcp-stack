@@ -424,6 +424,7 @@ impl Connection {
             // one segment and re-enter slow start (RFC 5681 §3.1).
             let flight = self.flight_size();
             self.cong.on_timeout(flight);
+            self.rtt.back_off(); // double the RTO per timeout (RFC 6298 §5.5 / Karn's backoff)
         }
         due
     }
@@ -1056,14 +1057,15 @@ mod tests {
         let resent = conn.on_tick(250); // after the 200 ms RTO: the echo is resent
         assert_eq!(resent, vec![echo]);
 
-        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears. Because the
-        // segment was retransmitted, Karn's algorithm suppresses the sample: the RTO stays 200.
+        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears. The segment
+        // was retransmitted, so Karn suppresses the RTT sample and the backed-off RTO holds — the
+        // one timeout doubled it 200 → 400.
         let ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 103, ack: 3,
             data_offset: 20, flags: ACK, window: 0xffff,
         };
         conn.on_packet_at(&ack, &[], 300);
-        assert_eq!(conn.rto(), 200);
+        assert_eq!(conn.rto(), 400);
         assert!(conn.on_tick(600).is_empty());
     }
 

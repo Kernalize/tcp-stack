@@ -23,12 +23,14 @@ const MAX_RTO_MS: u64 = 60_000;
 pub struct RttEstimator {
     srtt_ms: Option<u64>, // smoothed RTT; None until the first sample
     rttvar_ms: u64,       // RTT variation
+    backoff_shift: u32,   // RTO doubles per timeout (Karn's backoff); reset by a fresh sample
 }
 
 impl RttEstimator {
     /// Feed one RTT measurement (ms), e.g. now − the acked segment's send time. Don't sample a
     /// retransmitted segment (Karn's algorithm) — the caller skips those.
     pub fn sample(&mut self, rtt_ms: u64) {
+        self.backoff_shift = 0; // a real round-trip measurement means the path responds — undo backoff
         match self.srtt_ms {
             None => {
                 // First measurement (RFC 6298 §2.2): SRTT = R, RTTVAR = R/2.
@@ -44,12 +46,20 @@ impl RttEstimator {
         }
     }
 
-    /// The current retransmission timeout (ms), clamped to a sane range.
+    /// The current retransmission timeout (ms): the smoothed estimate, doubled once per
+    /// consecutive timeout (`backoff_shift`) and clamped to a sane range.
     pub fn rto(&self) -> u64 {
-        match self.srtt_ms {
+        let base = match self.srtt_ms {
             None => MIN_RTO_MS, // no sample yet → conservative default
             Some(srtt) => (srtt + (K * self.rttvar_ms).max(G_MS)).clamp(MIN_RTO_MS, MAX_RTO_MS),
-        }
+        };
+        (base << self.backoff_shift).min(MAX_RTO_MS)
+    }
+
+    /// A retransmission timer fired: back off (double) the RTO, capped at ×64 (RFC 6298 §5.5).
+    /// The backed-off timeout holds until a fresh, non-retransmitted RTT sample clears it (Karn).
+    pub fn back_off(&mut self) {
+        self.backoff_shift = (self.backoff_shift + 1).min(6);
     }
 }
 
@@ -89,5 +99,17 @@ mod tests {
         let mut e = RttEstimator::default();
         e.sample(100_000); // huge → RTO would exceed 60s → clamped to MAX_RTO
         assert_eq!(e.rto(), MAX_RTO_MS);
+    }
+
+    #[test]
+    fn backoff_doubles_rto_until_a_sample_resets_it() {
+        let mut e = RttEstimator::default();
+        assert_eq!(e.rto(), 200); // base default
+        e.back_off();
+        assert_eq!(e.rto(), 400); // ×2
+        e.back_off();
+        assert_eq!(e.rto(), 800); // ×4
+        e.sample(100); // a real measurement clears backoff: SRTT=100, RTTVAR=50 → 100+4·50 = 300
+        assert_eq!(e.rto(), 300);
     }
 }

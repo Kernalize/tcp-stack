@@ -314,8 +314,9 @@ From a blank file, reconstruct:
 **Exercises:**
 - **E1.** Cap `retries`: after N (say 5) resends of the same segment, give up and `RST` the
   connection. Today an unanswered segment retransmits forever.
-- **E2.** Implement the second half of Karn: double the RTO on each retransmit (exponential
-  backoff) and hold the backed-off value until the next clean sample resets it.
+- **E2.** ✅ *Done* (`RttEstimator::back_off`, Day 10's follow-up): the RTO doubles on each
+  retransmit (capped ×64) and the backed-off value holds until a fresh, non-retransmitted RTT
+  sample clears it — the second half of Karn's algorithm (RFC 6298 §5.5).
 - **E3.** Retransmit the **SYN-ACK** and **FIN** too (not just data) — they consume sequence
   space and can be lost. Queue them in `accept`/`close` and watch the handshake survive loss.
 - **E4.** Replace the 5 ms sleep with a real `poll()` whose timeout is the nearest segment's
