@@ -146,6 +146,10 @@ pub struct Connection {
     send_buf: VecDeque<u8>,
     /// Reassembled, in-order bytes delivered to the application, awaiting `take_received()`.
     recv_buf: Vec<u8>,
+    /// Nagle's algorithm (RFC 896 / RFC 9293 §3.7.4): when `true`, a small (sub-MSS) segment is
+    /// held while earlier data is still unacknowledged, to coalesce tiny writes. `TCP_NODELAY`
+    /// clears it for latency-sensitive traffic. Default on.
+    nagle: bool,
 }
 
 impl Connection {
@@ -214,6 +218,7 @@ impl Connection {
             cong: CongestionControl::default(),
             send_buf: VecDeque::new(),
             recv_buf: Vec::new(),
+            nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -260,6 +265,7 @@ impl Connection {
             cong: CongestionControl::default(),
             send_buf: VecDeque::new(),
             recv_buf: Vec::new(),
+            nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -493,11 +499,26 @@ impl Connection {
         self.send_buf.extend(data.iter().copied());
     }
 
+    /// Set `TCP_NODELAY` (RFC 9293 §3.7.4): `true` disables Nagle's algorithm so even a tiny write
+    /// is sent at once — the right choice for interactive/latency-sensitive traffic (ssh, games).
+    /// The server binary leaves Nagle on; this is exercised by tests.
+    #[allow(dead_code)]
+    pub fn set_nodelay(&mut self, nodelay: bool) {
+        self.nagle = !nodelay;
+    }
+
     /// Drain the send buffer into wire segments, bounded by the **usable window**
     /// (`min(SND.WND, cwnd) − FlightSize`) and chopped to the MSS. Each segment advances SND.NXT
     /// and is recorded for retransmission. Returns the segments to send (possibly empty when the
     /// window is full — exactly how slow start throttles a bulk sender, RFC 5681). Valid only once
     /// ESTABLISHED.
+    ///
+    /// **Nagle's algorithm** (RFC 896 / RFC 9293 §3.7.4): while earlier data is still
+    /// unacknowledged (`FlightSize > 0`), a *small* (sub-MSS) tail is held rather than dribbled out
+    /// as a runt packet — it waits until that data is acked or a full segment accumulates. This
+    /// trades a little latency for far fewer 41-byte packets on chatty connections; `TCP_NODELAY`
+    /// (`!self.nagle`) opts out. A full-sized segment, and the first segment when nothing is in
+    /// flight, are never held.
     pub fn poll_transmit(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         if self.state != State::Established {
@@ -508,6 +529,11 @@ impl Connection {
             let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
             if n == 0 {
                 break; // window full — wait for an ACK to slide it open
+            }
+            // Nagle: hold a sub-MSS segment while unacked data is outstanding, unless TCP_NODELAY.
+            // (A full segment, or any segment when nothing is in flight, passes through.)
+            if self.nagle && n < mss && self.flight_size() > 0 {
+                break;
             }
             let payload: Vec<u8> = self.send_buf.drain(..n).collect();
             let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
@@ -1307,5 +1333,89 @@ mod tests {
         conn.on_packet_at(&ack, &[], 300);
         assert_eq!(conn.state(), State::FinWait2);
         assert!(conn.on_tick(1000).is_empty(), "FIN must not be resent after it is acked");
+    }
+
+    // ── Day 13: Nagle's algorithm + TCP_NODELAY ──
+
+    /// Helper: establish a connection (ISS 0, peer window 0xffff) ready for sending.
+    fn established_conn() -> Connection {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+        conn
+    }
+
+    fn payload_of(pkt: &[u8]) -> Vec<u8> {
+        let h = parse(&pkt[20..]).unwrap();
+        pkt[20 + h.data_offset..].to_vec()
+    }
+
+    #[test]
+    fn nagle_holds_small_write_until_prior_data_acked() {
+        let mut conn = established_conn();
+
+        // First small write: nothing in flight → sent immediately.
+        conn.write(b"hello");
+        let first = conn.poll_transmit(0);
+        assert_eq!(first.len(), 1);
+        assert_eq!(payload_of(&first[0]), b"hello");
+
+        // Second small write while "hello" is still unacknowledged → Nagle holds it.
+        conn.write(b"abc");
+        assert!(conn.poll_transmit(0).is_empty(), "Nagle must hold the sub-MSS write");
+
+        // Peer ACKs "hello" (seq 1..6 → ack 6): nothing in flight → the held bytes flush.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 6,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0);
+        let flushed = conn.poll_transmit(0);
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(payload_of(&flushed[0]), b"abc");
+    }
+
+    #[test]
+    fn nodelay_sends_small_write_immediately() {
+        let mut conn = established_conn();
+        conn.set_nodelay(true); // disable Nagle
+
+        conn.write(b"hello");
+        assert_eq!(conn.poll_transmit(0).len(), 1);
+
+        // With TCP_NODELAY, the second small write goes out at once despite data in flight.
+        conn.write(b"abc");
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(payload_of(&segs[0]), b"abc");
+    }
+
+    #[test]
+    fn nagle_never_holds_a_full_segment() {
+        use crate::congestion::MSS;
+        let mut conn = established_conn();
+
+        // Grow cwnd to 2·MSS: send one full segment and have it acknowledged.
+        conn.write(&vec![b'x'; MSS as usize]);
+        assert_eq!(conn.poll_transmit(0).len(), 1);
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0);
+
+        // Now send 2·MSS: BOTH full segments go out, even though the second leaves while the first
+        // is in flight — Nagle only ever holds a *sub-MSS* tail.
+        conn.write(&vec![b'y'; 2 * MSS as usize]);
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 2);
+        for s in &segs {
+            assert_eq!(payload_of(s).len(), MSS as usize);
+        }
     }
 }
