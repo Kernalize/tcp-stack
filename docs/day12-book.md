@@ -43,7 +43,7 @@ acknowledged, it can also be **lost and resent** — the sender just keeps a cop
 covers it. That is the entire idea of Day 12: the retransmission queue from Day 6 already does this
 for data; we simply put the SYN, SYN-ACK, and FIN into the same queue.
 
-```
+```text
         consumes a seq number?     can be ACKed?     must be retransmittable?
   SYN          yes                     yes                  yes   ← new today
   FIN          yes                     yes                  yes   ← new today
@@ -57,7 +57,7 @@ for data; we simply put the SYN, SYN-ACK, and FIN into the same queue.
 Walk the passive open. A client SYN arrives; we create the TCB in `SYN_RCVD` and send a SYN-ACK.
 Now picture the SYN-ACK being dropped by the network:
 
-```
+```text
   client                         us (SYN_RCVD)
     | --- SYN seq=100 ---------->  |   create TCB, send SYN-ACK
     |        (SYN-ACK seq=0 ack=101 is LOST)
@@ -105,7 +105,7 @@ the control segments **in** the queue and taking them **out** at the right trans
 The single most error-prone part is getting `end_seq` right, because SYN and FIN each consume one
 number. Track `SND.NXT` through a passive open + passive close, ISS = 0:
 
-```
+```text
   event                         SND.NXT   record end_seq   note
   ------------------------------------------------------------------------
   accept(): build SYN-ACK         0        —              SYN-ACK carries seq=ISS=0
@@ -186,7 +186,7 @@ behind `cfg(test)`.
 
 ISS = 0, client SYN at seq 100, default RTO 200 ms (no RTT sample yet).
 
-```
+```text
   t=0     client SYN seq=100  →  accept(): TCB in SYN_RCVD; send SYN-ACK seq=0 ack=101;
                                   record(end_seq=1, sent_at=0)
           (the SYN-ACK is dropped by the network)
