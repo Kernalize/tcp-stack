@@ -9,6 +9,7 @@
 //! This step also adds the first real *header builder* (`build_packet`) and the TCP
 //! checksum, which uniquely covers a "pseudo-header" of IP fields as well as the segment.
 
+use std::collections::VecDeque;
 use std::net::Ipv4Addr;
 
 use crate::{congestion::CongestionControl, ip, reassembly::Reassembler, rtt::RttEstimator, seq, utils};
@@ -140,6 +141,9 @@ pub struct Connection {
     /// Congestion control (RFC 5681): a network-imposed send limit (`cwnd`) alongside the
     /// receiver's `SND.WND`. Grows on good ACKs, collapses on loss; gates `usable_window()`.
     cong: CongestionControl,
+    /// Application bytes queued for transmission but not yet put on the wire. `poll_transmit`
+    /// drains it into segments as the window allows; once sent, bytes live in `retx` until acked.
+    send_buf: VecDeque<u8>,
 }
 
 impl Connection {
@@ -186,6 +190,7 @@ impl Connection {
             // First data byte will be at IRS + 1 (the SYN consumed IRS).
             reasm: Reassembler::new(th.seq.wrapping_add(1)),
             cong: CongestionControl::default(),
+            send_buf: VecDeque::new(),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -224,6 +229,7 @@ impl Connection {
             // Placeholder base; rebased once the peer's ISN arrives in the SYN-ACK.
             reasm: Reassembler::new(0),
             cong: CongestionControl::default(),
+            send_buf: VecDeque::new(),
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -439,6 +445,39 @@ impl Connection {
     pub fn usable_window(&self) -> u32 {
         let limit = (self.send.wnd as u32).min(self.cong.window());
         limit.saturating_sub(self.flight_size())
+    }
+
+    /// Application send: queue `data` for transmission. The bytes go out on the next
+    /// `poll_transmit`, as fast as the send window allows. (Wired into a socket-style API next.)
+    #[allow(dead_code)]
+    pub fn write(&mut self, data: &[u8]) {
+        self.send_buf.extend(data.iter().copied());
+    }
+
+    /// Drain the send buffer into wire segments, bounded by the **usable window**
+    /// (`min(SND.WND, cwnd) − FlightSize`) and chopped to the MSS. Each segment advances SND.NXT
+    /// and is recorded for retransmission. Returns the segments to send (possibly empty when the
+    /// window is full — exactly how slow start throttles a bulk sender, RFC 5681). Valid only once
+    /// ESTABLISHED.
+    #[allow(dead_code)]
+    pub fn poll_transmit(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        if self.state != State::Established {
+            return out;
+        }
+        let mss = crate::congestion::MSS as usize;
+        while !self.send_buf.is_empty() {
+            let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
+            if n == 0 {
+                break; // window full — wait for an ACK to slide it open
+            }
+            let payload: Vec<u8> = self.send_buf.drain(..n).collect();
+            let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
+            self.send.nxt = self.send.nxt.wrapping_add(n as u32);
+            self.retx.record(self.send.nxt, seg.clone(), now_ms);
+            out.push(seg);
+        }
+        out
     }
 
     #[cfg(test)]
@@ -958,6 +997,37 @@ mod tests {
         assert!(conn.on_packet_at(&dup, &[], 2).is_none()); // 2nd dup
         let resent = conn.on_packet_at(&dup, &[], 3).expect("fast retransmit"); // 3rd dup
         assert_eq!(resent, echo);
+    }
+
+    #[test]
+    fn bulk_send_is_gated_by_the_congestion_window() {
+        use crate::congestion::MSS;
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // Queue 5000 bytes. cwnd starts at 1 MSS, so only ONE full-MSS segment leaves now.
+        conn.write(&vec![b'x'; 5000]);
+        let first = conn.poll_transmit(0);
+        assert_eq!(first.len(), 1);
+        let fh = parse(&first[0][20..]).unwrap();
+        assert_eq!(first[0].len() - 20 - fh.data_offset, MSS as usize); // 1460-byte payload
+        assert_eq!(fh.seq, 1);
+
+        // Until it's acked the window is full — nothing more goes out.
+        assert!(conn.poll_transmit(0).is_empty());
+
+        // Peer ACKs the 1460 bytes → slow start grows cwnd to 2 MSS, so two segments now fit.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0);
+        assert_eq!(conn.poll_transmit(0).len(), 2);
     }
 
     #[test]
