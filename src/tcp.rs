@@ -26,6 +26,7 @@ pub const URG: u8 = 0x20;
 const OPT_END: u8 = 0; // End of Option List (single byte)
 const OPT_NOP: u8 = 1; // No-Operation, used for alignment padding (single byte)
 const OPT_MSS: u8 = 2; // Maximum Segment Size (len 4), valid only on SYN segments
+const OPT_TS: u8 = 8; //  Timestamps (len 10): TSval + TSecr (RFC 7323 §3)
 
 /// The Maximum Segment Size we advertise — how big a segment WE are willing to *receive*. 1460 =
 /// 1500-byte interface MTU − 20 IP − 20 TCP (RFC 9293 §3.7.1). The peer's advertised MSS bounds how
@@ -38,11 +39,12 @@ pub const OUR_MSS: u16 = crate::congestion::MSS as u16;
 /// test SYNs still segment at full size. (Documented deviation; see docs/day15-book.md.)
 const DEFAULT_SEND_MSS: u16 = OUR_MSS;
 
-/// Parsed TCP options. Extended over the coming days (timestamps, window scale, SACK); for now it
-/// carries the peer's advertised MSS, present only on SYN segments.
+/// Parsed TCP options. Extended over the coming days (window scale, SACK); carries the peer's
+/// advertised MSS (SYN only) and, when present, the Timestamps option `(TSval, TSecr)` (RFC 7323).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct TcpOptions {
     pub mss: Option<u16>,
+    pub timestamps: Option<(u32, u32)>,
 }
 
 /// Parse the TCP options area — the bytes between the 20-byte fixed header and the data
@@ -68,6 +70,11 @@ pub fn parse_options(opts: &[u8]) -> TcpOptions {
                 let data = &opts[i + 2..i + len];
                 if kind == OPT_MSS && data.len() == 2 {
                     out.mss = Some(u16::from_be_bytes([data[0], data[1]]));
+                } else if kind == OPT_TS && data.len() == 8 {
+                    // Timestamps: TSval (the sender's clock) then TSecr (the value it is echoing).
+                    let tsval = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+                    let tsecr = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
+                    out.timestamps = Some((tsval, tsecr));
                 }
                 i += len;
             }
@@ -81,6 +88,19 @@ pub fn parse_options(opts: &[u8]) -> TcpOptions {
 fn mss_option(mss: u16) -> [u8; 4] {
     let v = mss.to_be_bytes();
     [OPT_MSS, 4, v[0], v[1]]
+}
+
+/// The Timestamps option blob (RFC 7323 §3), padded to 12 bytes (a 4-byte boundary) with two
+/// leading NOPs — the canonical layout `[NOP, NOP, kind=8, len=10, TSval(4), TSecr(4)]`. TSval is
+/// our current clock; TSecr echoes the most recent TSval we received from the peer.
+fn ts_option(tsval: u32, tsecr: u32) -> [u8; 12] {
+    let val = tsval.to_be_bytes();
+    let ecr = tsecr.to_be_bytes();
+    [
+        OPT_NOP, OPT_NOP, OPT_TS, 10,
+        val[0], val[1], val[2], val[3],
+        ecr[0], ecr[1], ecr[2], ecr[3],
+    ]
 }
 
 /// A connection is identified by both endpoints. `remote` is the packet's source (the
@@ -218,6 +238,15 @@ pub struct Connection {
     /// Effective send MSS (Day 15): the largest payload we put in one segment, = min(OUR_MSS, the
     /// peer's advertised MSS). Learned from the peer's SYN (RFC 9293 §3.7.1); bounds `poll_transmit`.
     send_mss: u16,
+    /// Timestamps negotiated (RFC 7323 §3): true only when BOTH SYNs offered the option. When set,
+    /// every segment we send carries a Timestamps option, and we use it for RTT + PAWS.
+    ts_enabled: bool,
+    /// `TS.Recent` — the most recent TSval received from the peer; echoed as TSecr in what we send,
+    /// and the PAWS reference for rejecting old wrapped duplicates (RFC 7323 §4).
+    ts_recent: u32,
+    /// Our timestamp clock (ms), refreshed from `now_ms` at every time-aware entry point and written
+    /// as TSval. The peer echoes it back as TSecr, letting us measure RTT on every ACK.
+    ts_val: u32,
 }
 
 impl Connection {
@@ -293,11 +322,21 @@ impl Connection {
             // Day 15: the most we may send the peer per segment = min(our MSS, the MSS it advertised
             // in its SYN). If it advertised none, fall back to our own (see DEFAULT_SEND_MSS).
             send_mss: opts.mss.map_or(DEFAULT_SEND_MSS, |m| m.min(OUR_MSS)),
+            // Day 16: enable timestamps only if the peer's SYN offered them (RFC 7323 §3); seed
+            // TS.Recent with its TSval so our SYN-ACK can echo it.
+            ts_enabled: opts.timestamps.is_some(),
+            ts_recent: opts.timestamps.map_or(0, |(tsval, _)| tsval),
+            ts_val: now_ms as u32,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
-        // OUR MSS option — what we are willing to receive (Day 15, RFC 9293 §3.7.1).
-        let synack = conn.segment_opts(conn.send.iss, conn.recv.nxt, SYN | ACK, &mss_option(OUR_MSS), &[]);
+        // OUR MSS option (Day 15) and — only if the peer offered them — the Timestamps option,
+        // echoing the peer's SYN TSval (Day 16, RFC 7323).
+        let mut synack_opts = mss_option(OUR_MSS).to_vec();
+        if conn.ts_enabled {
+            synack_opts.extend_from_slice(&ts_option(conn.ts_val, conn.ts_recent));
+        }
+        let synack = conn.segment_opts(conn.send.iss, conn.recv.nxt, SYN | ACK, &synack_opts, &[]);
         // Day 12: the SYN-ACK consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it for
         // retransmission so a lost SYN-ACK is resent on RTO instead of hanging the handshake — the
         // peer's final ACK clears it (RFC 9293 §3.8.1).
@@ -344,9 +383,17 @@ impl Connection {
             persist_ms: 0, // persist timer disarmed until a zero window blocks pending data
             // Day 15: until the SYN-ACK reveals the peer's MSS, segment at our own (updated below).
             send_mss: DEFAULT_SEND_MSS,
+            // Day 16: we OFFER timestamps in our SYN; they're enabled only if the SYN-ACK also
+            // carries them (decided in on_segment's SYN_SENT branch).
+            ts_enabled: false,
+            ts_recent: 0,
+            ts_val: now_ms as u32,
         };
-        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option.
-        let syn = conn.segment_opts(conn.send.iss, 0, SYN, &mss_option(OUR_MSS), &[]);
+        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option and a
+        // Timestamps option offering RTTM/PAWS (TSecr = 0 — we have nothing to echo yet).
+        let mut syn_opts = mss_option(OUR_MSS).to_vec();
+        syn_opts.extend_from_slice(&ts_option(conn.ts_val, 0));
+        let syn = conn.segment_opts(conn.send.iss, 0, SYN, &syn_opts, &[]);
         // Day 12: the SYN consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it so a
         // lost SYN is resent on RTO; the peer's SYN-ACK clears it (RFC 9293 §3.8.1).
         conn.retx.record(conn.send.nxt, syn.clone(), now_ms);
@@ -360,6 +407,7 @@ impl Connection {
         if self.state != State::Established {
             return None;
         }
+        self.ts_val = now_ms as u32; // Day 16: stamp the FIN with the current clock
         let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
         self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes a sequence number
         // Day 12: queue the FIN (end = SND.NXT) so a lost FIN is resent until the peer ACKs it,
@@ -393,6 +441,8 @@ impl Connection {
         opts: &TcpOptions,
         now_ms: u64,
     ) -> Option<Vec<u8>> {
+        self.ts_val = now_ms as u32; // Day 16: refresh our timestamp clock for anything we send
+
         // Active open: we sent a SYN and are waiting for the peer's SYN-ACK.
         if self.state == State::SynSent {
             // Accept the SYN-ACK only if it acknowledges our SYN (ack == SND.NXT).
@@ -404,6 +454,12 @@ impl Connection {
                 // Day 15: learn the peer's MSS from its SYN-ACK; bound our send segments by it.
                 if let Some(mss) = opts.mss {
                     self.send_mss = mss.min(OUR_MSS);
+                }
+                // Day 16: timestamps are enabled iff the SYN-ACK also carries them (we offered in
+                // our SYN). Seed TS.Recent so our segments echo the peer's clock.
+                if let Some((tsval, _)) = opts.timestamps {
+                    self.ts_enabled = true;
+                    self.ts_recent = tsval;
                 }
                 // Day 12: the SYN-ACK acknowledges our SYN — drop it from the retx queue (no RTT
                 // sample: a handshake segment can be ambiguous and isn't fed to the estimator here).
@@ -429,6 +485,23 @@ impl Connection {
         }
 
         if self.state == State::Established {
+            // Day 16 — PAWS (Protect Against Wrapped Sequences, RFC 7323 §5): on a fast, long-lived
+            // connection the 32-bit sequence space can wrap, so an ancient duplicate could land in
+            // the current window. Its *timestamp*, however, is older than anything we've recently
+            // seen — so reject a segment whose TSval predates TS.Recent, acknowledging current state
+            // rather than acting on stale data. When the timestamp is fresh, advance TS.Recent from
+            // any segment at/under the left window edge (RFC 7323 §4.3) so we echo the peer's clock.
+            if self.ts_enabled {
+                if let Some((tsval, _)) = opts.timestamps {
+                    if seq::before(tsval, self.ts_recent) {
+                        return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+                    }
+                    if !seq::after(th.seq, self.recv.nxt) {
+                        self.ts_recent = tsval;
+                    }
+                }
+            }
+
             // Flow control: track the peer's advertised receive window so we never send more
             // unacknowledged data than it can hold (RFC 9293 §3.4). SND.WND was previously stuck
             // at our own init value and never updated — this is the fix. Keep the prior value so
@@ -447,7 +520,16 @@ impl Connection {
                     // window (slow start / congestion avoidance, RFC 5681).
                     let acked = th.ack.wrapping_sub(self.send.una);
                     self.send.una = th.ack;
-                    if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
+                    // RTT: with timestamps (Day 16) the echoed TSecr dates the acked data exactly, so
+                    // every ACK yields a clean sample — even for retransmitted data, since the echo
+                    // disambiguates which copy (no Karn restriction). Without timestamps, fall back to
+                    // timing the retx queue (Karn-limited to never-retransmitted segments).
+                    if self.ts_enabled {
+                        if let Some((_, tsecr)) = opts.timestamps {
+                            self.rtt.sample(self.ts_val.wrapping_sub(tsecr) as u64);
+                        }
+                        let _ = self.retx.ack(self.send.una, now_ms);
+                    } else if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
                         self.rtt.sample(rtt_ms);
                     }
                     self.cong.on_ack(acked);
@@ -566,6 +648,7 @@ impl Connection {
     /// connection's own *adaptive* estimate (RFC 6298) — short on a LAN, long on a slow path —
     /// not a fixed constant, so the caller no longer supplies one.
     pub fn on_tick(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
+        self.ts_val = now_ms as u32; // Day 16: refresh the timestamp clock for any probe we send
         // Expire TIME_WAIT after 2·MSL so the connection can finally be reaped (RFC 9293).
         const TIME_WAIT_MS: u64 = 2 * 120_000; // 2·MSL, with MSL = 2 minutes
         if self.state == State::TimeWait
@@ -653,6 +736,7 @@ impl Connection {
         if self.state != State::Established {
             return out;
         }
+        self.ts_val = now_ms as u32; // Day 16: stamp outgoing data with the current clock
         let mss = self.send_mss as usize; // Day 15: the negotiated send MSS, not a fixed constant
         while !self.send_buf.is_empty() {
             let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
@@ -694,9 +778,15 @@ impl Connection {
 
     /// Build a segment from THIS connection's perspective (src = us, dst = peer). The advertised
     /// window is *our* receive window (`RCV.WND`) — how much WE can accept — never `send.wnd`,
-    /// which is the peer's window and bounds only how much we may send.
+    /// which is the peer's window and bounds only how much we may send. When timestamps are
+    /// negotiated (Day 16) every such segment carries a Timestamps option (TSval = our clock,
+    /// TSecr = TS.Recent); SYN/SYN-ACK build their options explicitly via `segment_opts`.
     fn segment(&self, seq: u32, ack: u32, flags: u8, payload: &[u8]) -> Vec<u8> {
-        self.segment_opts(seq, ack, flags, &[], payload)
+        if self.ts_enabled {
+            self.segment_opts(seq, ack, flags, &ts_option(self.ts_val, self.ts_recent), payload)
+        } else {
+            self.segment_opts(seq, ack, flags, &[], payload)
+        }
     }
 
     /// `segment` with explicit TCP options (must be 4-byte aligned). Used by the SYN/SYN-ACK path to
@@ -1670,7 +1760,7 @@ mod tests {
     fn synack_advertises_our_mss_and_negotiates_send_mss() {
         let th = parse(&syn_segment()).unwrap();
         // The peer's SYN advertised a 600-byte MSS.
-        let opts = TcpOptions { mss: Some(600) };
+        let opts = TcpOptions { mss: Some(600), ..Default::default() };
         let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
 
         // We advertise OUR receive MSS in the SYN-ACK…
@@ -1694,7 +1784,7 @@ mod tests {
         // The peer advertised a small 500-byte MSS, so our segments are capped at 500 — not the
         // 1460 congestion MSS — even though cwnd (1·1460) would allow a bigger one.
         let th = parse(&syn_segment()).unwrap();
-        let opts = TcpOptions { mss: Some(500) };
+        let opts = TcpOptions { mss: Some(500), ..Default::default() };
         let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
         let hs_ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
@@ -1722,9 +1812,118 @@ mod tests {
             src_port: 80, dst_port: 50000, seq: 900, ack: 1,
             data_offset: 24, flags: SYN | ACK, window: 0xffff,
         };
-        let opts = TcpOptions { mss: Some(700) };
+        let opts = TcpOptions { mss: Some(700), ..Default::default() };
         conn.on_segment(&synack, &[], &opts, 0);
         assert_eq!(conn.state(), State::Established);
         assert_eq!(conn.send_mss, 700);
+    }
+
+    // ── Day 16: TCP timestamps + RTTM + PAWS ──
+
+    #[test]
+    fn parse_options_reads_timestamps() {
+        // NOP, NOP, TS(kind 8, len 10), TSval=0x01020304, TSecr=0x0a0b0c0d.
+        let bytes = [OPT_NOP, OPT_NOP, OPT_TS, 10, 1, 2, 3, 4, 0x0a, 0x0b, 0x0c, 0x0d];
+        assert_eq!(parse_options(&bytes).timestamps, Some((0x0102_0304, 0x0a0b_0c0d)));
+        // Wrong length (6, not 10) → not a valid timestamps option.
+        assert_eq!(parse_options(&[OPT_TS, 6, 1, 2, 3, 4]).timestamps, None);
+    }
+
+    #[test]
+    fn timestamps_negotiated_and_synack_echoes_peer() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { mss: Some(1460), timestamps: Some((5000, 0)) };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 100).unwrap();
+        assert!(conn.ts_enabled);
+
+        // The SYN-ACK carries both MSS and a Timestamps option: TSval = our clock (100), TSecr =
+        // the peer's SYN TSval (5000).
+        let h = parse(&synack[20..]).unwrap();
+        let emitted = parse_options(&synack[20 + 20..20 + h.data_offset]);
+        assert_eq!(emitted.mss, Some(OUR_MSS));
+        assert_eq!(emitted.timestamps, Some((100, 5000)));
+    }
+
+    #[test]
+    fn timestamps_disabled_when_peer_does_not_offer() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { mss: Some(1460), timestamps: None };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert!(!conn.ts_enabled);
+        let h = parse(&synack[20..]).unwrap();
+        assert_eq!(parse_options(&synack[20 + 20..20 + h.data_offset]).timestamps, None);
+    }
+
+    /// Establish a timestamps-enabled connection (peer SYN TSval = `peer_ts`), handshake at t=0.
+    fn established_ts_conn(peer_ts: u32) -> Connection {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { mss: Some(1460), timestamps: Some((peer_ts, 0)) };
+        let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let ack_opts = TcpOptions { mss: None, timestamps: Some((peer_ts, 0)) };
+        conn.on_segment(&hs_ack, &[], &ack_opts, 0);
+        assert_eq!(conn.state(), State::Established);
+        conn
+    }
+
+    #[test]
+    fn rttm_samples_rtt_from_echoed_timestamp() {
+        let mut conn = established_ts_conn(5000);
+
+        // We send "hi" at t=0 → its TSval is 0.
+        conn.write(b"hi");
+        conn.poll_transmit(0);
+
+        // The peer ACKs at t=120, echoing TSecr = 0 (our send time).
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 3,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let ack_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)) };
+        conn.on_segment(&ack, &[], &ack_opts, 120);
+
+        // Sample R = 120 − 0 = 120 → first sample → SRTT 120, RTTVAR 60 → RTO = 120 + 4·60 = 360.
+        assert_eq!(conn.rto(), 360);
+    }
+
+    #[test]
+    fn paws_rejects_an_old_timestamp_segment() {
+        let mut conn = established_ts_conn(5000);
+        // TS.Recent is 5000 after the handshake.
+
+        // An old duplicate: in-window seq, but a stale TSval (4000 < 5000). PAWS drops it — the data
+        // is NOT delivered and we re-ACK current state.
+        let old = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let old_opts = TcpOptions { mss: None, timestamps: Some((4000, 0)) };
+        let resp = conn.on_segment(&old, b"XX", &old_opts, 10).expect("a current ACK");
+        assert_eq!(parse(&resp[20..]).unwrap().ack, 101); // RCV.NXT unmoved
+        assert_eq!(conn.take_received(), b""); // nothing delivered
+
+        // The same data with a fresh timestamp IS accepted.
+        let fresh = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let fresh_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)) };
+        conn.on_segment(&fresh, b"hi", &fresh_opts, 20);
+        assert_eq!(conn.take_received(), b"hi");
+    }
+
+    #[test]
+    fn timestamped_connection_emits_timestamps_on_data() {
+        let mut conn = established_ts_conn(5000);
+        conn.write(b"hi");
+        let segs = conn.poll_transmit(7);
+        assert_eq!(segs.len(), 1);
+        // The data segment carries a Timestamps option: TSval = clock (7), TSecr = TS.Recent (5000).
+        let h = parse(&segs[0][20..]).unwrap();
+        let emitted = parse_options(&segs[0][20 + 20..20 + h.data_offset]);
+        assert_eq!(emitted.timestamps, Some((7, 5000)));
     }
 }
