@@ -6,9 +6,13 @@
 //!   Day 3 — TCP three-way handshake (SYN→SYN-ACK→ESTABLISHED)         (docs/day3-book.md)
 //!   Day 4 — TCP data transfer: accept + ACK + echo data back          (docs/day4-book.md)
 //!   Day 5 — TCP teardown: FIN handling → LAST_ACK → CLOSED            (docs/day5-book.md)
-//! Lifecycle (open→transfer→close) works & is unit-tested. Remaining hardening
-//! (retransmission/RTO, congestion control, flow control, RST) needs the move from
-//! blocking I/O to an event loop — see docs/day5-book.md §10.
+//!   Day 6 — reliability: non-blocking event loop + retransmission + adaptive RTO (docs/day6-book.md)
+//!   Day 7 — active close + TIME_WAIT (full RFC 9293 teardown, both sides)   (docs/day7-book.md)
+//!   Day 8 — flow control: track the peer's window + advertise our own       (docs/day8-book.md)
+//! Lifecycle (open→transfer→close) works, retransmits lost data, times out adaptively
+//! (RFC 6298), closes from either side, and honors the sliding window — all unit-tested.
+//! Remaining hardening (congestion control, out-of-order reassembly, a socket-style API) is
+//! the rest of Manual Phases 4–5; see docs/day8-book.md §11.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
@@ -57,7 +61,6 @@ fn main() -> std::io::Result<()> {
     // Non-blocking I/O so one thread can both read packets AND fire retransmission timers.
     iface.set_non_blocking()?;
     let clock = std::time::Instant::now();
-    const RTO_MS: u64 = 200; // fixed retransmission timeout (a real stack estimates RTT, RFC 6298)
 
     let mut buf = [0u8; 1504];
     let mut count: u64 = 0;
@@ -68,7 +71,7 @@ fn main() -> std::io::Result<()> {
         // Timers: resend any segment past its RTO, and reap connections whose TIME_WAIT expired.
         let mut closed = Vec::new();
         for (quad, conn) in connections.iter_mut() {
-            for pkt in conn.on_tick(now_ms, RTO_MS) {
+            for pkt in conn.on_tick(now_ms) {
                 iface.send(&pkt)?;
                 println!("         ↻ retransmit ({} bytes)", pkt.len());
             }
