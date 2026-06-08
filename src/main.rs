@@ -46,6 +46,27 @@ fn protocol_name(protocol: u8) -> &'static str {
     }
 }
 
+/// Minimal HTTP/1.0 responder: if the received bytes start with a request line, return a canned
+/// `200 OK`; otherwise `None` (the caller then echoes). A real server buffers until the blank
+/// line `\r\n\r\n`, but a simple `curl` GET arrives in a single segment over our local link, so
+/// responding on the request line is enough to satisfy the Manual's Week-10 milestone.
+fn http_response(received: &[u8]) -> Option<Vec<u8>> {
+    let is_http = received.starts_with(b"GET ")
+        || received.starts_with(b"HEAD ")
+        || received.starts_with(b"POST ");
+    if !is_http {
+        return None;
+    }
+    let body = b"Hello from a TCP/IP stack built from scratch in Rust!\n";
+    let mut resp = format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    resp.extend_from_slice(body);
+    Some(resp)
+}
+
 fn main() -> std::io::Result<()> {
     // without_packet_info: no 4-byte TUN PI header, so buf[0] is the IP version nibble. §3.
     let iface = Iface::without_packet_info("tun0", Mode::Tun)?;
@@ -54,8 +75,9 @@ fn main() -> std::io::Result<()> {
     println!("→ In another terminal:");
     println!("    sudo ip addr add 192.168.0.1/24 dev {}", iface.name());
     println!("    sudo ip link set {} up", iface.name());
-    println!("    ping 192.168.0.2        # ICMP echo reply (0% loss)");
-    println!("    nc 192.168.0.2 8080     # TCP handshake → ESTABLISHED");
+    println!("    ping 192.168.0.2            # ICMP echo reply (0% loss)");
+    println!("    nc 192.168.0.2 8080         # TCP echo: type a line, get it back");
+    println!("    curl http://192.168.0.2:8080/   # HTTP/1.0 200 OK, then clean close");
     println!("──────────────────────────────────────────────");
 
     // The connection table: one TCB per active 4-tuple. This is TCP's "memory".
@@ -173,15 +195,29 @@ fn main() -> std::io::Result<()> {
                                 iface.send(&out)?;
                             }
                             // Application layer: read whatever was delivered in order and respond.
-                            // The echo app writes the bytes straight back; `poll_transmit` then
-                            // puts the response on the wire as the send window (min(cwnd, rwnd))
-                            // allows — the same API a TcpStream would expose.
+                            // An HTTP request gets a canned 200 OK (then we close); anything else is
+                            // echoed. `poll_transmit` puts the response on the wire as the send
+                            // window (min(cwnd, rwnd)) allows — the same API a TcpStream exposes.
                             let received = conn.take_received();
+                            let mut serving_http = false;
                             if !received.is_empty() {
-                                conn.write(&received); // echo application
+                                if let Some(resp) = http_response(&received) {
+                                    conn.write(&resp);
+                                    serving_http = true;
+                                } else {
+                                    conn.write(&received); // echo application
+                                }
                             }
                             for seg in conn.poll_transmit(now_ms) {
                                 iface.send(&seg)?;
+                            }
+                            if serving_http {
+                                // HTTP/1.0 "Connection: close": actively close once the response is
+                                // on the wire (the FIN_WAIT teardown path from Day 7).
+                                if let Some(fin) = conn.close() {
+                                    iface.send(&fin)?;
+                                    println!("         → served HTTP/1.0 200 OK, closing (FIN)");
+                                }
                             }
                             let state = conn.state();
                             println!("         · state now {state:?}");
