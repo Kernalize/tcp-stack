@@ -12,10 +12,11 @@
 //!   Day 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/day9-book.md)
 //!   Day 10 — congestion control: slow start + AIMD + fast recovery (RFC 5681)(docs/day10-book.md)
 //!   Day 11 — socket-style read/write API + send buffer + tiny HTTP/1.0 server (docs/day11-book.md)
+//!   Day 12 — retransmit the control segments too: SYN, SYN-ACK, FIN (docs/day12-book.md)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
-//! reliability, an adaptive RTO, flow + congestion control, reassembly, and clean teardown, all
-//! unit-tested. Remaining work is breadth/robustness + live conformance testing; see
-//! docs/day11-book.md §13.
+//! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
+//! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
+//! testing; see docs/day12-book.md §12.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
@@ -216,7 +217,7 @@ fn main() -> std::io::Result<()> {
                             if serving_http {
                                 // HTTP/1.0 "Connection: close": actively close once the response is
                                 // on the wire (the FIN_WAIT teardown path from Day 7).
-                                if let Some(fin) = conn.close() {
+                                if let Some(fin) = conn.close(now_ms) {
                                     iface.send(&fin)?;
                                     println!("         → served HTTP/1.0 200 OK, closing (FIN)");
                                 }
@@ -230,7 +231,7 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                         // New 4-tuple: a SYN opens a connection (passive open).
-                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th) {
+                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th, now_ms) {
                             Some((conn, synack)) => {
                                 iface.send(&synack)?;
                                 connections.insert(quad, conn);

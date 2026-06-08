@@ -155,22 +155,42 @@ impl Connection {
 
     /// Passive open: a SYN arrived for a connection we don't have yet. Create the TCB in
     /// SYN_RCVD and return it together with the SYN-ACK packet bytes to send. Returns `None` if
-    /// the incoming segment isn't a SYN (we only open on a SYN).
+    /// the incoming segment isn't a SYN (we only open on a SYN). `now_ms` timestamps the SYN-ACK
+    /// in the retransmission queue (Day 12) so a lost SYN-ACK is resent on RTO.
     ///
     /// The ISN is **randomized** (RFC 6528): a predictable initial sequence number lets an
     /// off-path attacker forge segments / spoof connections. `accept_with_iss` takes a fixed ISN
     /// for deterministic tests.
-    pub fn accept(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader) -> Option<(Connection, Vec<u8>)> {
-        Self::accept_with_iss(ip_src, ip_dst, th, rand::random::<u32>())
+    pub fn accept(
+        ip_src: Ipv4Addr,
+        ip_dst: Ipv4Addr,
+        th: &TcpHeader,
+        now_ms: u64,
+    ) -> Option<(Connection, Vec<u8>)> {
+        Self::accept_with_iss_at(ip_src, ip_dst, th, rand::random::<u32>(), now_ms)
     }
 
-    /// Passive open with a caller-chosen initial send sequence number (ISS). `accept` wraps this
-    /// with a random ISS; tests pass a fixed ISS so the handshake's seq/ack numbers are predictable.
+    /// Deterministic-ISS passive open for tests (records the SYN-ACK as if sent at t=0, which is
+    /// exactly when the tests drive the clock from). Production goes through `accept`.
+    #[cfg(test)]
     pub fn accept_with_iss(
         ip_src: Ipv4Addr,
         ip_dst: Ipv4Addr,
         th: &TcpHeader,
         iss: u32,
+    ) -> Option<(Connection, Vec<u8>)> {
+        Self::accept_with_iss_at(ip_src, ip_dst, th, iss, 0)
+    }
+
+    /// Passive open with a caller-chosen initial send sequence number (ISS) and send time. `accept`
+    /// wraps this with a random ISS; tests pass a fixed ISS so the handshake's seq/ack numbers are
+    /// predictable.
+    pub fn accept_with_iss_at(
+        ip_src: Ipv4Addr,
+        ip_dst: Ipv4Addr,
+        th: &TcpHeader,
+        iss: u32,
+        now_ms: u64,
     ) -> Option<(Connection, Vec<u8>)> {
         if th.flags & SYN == 0 {
             return None;
@@ -178,7 +198,7 @@ impl Connection {
 
         let wnd = 1024;
 
-        let conn = Connection {
+        let mut conn = Connection {
             state: State::SynRcvd,
             // A SYN consumes one sequence number, so nxt = iss + 1.
             send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd },
@@ -198,28 +218,34 @@ impl Connection {
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
         let synack = conn.segment(conn.send.iss, conn.recv.nxt, SYN | ACK, &[]);
+        // Day 12: the SYN-ACK consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it for
+        // retransmission so a lost SYN-ACK is resent on RTO instead of hanging the handshake — the
+        // peer's final ACK clears it (RFC 9293 §3.8.1).
+        conn.retx.record(conn.send.nxt, synack.clone(), now_ms);
         Some((conn, synack))
     }
 
     /// Active open: initiate a connection from `local` to `remote`. Returns the TCB (in
-    /// SYN_SENT) and the SYN packet to send. Randomized ISN (RFC 6528).
+    /// SYN_SENT) and the SYN packet to send. Randomized ISN (RFC 6528). `now_ms` timestamps the
+    /// SYN for retransmission.
     ///
     /// The binary runs as a passive server (it only `accept`s), so this client-side capability is
     /// exercised by tests rather than `main` — hence `allow(dead_code)`.
     #[allow(dead_code)]
-    pub fn connect(local: (Ipv4Addr, u16), remote: (Ipv4Addr, u16)) -> (Connection, Vec<u8>) {
-        Self::connect_with_iss(local, remote, rand::random::<u32>())
+    pub fn connect(local: (Ipv4Addr, u16), remote: (Ipv4Addr, u16), now_ms: u64) -> (Connection, Vec<u8>) {
+        Self::connect_with_iss(local, remote, rand::random::<u32>(), now_ms)
     }
 
-    /// Active open with a caller-chosen ISS (deterministic, for tests).
+    /// Active open with a caller-chosen ISS and send time (deterministic, for tests).
     #[allow(dead_code)]
     pub fn connect_with_iss(
         local: (Ipv4Addr, u16),
         remote: (Ipv4Addr, u16),
         iss: u32,
+        now_ms: u64,
     ) -> (Connection, Vec<u8>) {
         let wnd = 1024;
-        let conn = Connection {
+        let mut conn = Connection {
             state: State::SynSent,
             send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd },
             // The peer's sequence space is unknown until its SYN-ACK arrives.
@@ -237,18 +263,24 @@ impl Connection {
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
+        // Day 12: the SYN consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it so a
+        // lost SYN is resent on RTO; the peer's SYN-ACK clears it (RFC 9293 §3.8.1).
+        conn.retx.record(conn.send.nxt, syn.clone(), now_ms);
         (conn, syn)
     }
 
-    /// Active close: send our FIN (valid only from ESTABLISHED) and enter FIN_WAIT_1. A real
-    /// application calls this; the server binary closes passively, so it's exercised by tests.
-    #[allow(dead_code)]
-    pub fn close(&mut self) -> Option<Vec<u8>> {
+    /// Active close: send our FIN (valid only from ESTABLISHED) and enter FIN_WAIT_1. `now_ms`
+    /// timestamps the FIN for retransmission (Day 12). The HTTP path in `main` calls this; the
+    /// echo path closes passively.
+    pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
         if self.state != State::Established {
             return None;
         }
         let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
         self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes a sequence number
+        // Day 12: queue the FIN (end = SND.NXT) so a lost FIN is resent until the peer ACKs it,
+        // instead of leaving the teardown half-finished (RFC 9293 §3.8.1).
+        self.retx.record(self.send.nxt, out.clone(), now_ms);
         self.state = State::FinWait1;
         Some(out)
     }
@@ -271,6 +303,9 @@ impl Connection {
                 self.recv.nxt = th.seq.wrapping_add(1);
                 self.reasm = Reassembler::new(self.recv.nxt); // now we know the peer's ISN
                 self.send.una = th.ack;
+                // Day 12: the SYN-ACK acknowledges our SYN — drop it from the retx queue (no RTT
+                // sample: a handshake segment can be ambiguous and isn't fed to the estimator here).
+                let _ = self.retx.ack(self.send.una, now_ms);
                 self.state = State::Established;
                 // Complete the handshake with the final ACK.
                 return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
@@ -283,6 +318,8 @@ impl Connection {
         if self.state == State::SynRcvd {
             if th.flags & ACK != 0 && th.ack == self.send.nxt {
                 self.send.una = th.ack;
+                // Day 12: the final ACK acknowledges our SYN-ACK — drop it from the retx queue.
+                let _ = self.retx.ack(self.send.una, now_ms);
                 self.state = State::Established;
             } else {
                 return None; // not the ACK we expect → ignore
@@ -348,6 +385,8 @@ impl Connection {
                 self.recv.nxt = self.recv.nxt.wrapping_add(1); // FIN consumes a seq number
                 let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
                 self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes one too
+                // Day 12: queue our FIN (end = SND.NXT) so it is resent until the peer's final ACK.
+                self.retx.record(self.send.nxt, out.clone(), now_ms);
                 self.state = State::LastAck;
                 return Some(out);
             }
@@ -356,6 +395,7 @@ impl Connection {
         if self.state == State::LastAck {
             // The connection is fully closed once the peer ACKs our FIN.
             if th.flags & ACK != 0 && th.ack == self.send.nxt {
+                let _ = self.retx.ack(th.ack, now_ms); // Day 12: drop the now-acked FIN
                 self.state = State::Closed;
             }
             return None;
@@ -364,6 +404,11 @@ impl Connection {
         // ── Active-close states (we initiated the close via `close()`) ──
         if self.state == State::FinWait1 {
             let acked_our_fin = th.flags & ACK != 0 && th.ack == self.send.nxt;
+            // Day 12: once our FIN is acknowledged, drop it from the retx queue (whichever close
+            // variant we end up in below).
+            if acked_our_fin {
+                let _ = self.retx.ack(th.ack, now_ms);
+            }
             // The peer also sent its FIN (in order) — acknowledge it.
             if th.flags & FIN != 0 && th.seq == self.recv.nxt {
                 self.recv.nxt = self.recv.nxt.wrapping_add(1);
@@ -397,6 +442,7 @@ impl Connection {
         if self.state == State::Closing {
             // Simultaneous close: we've ACKed their FIN; now wait for the ACK of ours.
             if th.flags & ACK != 0 && th.ack == self.send.nxt {
+                let _ = self.retx.ack(th.ack, now_ms); // Day 12: drop the now-acked FIN
                 self.state = State::TimeWait;
                 self.time_wait_ms = now_ms;
             }
@@ -800,7 +846,7 @@ mod tests {
         assert_eq!(conn.state(), State::Established);
 
         // We actively close → our FIN, FIN_WAIT_1.
-        let fin = conn.close().expect("our FIN");
+        let fin = conn.close(0).expect("our FIN");
         assert_eq!(conn.state(), State::FinWait1);
         let finh = parse(&fin[20..]).unwrap();
         assert_eq!(finh.flags, FIN | ACK);
@@ -872,7 +918,7 @@ mod tests {
         let mut seg = syn_segment();
         seg[13] = ACK; // an ACK to a closed connection is not a valid open
         let th = parse(&seg).unwrap();
-        assert!(Connection::accept(PEER, ME, &th).is_none());
+        assert!(Connection::accept(PEER, ME, &th, 0).is_none());
     }
 
     #[test]
@@ -1139,7 +1185,7 @@ mod tests {
     #[test]
     fn active_open_completes() {
         // We initiate: connect from ME:50000 to PEER:80, ISS 0.
-        let (mut conn, syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0);
+        let (mut conn, syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
         assert_eq!(conn.state(), State::SynSent);
 
         // The SYN we emit: flags SYN, seq 0, from us to the peer, valid checksums.
@@ -1165,5 +1211,101 @@ mod tests {
         assert_eq!(ackh.seq, 1);
         assert_eq!(ackh.ack, 901);
         assert_eq!(tcp_checksum(ME, PEER, &out[20..]), 0, "TCP checksum invalid");
+    }
+
+    // ── Day 12: control-segment (SYN / SYN-ACK / FIN) retransmission ──
+
+    #[test]
+    fn synack_retransmits_until_final_ack() {
+        let th = parse(&syn_segment()).unwrap();
+        // The SYN-ACK is queued for retransmission at send time (t=0), end_seq = ISS+1 = 1.
+        let (mut conn, synack) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+
+        // No RTT sample yet → 200 ms default RTO. Before it, nothing is resent…
+        assert!(conn.on_tick(150).is_empty());
+        // …after it, the SYN-ACK goes out again, byte-for-byte.
+        assert_eq!(conn.on_tick(250), vec![synack.clone()]);
+
+        // The client's final ACK acknowledges our SYN-ACK → it leaves the queue and stays gone.
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 300);
+        assert_eq!(conn.state(), State::Established);
+        assert!(conn.on_tick(1000).is_empty(), "SYN-ACK must not be resent after it is acked");
+    }
+
+    #[test]
+    fn syn_retransmits_until_synack() {
+        // Active open: the SYN is queued at t=0, end_seq = ISS+1 = 1.
+        let (mut conn, syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        assert_eq!(conn.state(), State::SynSent);
+
+        assert!(conn.on_tick(150).is_empty());
+        assert_eq!(conn.on_tick(250), vec![syn.clone()]); // resent after the RTO
+
+        // The peer's SYN-ACK acknowledges our SYN → it clears.
+        let synack = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 900, ack: 1,
+            data_offset: 20, flags: SYN | ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&synack, &[], 300);
+        assert_eq!(conn.state(), State::Established);
+        assert!(conn.on_tick(1000).is_empty(), "SYN must not be resent after it is acked");
+    }
+
+    #[test]
+    fn passive_fin_retransmits_until_acked() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // Peer closes; our FIN-ACK (LastAck) is queued at t=0, end_seq = SND.NXT = 2.
+        let fin = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: FIN | ACK, window: 0xffff,
+        };
+        let finack = conn.on_packet_at(&fin, &[], 0).expect("our FIN-ACK");
+        assert_eq!(conn.state(), State::LastAck);
+        assert_eq!(conn.on_tick(250), vec![finack.clone()]); // resent after the RTO
+
+        // The peer's ACK of our FIN closes the connection and clears the queue.
+        let last = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 102, ack: 2,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&last, &[], 300);
+        assert_eq!(conn.state(), State::Closed);
+        assert!(conn.on_tick(1000).is_empty(), "FIN must not be resent after it is acked");
+    }
+
+    #[test]
+    fn active_fin_retransmits_until_acked() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // We actively close; our FIN is queued at t=0, end_seq = SND.NXT = 2.
+        let fin = conn.close(0).expect("our FIN");
+        assert_eq!(conn.state(), State::FinWait1);
+        assert_eq!(conn.on_tick(250), vec![fin.clone()]); // resent after the RTO
+
+        // The peer ACKs our FIN → it clears and we advance to FIN_WAIT_2.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 300);
+        assert_eq!(conn.state(), State::FinWait2);
+        assert!(conn.on_tick(1000).is_empty(), "FIN must not be resent after it is acked");
     }
 }
