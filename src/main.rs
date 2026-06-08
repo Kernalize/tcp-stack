@@ -9,10 +9,11 @@
 //!   Day 6 — reliability: non-blocking event loop + retransmission + adaptive RTO (docs/day6-book.md)
 //!   Day 7 — active close + TIME_WAIT (full RFC 9293 teardown, both sides)   (docs/day7-book.md)
 //!   Day 8 — flow control: track the peer's window + advertise our own       (docs/day8-book.md)
+//!   Day 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/day9-book.md)
 //! Lifecycle (open→transfer→close) works, retransmits lost data, times out adaptively
-//! (RFC 6298), closes from either side, and honors the sliding window — all unit-tested.
-//! Remaining hardening (congestion control, out-of-order reassembly, a socket-style API) is
-//! the rest of Manual Phases 4–5; see docs/day8-book.md §11.
+//! (RFC 6298), closes from either side, honors the sliding window, and reassembles out-of-order
+//! data — all unit-tested. Remaining hardening (congestion control, a socket-style API) is the
+//! rest of Manual Phases 4–5; see docs/day9-book.md §12.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
@@ -21,6 +22,7 @@
 
 mod icmp; // ICMP: parse + echo reply
 mod ip; // IPv4: parse + header checksum + (used by tcp) checksum writer
+mod reassembly; // out-of-order receive buffer (used by tcp)
 mod rtt; // RTT estimation + adaptive RTO (RFC 6298)
 mod seq; // 32-bit wrapping sequence-number arithmetic (used by tcp)
 mod tcp; // TCP: parse + connection state machine (handshake)

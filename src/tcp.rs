@@ -11,7 +11,7 @@
 
 use std::net::Ipv4Addr;
 
-use crate::{ip, rtt::RttEstimator, seq, utils};
+use crate::{ip, reassembly::Reassembler, rtt::RttEstimator, seq, utils};
 
 // TCP control-flag bit masks (RFC 9293 §3.1).
 pub const FIN: u8 = 0x01;
@@ -134,6 +134,9 @@ pub struct Connection {
     /// Smoothed-RTT estimator driving the adaptive RTO (RFC 6298). Fed by acks of new,
     /// never-retransmitted data (Karn's algorithm); read by `on_tick` to time retransmits.
     rtt: RttEstimator,
+    /// Out-of-order receive buffer: holds data that arrives ahead of RCV.NXT until the gap fills,
+    /// then delivers it contiguously (RFC 9293 §3.4).
+    reasm: Reassembler,
 }
 
 impl Connection {
@@ -177,6 +180,8 @@ impl Connection {
             retx: RetxQueue::default(),
             time_wait_ms: 0,
             rtt: RttEstimator::default(),
+            // First data byte will be at IRS + 1 (the SYN consumed IRS).
+            reasm: Reassembler::new(th.seq.wrapping_add(1)),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -212,6 +217,8 @@ impl Connection {
             retx: RetxQueue::default(),
             time_wait_ms: 0,
             rtt: RttEstimator::default(),
+            // Placeholder base; rebased once the peer's ISN arrives in the SYN-ACK.
+            reasm: Reassembler::new(0),
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -247,6 +254,7 @@ impl Connection {
             if th.flags & (SYN | ACK) == (SYN | ACK) && th.ack == self.send.nxt {
                 self.recv.irs = th.seq;
                 self.recv.nxt = th.seq.wrapping_add(1);
+                self.reasm = Reassembler::new(self.recv.nxt); // now we know the peer's ISN
                 self.send.una = th.ack;
                 self.state = State::Established;
                 // Complete the handshake with the final ACK.
@@ -286,22 +294,28 @@ impl Connection {
                 }
             }
 
-            // Accept only IN-ORDER data (seq exactly == what we expect). Out-of-order or
-            // duplicate data is dropped here; reliability/reassembly is a later step. When we
-            // do accept data, we ECHO it back — and that segment's ACK field also acknowledges
-            // the data, so one packet serves both purposes.
-            if !payload.is_empty() && th.seq == self.recv.nxt {
-                self.recv.nxt = self.recv.nxt.wrapping_add(payload.len() as u32);
-
-                let seq = self.send.nxt; // our current send position
-                let ack = self.recv.nxt; // acknowledge through the data we just took
-                let out = self.segment(seq, ack, PSH | ACK, payload);
-
-                // The data we just sent consumes that many sequence numbers.
-                self.send.nxt = self.send.nxt.wrapping_add(payload.len() as u32);
-                // Queue it for retransmission until the peer ACKs it (end_seq = SND.NXT now).
-                self.retx.record(self.send.nxt, out.clone(), now_ms);
-                return Some(out);
+            // Data handling via the reassembler: it buffers out-of-order segments, drops
+            // duplicates, and returns only the bytes now contiguous from RCV.NXT (RFC 9293 §3.4).
+            if !payload.is_empty() {
+                let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
+                if !delivered.is_empty() {
+                    // In-order (possibly after a gap just filled): advance RCV.NXT and ECHO the
+                    // delivered bytes — that segment's ACK field also acknowledges them, so one
+                    // packet serves both purposes.
+                    self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
+                    let seq = self.send.nxt; // our current send position
+                    let ack = self.recv.nxt; // acknowledge through the data we just took
+                    let out = self.segment(seq, ack, PSH | ACK, &delivered);
+                    // The data we just sent consumes that many sequence numbers.
+                    self.send.nxt = self.send.nxt.wrapping_add(delivered.len() as u32);
+                    // Queue it for retransmission until the peer ACKs it (end_seq = SND.NXT now).
+                    self.retx.record(self.send.nxt, out.clone(), now_ms);
+                    return Some(out);
+                }
+                // Out-of-order or duplicate: deliver nothing, but send a *duplicate ACK*
+                // re-advertising RCV.NXT so the peer learns which byte we still need. Three such
+                // dup-ACKs are the sender's fast-retransmit trigger (Day 10).
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
             }
 
             // The peer wants to close: a FIN (in order) occupies one sequence number. We
@@ -832,6 +846,45 @@ mod tests {
         let echo = conn.on_packet_at(&data, b"hi", 0).expect("an echo");
         let eth = parse(&echo[20..]).unwrap();
         assert_eq!(eth.window, 1024);
+    }
+
+    #[test]
+    fn reassembles_out_of_order_data() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+
+        // The peer's SECOND chunk arrives first: "lo" at seq 103 (we still expect 101). We can't
+        // deliver it → reply with a bare duplicate ACK still acknowledging seq 101.
+        let second = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let dup = conn.on_packet_at(&second, b"lo", 0).expect("a duplicate ACK");
+        let dh = parse(&dup[20..]).unwrap();
+        assert_eq!(dh.flags, ACK);
+        assert_eq!(dh.ack, 101); // still waiting for byte 101
+        assert_eq!(dup.len(), 40); // header only, no payload
+        assert_eq!(conn.rcv_nxt(), 101); // RCV.NXT unmoved
+
+        // Now the FIRST chunk "he" at seq 101 arrives → the gap fills, both flush, and we echo
+        // the contiguous "helo", acknowledging through seq 105 (101 + 4 bytes).
+        let first = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let echo = conn.on_packet_at(&first, b"he", 0).expect("an echo");
+        let eh = parse(&echo[20..]).unwrap();
+        assert_eq!(eh.flags, PSH | ACK);
+        assert_eq!(eh.ack, 105);
+        assert_eq!(&echo[20 + eh.data_offset..], b"helo");
+        assert_eq!(conn.rcv_nxt(), 105);
+        assert_eq!(tcp_checksum(ME, PEER, &echo[20..]), 0, "TCP checksum invalid");
     }
 
     #[test]
