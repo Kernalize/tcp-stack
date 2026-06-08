@@ -36,7 +36,7 @@ Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 A single-threaded, non-blocking event loop (`src/main.rs`) drives a table of per-connection TCBs.
 Protocol logic lives in focused modules:
 
-```
+```text
 src/
   main.rs        event loop: TUN I/O, timers, connection table, the echo/HTTP application
   ip.rs          IPv4 parse + header checksum

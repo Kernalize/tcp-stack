@@ -235,7 +235,7 @@ The whole feature lives in `src/tcp.rs` (state machine) and rides Day 6's loop i
 | Piece | Role |
 |---|---|
 | `State::{FinWait1,FinWait2,Closing,TimeWait}` | the active-closer's four states |
-| `Connection::close()` | app-initiated close: emit FIN|ACK, `SND.NXT += 1`, → FIN_WAIT_1 |
+| `Connection::close()` | app-initiated close: emit FIN\|ACK, `SND.NXT += 1`, → FIN_WAIT_1 |
 | `on_packet_at` branches | the per-state transitions of §4–§5 |
 | `time_wait_ms` field | timestamp of entry into TIME_WAIT |
 | `on_tick` | expires TIME_WAIT after 2·MSL (clock-driven, no packet) |
