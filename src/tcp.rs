@@ -150,6 +150,10 @@ pub struct Connection {
     /// held while earlier data is still unacknowledged, to coalesce tiny writes. `TCP_NODELAY`
     /// clears it for latency-sensitive traffic. Default on.
     nagle: bool,
+    /// Persist timer (RFC 9293 §3.8.6.1): the absolute time (ms) the next zero-window probe is due,
+    /// or 0 when disarmed. Armed when the peer's window is shut with data pending and nothing in
+    /// flight; firing pokes one byte into the closed window so a lost window-update can't deadlock us.
+    persist_ms: u64,
 }
 
 impl Connection {
@@ -219,6 +223,7 @@ impl Connection {
             send_buf: VecDeque::new(),
             recv_buf: Vec::new(),
             nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
+            persist_ms: 0, // persist timer disarmed until a zero window blocks pending data
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -266,6 +271,7 @@ impl Connection {
             send_buf: VecDeque::new(),
             recv_buf: Vec::new(),
             nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
+            persist_ms: 0, // persist timer disarmed until a zero window blocks pending data
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -335,7 +341,9 @@ impl Connection {
         if self.state == State::Established {
             // Flow control: track the peer's advertised receive window so we never send more
             // unacknowledged data than it can hold (RFC 9293 §3.4). SND.WND was previously stuck
-            // at our own init value and never updated — this is the fix.
+            // at our own init value and never updated — this is the fix. Keep the prior value so
+            // the duplicate-ACK test below can tell a real dup from a pure window update (Day 14).
+            let prev_wnd = self.send.wnd;
             self.send.wnd = th.window;
 
             // Advance SND.UNA only if the ack is *acceptable*: SND.UNA < ACK <= SND.NXT, on the
@@ -356,10 +364,15 @@ impl Connection {
                 } else if th.ack == self.send.una
                     && self.send.una != self.send.nxt
                     && payload.is_empty()
+                    && th.window == prev_wnd
+                    && th.window != 0
                 {
-                    // Duplicate ACK: acknowledges no new data while data is still in flight. The
-                    // third in a row triggers fast retransmit — resend the oldest unacked segment
-                    // at once, without waiting for the RTO (RFC 5681 §3.2).
+                    // Duplicate ACK (RFC 5681 §2, all four conditions): acks no new data, carries no
+                    // data, data is still in flight, AND the window is unchanged — so this is a
+                    // congestion signal, not a window update or a zero-window probe response. The
+                    // third in a row triggers fast retransmit of the oldest unacked segment, without
+                    // waiting for the RTO (RFC 5681 §3.2). Window changes and zero-window re-acks are
+                    // excluded here so they can't masquerade as loss (Day 14).
                     if self.cong.on_dup_ack(self.flight_size()) {
                         if let Some(pkt) = self.retx.fast_retransmit(now_ms) {
                             return Some(pkt);
@@ -470,15 +483,41 @@ impl Connection {
         {
             self.state = State::Closed;
         }
-        let due = self.retx.due(now_ms, self.rtt.rto());
-        if !due.is_empty() {
+        let mut out = self.retx.due(now_ms, self.rtt.rto());
+        if !out.is_empty() {
             // The retransmission timer fired — the strongest congestion signal. Collapse cwnd to
             // one segment and re-enter slow start (RFC 5681 §3.1).
             let flight = self.flight_size();
             self.cong.on_timeout(flight);
             self.rtt.back_off(); // double the RTO per timeout (RFC 6298 §5.5 / Karn's backoff)
         }
-        due
+
+        // Persist timer / zero-window probe (RFC 9293 §3.8.6.1). If the peer's window is shut but we
+        // have data to send and nothing is in flight, there is no retransmission to lean on — and a
+        // lost "window re-opened" ACK would deadlock both sides forever. So poke a single byte into
+        // the closed window after one RTO. Once that probe is outstanding (FlightSize > 0) the
+        // ordinary RTO retransmission keeps re-probing it; the peer's ACK (carrying its now-current
+        // window) breaks the stall.
+        if self.state == State::Established
+            && self.send.wnd == 0
+            && !self.send_buf.is_empty()
+            && self.flight_size() == 0
+        {
+            if self.persist_ms == 0 {
+                self.persist_ms = now_ms.saturating_add(self.rtt.rto()); // arm one RTO out
+            } else if now_ms >= self.persist_ms {
+                if let Some(byte) = self.send_buf.pop_front() {
+                    let probe = self.segment(self.send.nxt, self.recv.nxt, ACK, &[byte]);
+                    self.send.nxt = self.send.nxt.wrapping_add(1);
+                    self.retx.record(self.send.nxt, probe.clone(), now_ms);
+                    out.push(probe);
+                }
+                self.persist_ms = 0; // disarm; the retx queue now repeats the probe on its own RTO
+            }
+        } else {
+            self.persist_ms = 0; // window open, nothing to send, or a probe already in flight
+        }
+        out
     }
 
     /// Bytes sent but not yet acknowledged — the "FlightSize" of RFC 5681 (`SND.NXT − SND.UNA`).
@@ -1416,6 +1455,88 @@ mod tests {
         assert_eq!(segs.len(), 2);
         for s in &segs {
             assert_eq!(payload_of(s).len(), MSS as usize);
+        }
+    }
+
+    // ── Day 14: zero-window probes (persist timer) ──
+
+    #[test]
+    fn zero_window_arms_then_fires_persist_probe() {
+        let mut conn = established_conn();
+
+        // The peer slams its receive window shut.
+        let zero = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0,
+        };
+        conn.on_packet_at(&zero, &[], 0);
+
+        // The app has data, but a zero window blocks it — poll sends nothing.
+        conn.write(b"hello");
+        assert!(conn.poll_transmit(0).is_empty());
+
+        // The first tick only arms the persist timer (one RTO = 200 ms default); no probe yet.
+        assert!(conn.on_tick(100).is_empty());
+
+        // After the persist timeout, a single byte is poked into the closed window at SND.NXT.
+        let probes = conn.on_tick(350);
+        assert_eq!(probes.len(), 1);
+        assert_eq!(payload_of(&probes[0]), b"h");
+        assert_eq!(parse(&probes[0][20..]).unwrap().seq, 1);
+    }
+
+    #[test]
+    fn persist_probe_recovers_when_window_reopens() {
+        let mut conn = established_conn();
+        let zero = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0,
+        };
+        conn.on_packet_at(&zero, &[], 0);
+        conn.write(b"hello");
+
+        // Arm and fire the probe (byte 'h' at seq 1).
+        conn.on_tick(100);
+        assert_eq!(conn.on_tick(350).len(), 1);
+
+        // The peer's window reopens and its ACK acknowledges the probe byte (ack = 2).
+        let reopen = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: ACK, window: 1000,
+        };
+        conn.on_packet_at(&reopen, &[], 400);
+
+        // The deadlock is broken: the rest of "hello" now flows.
+        let segs = conn.poll_transmit(400);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(payload_of(&segs[0]), b"ello");
+    }
+
+    #[test]
+    fn window_updates_and_zero_windows_are_not_duplicate_acks() {
+        let mut conn = established_conn();
+        // Put 5 bytes in flight so the duplicate-ACK conditions could otherwise be met.
+        conn.write(b"hello");
+        assert_eq!(conn.poll_transmit(0).len(), 1);
+
+        // Three ACKs for the same seq, each carrying a *changed* window — pure window updates, not
+        // duplicate ACKs. Without the RFC 5681 §2 window condition the third would fast-retransmit;
+        // with it, all three are inert (return None).
+        for win in [500u16, 400, 300] {
+            let upd = TcpHeader {
+                src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+                data_offset: 20, flags: ACK, window: win,
+            };
+            assert!(conn.on_packet_at(&upd, &[], 0).is_none(), "window update must not be a dup ACK");
+        }
+
+        // Three zero-window ACKs (the receiver is full) are likewise not duplicate ACKs.
+        let zero = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0,
+        };
+        for _ in 0..3 {
+            assert!(conn.on_packet_at(&zero, &[], 0).is_none(), "zero-window re-ack must not be a dup ACK");
         }
     }
 }

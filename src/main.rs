@@ -14,6 +14,7 @@
 //!   Day 11 — socket-style read/write API + send buffer + tiny HTTP/1.0 server (docs/day11-book.md)
 //!   Day 12 — retransmit the control segments too: SYN, SYN-ACK, FIN (docs/day12-book.md)
 //!   Day 13 — Nagle's algorithm + TCP_NODELAY: coalesce small writes (docs/day13-book.md)
+//!   Day 14 — zero-window probes (persist timer): break the flow-control deadlock (docs/day14-book.md)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
