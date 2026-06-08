@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # `.cargo/config.toml` pins target-dir to a WSL-native path that doesn't exist on the runner;
+  # override it so the build writes under the workspace. CARGO_TARGET_DIR wins over config.toml.
+  CARGO_TARGET_DIR: target
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: build · test · clippy
+    runs-on: ubuntu-latest   # Linux runner: tun-tap compiles; the unit tests need no real TUN
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add clippy
+        run: rustup component add clippy
+      - name: Build
+        run: cargo build --verbose
+      - name: Test
+        run: cargo test --verbose
+      - name: Clippy (warnings = errors)
+        run: cargo clippy --all-targets -- -D warnings
