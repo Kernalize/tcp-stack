@@ -168,8 +168,20 @@ fn main() -> std::io::Result<()> {
                     match connections.get_mut(&quad) {
                         // Existing connection: let it advance its state machine.
                         Some(conn) => {
+                            // Advance the state machine; send any ACK/control response.
                             if let Some(out) = conn.on_packet_at(&th, payload, now_ms) {
                                 iface.send(&out)?;
+                            }
+                            // Application layer: read whatever was delivered in order and respond.
+                            // The echo app writes the bytes straight back; `poll_transmit` then
+                            // puts the response on the wire as the send window (min(cwnd, rwnd))
+                            // allows — the same API a TcpStream would expose.
+                            let received = conn.take_received();
+                            if !received.is_empty() {
+                                conn.write(&received); // echo application
+                            }
+                            for seg in conn.poll_transmit(now_ms) {
+                                iface.send(&seg)?;
                             }
                             let state = conn.state();
                             println!("         · state now {state:?}");
