@@ -726,7 +726,7 @@ fn build_packet(
     let (src_ip, src_port) = src;
     let (dst_ip, dst_port) = dst;
 
-    debug_assert!(options.len() % 4 == 0, "TCP options must be 4-byte aligned");
+    debug_assert!(options.len().is_multiple_of(4), "TCP options must be 4-byte aligned");
     let tcp_hdr_len = 20 + options.len(); // fixed header + options
     let tcp_len = tcp_hdr_len + payload.len(); // header + options + data
     let total_len = 20 + tcp_len; // IP header + TCP segment
