@@ -11,9 +11,11 @@
 //!   Day 8 — flow control: track the peer's window + advertise our own       (docs/day8-book.md)
 //!   Day 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/day9-book.md)
 //!   Day 10 — congestion control: slow start + AIMD + fast recovery (RFC 5681)(docs/day10-book.md)
-//! All of TCP's control loops now exist (reliability, flow, congestion) and are unit-tested.
-//! The remaining piece is the interface: a socket-style API (TcpListener/TcpStream) + a real
-//! send buffer so an app — not a hard-coded echo — drives the stack. See docs/day10-book.md §13.
+//!   Day 11 — socket-style read/write API + send buffer + tiny HTTP/1.0 server (docs/day11-book.md)
+//! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
+//! reliability, an adaptive RTO, flow + congestion control, reassembly, and clean teardown, all
+//! unit-tested. Remaining work is breadth/robustness + live conformance testing; see
+//! docs/day11-book.md §13.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
