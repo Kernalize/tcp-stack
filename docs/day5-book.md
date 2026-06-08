@@ -200,6 +200,12 @@ a robust, internet-grade stack is the retransmission-and-beyond work above, gate
 move from blocking I/O to an event loop. Doing that next is the right Step 6 — and it's a
 design change worth its own chapter rather than bolting timers onto a blocking loop.
 
+> **Update:** Step 6 is now built — the non-blocking event loop, the retransmission queue, and
+> the adaptive RTO (RFC 6298) are in `docs/day6-book.md`. Items 1 (retransmission/RTO) and the
+> event-loop blocker above are done; the connection now survives a lossy link.
+
+---
+
 > Re-type the FIN/LAST_ACK logic from this chapter, then `cargo test`. You now hold the whole
 > picture: parsing (Day 1), checksums + write (Day 2), handshake (Day 3), data (Day 4),
 > close (Day 5).

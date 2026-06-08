@@ -9,9 +9,10 @@
 //! This step also adds the first real *header builder* (`build_packet`) and the TCP
 //! checksum, which uniquely covers a "pseudo-header" of IP fields as well as the segment.
 
+use std::collections::VecDeque;
 use std::net::Ipv4Addr;
 
-use crate::{ip, seq, utils};
+use crate::{congestion::CongestionControl, ip, reassembly::Reassembler, rtt::RttEstimator, seq, utils};
 
 // TCP control-flag bit masks (RFC 9293 §3.1).
 pub const FIN: u8 = 0x01;
@@ -108,9 +109,9 @@ struct SendSequence {
 }
 
 /// Receive Sequence Space: everything about the bytes WE receive.
-// `wnd` and `irs` are part of the TCB now but first get read in Step 4 (data transfer):
-// `wnd` bounds how much we accept, `irs` lets us report sequence numbers relative to the
-// peer's ISN. Allowed-dead until then so the build stays warning-clean.
+// `wnd` is the receive window we advertise in every segment we send (read by `segment()`).
+// `irs` (the peer's ISN) is stored for future relative-sequence reporting but not yet read,
+// so the struct stays `allow(dead_code)` to keep the build warning-clean.
 #[allow(dead_code)]
 #[derive(Debug)]
 struct RecvSequence {
@@ -131,6 +132,20 @@ pub struct Connection {
     retx: RetxQueue,
     /// Time (ms) we entered TIME_WAIT, so `on_tick` can expire it after 2·MSL.
     time_wait_ms: u64,
+    /// Smoothed-RTT estimator driving the adaptive RTO (RFC 6298). Fed by acks of new,
+    /// never-retransmitted data (Karn's algorithm); read by `on_tick` to time retransmits.
+    rtt: RttEstimator,
+    /// Out-of-order receive buffer: holds data that arrives ahead of RCV.NXT until the gap fills,
+    /// then delivers it contiguously (RFC 9293 §3.4).
+    reasm: Reassembler,
+    /// Congestion control (RFC 5681): a network-imposed send limit (`cwnd`) alongside the
+    /// receiver's `SND.WND`. Grows on good ACKs, collapses on loss; gates `usable_window()`.
+    cong: CongestionControl,
+    /// Application bytes queued for transmission but not yet put on the wire. `poll_transmit`
+    /// drains it into segments as the window allows; once sent, bytes live in `retx` until acked.
+    send_buf: VecDeque<u8>,
+    /// Reassembled, in-order bytes delivered to the application, awaiting `take_received()`.
+    recv_buf: Vec<u8>,
 }
 
 impl Connection {
@@ -173,6 +188,12 @@ impl Connection {
             remote: (ip_src, th.src_port),
             retx: RetxQueue::default(),
             time_wait_ms: 0,
+            rtt: RttEstimator::default(),
+            // First data byte will be at IRS + 1 (the SYN consumed IRS).
+            reasm: Reassembler::new(th.seq.wrapping_add(1)),
+            cong: CongestionControl::default(),
+            send_buf: VecDeque::new(),
+            recv_buf: Vec::new(),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -207,6 +228,12 @@ impl Connection {
             remote,
             retx: RetxQueue::default(),
             time_wait_ms: 0,
+            rtt: RttEstimator::default(),
+            // Placeholder base; rebased once the peer's ISN arrives in the SYN-ACK.
+            reasm: Reassembler::new(0),
+            cong: CongestionControl::default(),
+            send_buf: VecDeque::new(),
+            recv_buf: Vec::new(),
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -242,6 +269,7 @@ impl Connection {
             if th.flags & (SYN | ACK) == (SYN | ACK) && th.ack == self.send.nxt {
                 self.recv.irs = th.seq;
                 self.recv.nxt = th.seq.wrapping_add(1);
+                self.reasm = Reassembler::new(self.recv.nxt); // now we know the peer's ISN
                 self.send.una = th.ack;
                 self.state = State::Established;
                 // Complete the handshake with the final ACK.
@@ -271,27 +299,45 @@ impl Connection {
             // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
             // out-of-window ack is ignored rather than blindly trusted — the defensive version
             // of the earlier "store whatever they sent".
-            if th.flags & ACK != 0 && seq::between(self.send.una, th.ack, self.send.nxt) {
-                self.send.una = th.ack;
-                self.retx.ack(self.send.una); // drop everything the peer just acknowledged
+            if th.flags & ACK != 0 {
+                if seq::between(self.send.una, th.ack, self.send.nxt) {
+                    // New data acknowledged: advance SND.UNA, drop what was acked, sample the RTT
+                    // (Karn's algorithm skips retransmitted segments), and grow the congestion
+                    // window (slow start / congestion avoidance, RFC 5681).
+                    let acked = th.ack.wrapping_sub(self.send.una);
+                    self.send.una = th.ack;
+                    if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
+                        self.rtt.sample(rtt_ms);
+                    }
+                    self.cong.on_ack(acked);
+                } else if th.ack == self.send.una
+                    && self.send.una != self.send.nxt
+                    && payload.is_empty()
+                {
+                    // Duplicate ACK: acknowledges no new data while data is still in flight. The
+                    // third in a row triggers fast retransmit — resend the oldest unacked segment
+                    // at once, without waiting for the RTO (RFC 5681 §3.2).
+                    if self.cong.on_dup_ack(self.flight_size()) {
+                        if let Some(pkt) = self.retx.fast_retransmit(now_ms) {
+                            return Some(pkt);
+                        }
+                    }
+                }
             }
 
-            // Accept only IN-ORDER data (seq exactly == what we expect). Out-of-order or
-            // duplicate data is dropped here; reliability/reassembly is a later step. When we
-            // do accept data, we ECHO it back — and that segment's ACK field also acknowledges
-            // the data, so one packet serves both purposes.
-            if !payload.is_empty() && th.seq == self.recv.nxt {
-                self.recv.nxt = self.recv.nxt.wrapping_add(payload.len() as u32);
-
-                let seq = self.send.nxt; // our current send position
-                let ack = self.recv.nxt; // acknowledge through the data we just took
-                let out = self.segment(seq, ack, PSH | ACK, payload);
-
-                // The data we just sent consumes that many sequence numbers.
-                self.send.nxt = self.send.nxt.wrapping_add(payload.len() as u32);
-                // Queue it for retransmission until the peer ACKs it (end_seq = SND.NXT now).
-                self.retx.record(self.send.nxt, out.clone(), now_ms);
-                return Some(out);
+            // Data handling via the reassembler: it buffers out-of-order segments, drops
+            // duplicates, and returns only the bytes now contiguous from RCV.NXT (RFC 9293 §3.4).
+            // Delivered bytes go into the receive buffer for the application; we do NOT echo here —
+            // the app reads (`take_received`) and responds (`write` + `poll_transmit`).
+            if !payload.is_empty() {
+                let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
+                if !delivered.is_empty() {
+                    self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
+                    self.recv_buf.extend_from_slice(&delivered);
+                }
+                // Acknowledge: a fresh RCV.NXT for in-order data, or a *duplicate ACK* for
+                // out-of-order/duplicate data (three of which trigger the sender's fast retransmit).
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
             }
 
             // The peer wants to close: a FIN (in order) occupies one sequence number. We
@@ -361,8 +407,10 @@ impl Connection {
     }
 
     /// Time-driven step: return any sent-but-unacknowledged segments whose RTO has elapsed, for
-    /// the caller (the event loop) to re-send. Resets each segment's timer.
-    pub fn on_tick(&mut self, now_ms: u64, rto_ms: u64) -> Vec<Vec<u8>> {
+    /// the caller (the event loop) to re-send. Resets each segment's timer. The timeout is the
+    /// connection's own *adaptive* estimate (RFC 6298) — short on a LAN, long on a slow path —
+    /// not a fixed constant, so the caller no longer supplies one.
+    pub fn on_tick(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
         // Expire TIME_WAIT after 2·MSL so the connection can finally be reaped (RFC 9293).
         const TIME_WAIT_MS: u64 = 2 * 120_000; // 2·MSL, with MSL = 2 minutes
         if self.state == State::TimeWait
@@ -370,16 +418,63 @@ impl Connection {
         {
             self.state = State::Closed;
         }
-        self.retx.due(now_ms, rto_ms)
+        let due = self.retx.due(now_ms, self.rtt.rto());
+        if !due.is_empty() {
+            // The retransmission timer fired — the strongest congestion signal. Collapse cwnd to
+            // one segment and re-enter slow start (RFC 5681 §3.1).
+            let flight = self.flight_size();
+            self.cong.on_timeout(flight);
+        }
+        due
     }
 
-    /// Bytes we may still send without overrunning the peer's advertised window:
-    /// `SND.WND − (SND.NXT − SND.UNA)`. Saturates at 0 when the window is full. A bulk sender
-    /// would gate transmission on this; our echo server sends tiny segments well within it.
-    #[allow(dead_code)]
+    /// Bytes sent but not yet acknowledged — the "FlightSize" of RFC 5681 (`SND.NXT − SND.UNA`).
+    fn flight_size(&self) -> u32 {
+        self.send.nxt.wrapping_sub(self.send.una)
+    }
+
+    /// Bytes we may still send right now. Bounded by BOTH the receiver and the network: the
+    /// classic `min(SND.WND, cwnd) − FlightSize` (RFC 5681). Saturates at 0 when the window is full.
     pub fn usable_window(&self) -> u32 {
-        let in_flight = self.send.nxt.wrapping_sub(self.send.una);
-        (self.send.wnd as u32).saturating_sub(in_flight)
+        let limit = (self.send.wnd as u32).min(self.cong.window());
+        limit.saturating_sub(self.flight_size())
+    }
+
+    /// Application send: queue `data` for transmission. The bytes go out on the next
+    /// `poll_transmit`, as fast as the send window allows.
+    pub fn write(&mut self, data: &[u8]) {
+        self.send_buf.extend(data.iter().copied());
+    }
+
+    /// Drain the send buffer into wire segments, bounded by the **usable window**
+    /// (`min(SND.WND, cwnd) − FlightSize`) and chopped to the MSS. Each segment advances SND.NXT
+    /// and is recorded for retransmission. Returns the segments to send (possibly empty when the
+    /// window is full — exactly how slow start throttles a bulk sender, RFC 5681). Valid only once
+    /// ESTABLISHED.
+    pub fn poll_transmit(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        if self.state != State::Established {
+            return out;
+        }
+        let mss = crate::congestion::MSS as usize;
+        while !self.send_buf.is_empty() {
+            let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
+            if n == 0 {
+                break; // window full — wait for an ACK to slide it open
+            }
+            let payload: Vec<u8> = self.send_buf.drain(..n).collect();
+            let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
+            self.send.nxt = self.send.nxt.wrapping_add(n as u32);
+            self.retx.record(self.send.nxt, seg.clone(), now_ms);
+            out.push(seg);
+        }
+        out
+    }
+
+    /// Application receive: take all reassembled, in-order bytes delivered so far, draining the
+    /// receive buffer. Empty if nothing new has arrived.
+    pub fn take_received(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.recv_buf)
     }
 
     #[cfg(test)]
@@ -390,10 +485,16 @@ impl Connection {
     fn rcv_nxt(&self) -> u32 {
         self.recv.nxt
     }
+    #[cfg(test)]
+    fn rto(&self) -> u64 {
+        self.rtt.rto()
+    }
 
-    /// Build a segment from THIS connection's perspective (src = us, dst = peer).
+    /// Build a segment from THIS connection's perspective (src = us, dst = peer). The advertised
+    /// window is *our* receive window (`RCV.WND`) — how much WE can accept — never `send.wnd`,
+    /// which is the peer's window and bounds only how much we may send.
     fn segment(&self, seq: u32, ack: u32, flags: u8, payload: &[u8]) -> Vec<u8> {
-        build_packet(self.local, self.remote, seq, ack, flags, self.send.wnd, payload)
+        build_packet(self.local, self.remote, seq, ack, flags, self.recv.wnd, payload)
     }
 }
 
@@ -479,7 +580,6 @@ pub fn build_rst(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, payload_len
 }
 
 /// One sent-but-unacknowledged segment, kept so we can resend it if its ACK never comes.
-#[allow(dead_code)] // fields read by the event loop (next step) + tests
 #[derive(Debug, Clone)]
 struct Unacked {
     /// One past the last sequence number this segment covers; fully acked when SND.UNA reaches it.
@@ -495,13 +595,12 @@ struct Unacked {
 /// The per-connection retransmission queue (RFC 9293 §3.8.1) — the heart of TCP reliability.
 /// Time is passed in (`now_ms`) rather than read from a clock, so the logic is unit-testable
 /// without sleeping; the event loop supplies the real time and resends whatever is `due`.
-#[allow(dead_code)] // wired into the event loop in the next step
 #[derive(Debug, Default)]
 pub struct RetxQueue {
     segments: Vec<Unacked>,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // is_empty()/len() are exercised only by tests
 impl RetxQueue {
     /// Record a segment we just sent. `end_seq` = seq one past its last byte.
     pub fn record(&mut self, end_seq: u32, packet: Vec<u8>, now_ms: u64) {
@@ -509,9 +608,21 @@ impl RetxQueue {
     }
 
     /// Drop every segment the peer has now fully acknowledged (`end_seq <= SND.UNA`, mod 2³²).
-    pub fn ack(&mut self, una: u32) {
-        // Keep only segments not yet fully covered by `una` (una is still "before" their end).
-        self.segments.retain(|s| seq::before(una, s.end_seq));
+    /// Returns an RTT sample (ms) — `now_ms − send time` — for the oldest freshly-acked segment
+    /// that was **never retransmitted**, else `None`. A retransmitted segment yields no sample:
+    /// we can't tell which copy the ack answers, so timing it would corrupt SRTT (Karn's
+    /// algorithm, RFC 6298 §3). The caller feeds any returned sample to the RTT estimator.
+    pub fn ack(&mut self, una: u32, now_ms: u64) -> Option<u64> {
+        let mut sample = None;
+        self.segments.retain(|s| {
+            // `una` still "before" end_seq ⇒ segment not yet fully acked ⇒ keep it.
+            let still_unacked = seq::before(una, s.end_seq);
+            if !still_unacked && s.retries == 0 && sample.is_none() {
+                sample = Some(now_ms.saturating_sub(s.sent_at_ms));
+            }
+            still_unacked
+        });
+        sample
     }
 
     /// Packets whose retransmission timeout (`rto_ms`) has elapsed. Resets each one's timer and
@@ -526,6 +637,17 @@ impl RetxQueue {
             }
         }
         out
+    }
+
+    /// Resend the oldest unacknowledged segment immediately (fast retransmit, RFC 5681 §3.2).
+    /// Resets its timer and counts it as a retransmission so Karn's algorithm suppresses its
+    /// RTT sample. Returns the packet bytes to send, or `None` if nothing is outstanding.
+    pub fn fast_retransmit(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        self.segments.first_mut().map(|s| {
+            s.retries += 1;
+            s.sent_at_ms = now_ms;
+            s.packet.clone()
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -622,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn established_echoes_data() {
+    fn established_delivers_data_then_app_echoes() {
         // Establish the connection first.
         let th = parse(&syn_segment()).unwrap();
         let (mut conn, _synack) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
@@ -633,23 +755,30 @@ mod tests {
         conn.on_packet(&handshake_ack, &[]);
         assert_eq!(conn.state(), State::Established);
 
-        // Client sends 2 bytes "hi" in-order at seq 101.
+        // Client sends 2 bytes "hi" in-order at seq 101. We reply with a bare ACK and deliver the
+        // bytes to the application's receive buffer (no inline echo).
         let data = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: PSH | ACK, window: 0xffff,
         };
-        let echo = conn.on_packet(&data, b"hi").expect("an echo segment");
-
-        // Sequence bookkeeping advanced by the 2 bytes on both sides.
+        let ackseg = conn.on_packet(&data, b"hi").expect("an ACK");
         assert_eq!(conn.rcv_nxt(), 103); // 101 + 2 received
-        assert_eq!(conn.snd_nxt(), 3); // 1 + 2 sent
+        let ah = parse(&ackseg[20..]).unwrap();
+        assert_eq!(ah.flags, ACK);
+        assert_eq!(ah.ack, 103);
+        assert_eq!(ackseg.len(), 40); // header only — no payload
+        assert_eq!(conn.take_received(), b"hi"); // delivered to the application
 
-        // The echo packet is a valid IP+TCP packet carrying "hi" back to the peer.
-        let iph = ip::parse(&echo).unwrap();
+        // The echo application writes the bytes back; poll_transmit puts them on the wire.
+        conn.write(b"hi");
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 1);
+        let echo = &segs[0];
+        assert_eq!(conn.snd_nxt(), 3); // 1 + 2 sent
+        let iph = ip::parse(echo).unwrap();
         assert_eq!(iph.src, ME);
         assert_eq!(iph.dst, PEER);
         assert_eq!(utils::checksum(&echo[..20]), 0, "IP checksum invalid");
-
         let eth = parse(&echo[20..]).unwrap();
         assert_eq!(eth.flags, PSH | ACK);
         assert_eq!(eth.seq, 1); // our send position before the echo
@@ -697,9 +826,9 @@ mod tests {
         assert_eq!(ah.ack, 102); // their FIN at seq 101, +1
 
         // TIME_WAIT expires after 2·MSL → CLOSED.
-        conn.on_tick(1000, 200); // before timeout: still TIME_WAIT
+        conn.on_tick(1000); // before timeout: still TIME_WAIT
         assert_eq!(conn.state(), State::TimeWait);
-        conn.on_tick(1000 + 240_000, 200); // after 2·MSL
+        conn.on_tick(1000 + 240_000); // after 2·MSL
         assert_eq!(conn.state(), State::Closed);
     }
 
@@ -786,6 +915,125 @@ mod tests {
     }
 
     #[test]
+    fn advertises_our_receive_window_not_the_peers() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // The peer advertises a huge window; our ACK must still advertise OUR 1024-byte receive
+        // window, never parrot the peer's (which would over-claim buffer we lack).
+        let data = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ackseg = conn.on_packet_at(&data, b"hi", 0).expect("an ACK");
+        let ah = parse(&ackseg[20..]).unwrap();
+        assert_eq!(ah.window, 1024);
+    }
+
+    #[test]
+    fn reassembles_out_of_order_data() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+
+        // The peer's SECOND chunk arrives first: "lo" at seq 103 (we still expect 101). We can't
+        // deliver it → reply with a bare duplicate ACK still acknowledging seq 101.
+        let second = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let dup = conn.on_packet_at(&second, b"lo", 0).expect("a duplicate ACK");
+        let dh = parse(&dup[20..]).unwrap();
+        assert_eq!(dh.flags, ACK);
+        assert_eq!(dh.ack, 101); // still waiting for byte 101
+        assert_eq!(dup.len(), 40); // header only, no payload
+        assert_eq!(conn.rcv_nxt(), 101); // RCV.NXT unmoved
+
+        // Now the FIRST chunk "he" at seq 101 arrives → the gap fills, both flush, and we echo
+        // the contiguous "helo", acknowledging through seq 105 (101 + 4 bytes).
+        let first = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ackseg = conn.on_packet_at(&first, b"he", 0).expect("an ACK");
+        let ah = parse(&ackseg[20..]).unwrap();
+        assert_eq!(ah.flags, ACK);
+        assert_eq!(ah.ack, 105); // 101 + 4 bytes (he + lo)
+        assert_eq!(ackseg.len(), 40); // header only
+        assert_eq!(conn.rcv_nxt(), 105);
+        assert_eq!(conn.take_received(), b"helo"); // both chunks delivered, in order
+    }
+
+    #[test]
+    fn three_dup_acks_fast_retransmit_the_oldest_segment() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // The app sends "hi" → it's now unacknowledged in flight (seq 1).
+        conn.write(b"hi");
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 1);
+        let echo = segs[0].clone();
+
+        // Three duplicate ACKs (each acks seq 1, no new data, no payload). The first two do
+        // nothing; the third fast-retransmits the oldest unacked segment — our echo — at once.
+        let dup = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&dup, &[], 1).is_none()); // 1st dup
+        assert!(conn.on_packet_at(&dup, &[], 2).is_none()); // 2nd dup
+        let resent = conn.on_packet_at(&dup, &[], 3).expect("fast retransmit"); // 3rd dup
+        assert_eq!(resent, echo);
+    }
+
+    #[test]
+    fn bulk_send_is_gated_by_the_congestion_window() {
+        use crate::congestion::MSS;
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // Queue 5000 bytes. cwnd starts at 1 MSS, so only ONE full-MSS segment leaves now.
+        conn.write(&vec![b'x'; 5000]);
+        let first = conn.poll_transmit(0);
+        assert_eq!(first.len(), 1);
+        let fh = parse(&first[0][20..]).unwrap();
+        assert_eq!(first[0].len() - 20 - fh.data_offset, MSS as usize); // 1460-byte payload
+        assert_eq!(fh.seq, 1);
+
+        // Until it's acked the window is full — nothing more goes out.
+        assert!(conn.poll_transmit(0).is_empty());
+
+        // Peer ACKs the 1460 bytes → slow start grows cwnd to 2 MSS, so two segments now fit.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0);
+        assert_eq!(conn.poll_transmit(0).len(), 2);
+    }
+
+    #[test]
     fn connection_retransmits_then_clears_on_ack() {
         let th = parse(&syn_segment()).unwrap();
         let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
@@ -796,24 +1044,53 @@ mod tests {
         conn.on_packet_at(&hs_ack, &[], 0);
         assert_eq!(conn.state(), State::Established);
 
-        // Client sends "hi"; we echo it at t=0 (queued for retransmission).
-        let data = TcpHeader {
-            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
-            data_offset: 20, flags: PSH | ACK, window: 0xffff,
-        };
-        let echo = conn.on_packet_at(&data, b"hi", 0).expect("an echo");
+        // App writes "hi"; poll_transmit emits it at t=0 (queued for retransmission).
+        conn.write(b"hi");
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 1);
+        let echo = segs[0].clone();
 
-        assert!(conn.on_tick(50, 100).is_empty()); // before RTO: nothing resent
-        let resent = conn.on_tick(150, 100); // after RTO: the echo is resent
+        // No RTT sample yet, so the RTO is the conservative 200 ms default.
+        assert_eq!(conn.rto(), 200);
+        assert!(conn.on_tick(150).is_empty()); // before RTO: nothing resent
+        let resent = conn.on_tick(250); // after the 200 ms RTO: the echo is resent
         assert_eq!(resent, vec![echo]);
 
-        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears.
+        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears. Because the
+        // segment was retransmitted, Karn's algorithm suppresses the sample: the RTO stays 200.
         let ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 103, ack: 3,
             data_offset: 20, flags: ACK, window: 0xffff,
         };
-        conn.on_packet_at(&ack, &[], 200);
-        assert!(conn.on_tick(400, 100).is_empty());
+        conn.on_packet_at(&ack, &[], 300);
+        assert_eq!(conn.rto(), 200);
+        assert!(conn.on_tick(600).is_empty());
+    }
+
+    #[test]
+    fn ack_of_new_data_samples_rtt_and_adapts_rto() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // App writes "hi"; poll_transmit sends it at t=0 (queued for retransmission).
+        conn.write(b"hi");
+        conn.poll_transmit(0);
+        assert_eq!(conn.rto(), 200); // still the default — no sample yet
+
+        // Peer ACKs the sent bytes 120 ms later, never having forced a retransmission.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 3,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 120);
+
+        // First sample R=120 → SRTT=120, RTTVAR=60 → RTO = 120 + 4·60 = 360.
+        assert_eq!(conn.rto(), 360);
     }
 
     #[test]
@@ -822,9 +1099,9 @@ mod tests {
         q.record(11, vec![1, 2, 3], 0); // segment ending at seq 11
         q.record(21, vec![4, 5, 6], 0); // segment ending at seq 21
         assert_eq!(q.len(), 2);
-        q.ack(11); // SND.UNA = 11 → first segment fully acked, dropped
+        assert_eq!(q.ack(11, 30), Some(30)); // UNA=11 → first acked at t=30 → RTT sample 30
         assert_eq!(q.len(), 1);
-        q.ack(21); // second fully acked
+        assert_eq!(q.ack(21, 40), Some(40)); // second fully acked → sample 40
         assert!(q.is_empty());
     }
 
@@ -833,7 +1110,7 @@ mod tests {
         let mut q = RetxQueue::default();
         q.record(11, vec![1], 0);
         q.record(21, vec![2], 0);
-        q.ack(15); // covers the first (end 11 <= 15), not the second (end 21 > 15)
+        q.ack(15, 0); // covers the first (end 11 <= 15), not the second (end 21 > 15)
         assert_eq!(q.len(), 1);
     }
 
@@ -853,7 +1130,7 @@ mod tests {
         let mut q = RetxQueue::default();
         // Segment ends just past the wrap; an ack past it (mod 2^32) clears it.
         q.record(3, vec![9], 0); // end_seq 3, conceptually after wrapping from ~0xFFFFFFFF
-        q.ack(3);
+        q.ack(3, 0);
         assert!(q.is_empty());
     }
 
