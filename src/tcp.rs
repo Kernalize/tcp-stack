@@ -11,7 +11,7 @@
 
 use std::net::Ipv4Addr;
 
-use crate::{ip, reassembly::Reassembler, rtt::RttEstimator, seq, utils};
+use crate::{congestion::CongestionControl, ip, reassembly::Reassembler, rtt::RttEstimator, seq, utils};
 
 // TCP control-flag bit masks (RFC 9293 §3.1).
 pub const FIN: u8 = 0x01;
@@ -137,6 +137,9 @@ pub struct Connection {
     /// Out-of-order receive buffer: holds data that arrives ahead of RCV.NXT until the gap fills,
     /// then delivers it contiguously (RFC 9293 §3.4).
     reasm: Reassembler,
+    /// Congestion control (RFC 5681): a network-imposed send limit (`cwnd`) alongside the
+    /// receiver's `SND.WND`. Grows on good ACKs, collapses on loss; gates `usable_window()`.
+    cong: CongestionControl,
 }
 
 impl Connection {
@@ -182,6 +185,7 @@ impl Connection {
             rtt: RttEstimator::default(),
             // First data byte will be at IRS + 1 (the SYN consumed IRS).
             reasm: Reassembler::new(th.seq.wrapping_add(1)),
+            cong: CongestionControl::default(),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
@@ -219,6 +223,7 @@ impl Connection {
             rtt: RttEstimator::default(),
             // Placeholder base; rebased once the peer's ISN arrives in the SYN-ACK.
             reasm: Reassembler::new(0),
+            cong: CongestionControl::default(),
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
         let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
@@ -284,13 +289,29 @@ impl Connection {
             // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
             // out-of-window ack is ignored rather than blindly trusted — the defensive version
             // of the earlier "store whatever they sent".
-            if th.flags & ACK != 0 && seq::between(self.send.una, th.ack, self.send.nxt) {
-                self.send.una = th.ack;
-                // Drop everything the peer just acknowledged. If a freshly-acked segment was
-                // never retransmitted, its round trip (now − send time) is a valid RTT sample
-                // that adapts the RTO; retransmitted segments are skipped (Karn's algorithm).
-                if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
-                    self.rtt.sample(rtt_ms);
+            if th.flags & ACK != 0 {
+                if seq::between(self.send.una, th.ack, self.send.nxt) {
+                    // New data acknowledged: advance SND.UNA, drop what was acked, sample the RTT
+                    // (Karn's algorithm skips retransmitted segments), and grow the congestion
+                    // window (slow start / congestion avoidance, RFC 5681).
+                    let acked = th.ack.wrapping_sub(self.send.una);
+                    self.send.una = th.ack;
+                    if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
+                        self.rtt.sample(rtt_ms);
+                    }
+                    self.cong.on_ack(acked);
+                } else if th.ack == self.send.una
+                    && self.send.una != self.send.nxt
+                    && payload.is_empty()
+                {
+                    // Duplicate ACK: acknowledges no new data while data is still in flight. The
+                    // third in a row triggers fast retransmit — resend the oldest unacked segment
+                    // at once, without waiting for the RTO (RFC 5681 §3.2).
+                    if self.cong.on_dup_ack(self.flight_size()) {
+                        if let Some(pkt) = self.retx.fast_retransmit(now_ms) {
+                            return Some(pkt);
+                        }
+                    }
                 }
             }
 
@@ -396,16 +417,28 @@ impl Connection {
         {
             self.state = State::Closed;
         }
-        self.retx.due(now_ms, self.rtt.rto())
+        let due = self.retx.due(now_ms, self.rtt.rto());
+        if !due.is_empty() {
+            // The retransmission timer fired — the strongest congestion signal. Collapse cwnd to
+            // one segment and re-enter slow start (RFC 5681 §3.1).
+            let flight = self.flight_size();
+            self.cong.on_timeout(flight);
+        }
+        due
     }
 
-    /// Bytes we may still send without overrunning the peer's advertised window:
-    /// `SND.WND − (SND.NXT − SND.UNA)`. Saturates at 0 when the window is full. A bulk sender
-    /// would gate transmission on this; our echo server sends tiny segments well within it.
+    /// Bytes sent but not yet acknowledged — the "FlightSize" of RFC 5681 (`SND.NXT − SND.UNA`).
+    fn flight_size(&self) -> u32 {
+        self.send.nxt.wrapping_sub(self.send.una)
+    }
+
+    /// Bytes we may still send right now. Bounded by BOTH the receiver and the network: the
+    /// classic `min(SND.WND, cwnd) − FlightSize` (RFC 5681). Saturates at 0 when full. A bulk
+    /// sender would gate transmission on this; our echo server sends tiny segments well within it.
     #[allow(dead_code)]
     pub fn usable_window(&self) -> u32 {
-        let in_flight = self.send.nxt.wrapping_sub(self.send.una);
-        (self.send.wnd as u32).saturating_sub(in_flight)
+        let limit = (self.send.wnd as u32).min(self.cong.window());
+        limit.saturating_sub(self.flight_size())
     }
 
     #[cfg(test)]
@@ -568,6 +601,17 @@ impl RetxQueue {
             }
         }
         out
+    }
+
+    /// Resend the oldest unacknowledged segment immediately (fast retransmit, RFC 5681 §3.2).
+    /// Resets its timer and counts it as a retransmission so Karn's algorithm suppresses its
+    /// RTT sample. Returns the packet bytes to send, or `None` if nothing is outstanding.
+    pub fn fast_retransmit(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        self.segments.first_mut().map(|s| {
+            s.retries += 1;
+            s.sent_at_ms = now_ms;
+            s.packet.clone()
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -885,6 +929,35 @@ mod tests {
         assert_eq!(&echo[20 + eh.data_offset..], b"helo");
         assert_eq!(conn.rcv_nxt(), 105);
         assert_eq!(tcp_checksum(ME, PEER, &echo[20..]), 0, "TCP checksum invalid");
+    }
+
+    #[test]
+    fn three_dup_acks_fast_retransmit_the_oldest_segment() {
+        let th = parse(&syn_segment()).unwrap();
+        let (mut conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+
+        // We echo "hi" → it's now unacknowledged in flight (seq 1).
+        let data = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let echo = conn.on_packet_at(&data, b"hi", 0).expect("an echo");
+
+        // Three duplicate ACKs (each acks seq 1, no new data, no payload). The first two do
+        // nothing; the third fast-retransmits the oldest unacked segment — our echo — at once.
+        let dup = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&dup, &[], 1).is_none()); // 1st dup
+        assert!(conn.on_packet_at(&dup, &[], 2).is_none()); // 2nd dup
+        let resent = conn.on_packet_at(&dup, &[], 3).expect("fast retransmit"); // 3rd dup
+        assert_eq!(resent, echo);
     }
 
     #[test]

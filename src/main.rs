@@ -10,16 +10,17 @@
 //!   Day 7 — active close + TIME_WAIT (full RFC 9293 teardown, both sides)   (docs/day7-book.md)
 //!   Day 8 — flow control: track the peer's window + advertise our own       (docs/day8-book.md)
 //!   Day 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/day9-book.md)
-//! Lifecycle (open→transfer→close) works, retransmits lost data, times out adaptively
-//! (RFC 6298), closes from either side, honors the sliding window, and reassembles out-of-order
-//! data — all unit-tested. Remaining hardening (congestion control, a socket-style API) is the
-//! rest of Manual Phases 4–5; see docs/day9-book.md §12.
+//!   Day 10 — congestion control: slow start + AIMD + fast recovery (RFC 5681)(docs/day10-book.md)
+//! All of TCP's control loops now exist (reliability, flow, congestion) and are unit-tested.
+//! The remaining piece is the interface: a socket-style API (TcpListener/TcpStream) + a real
+//! send buffer so an app — not a hard-coded echo — drives the stack. See docs/day10-book.md §13.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
 //!
 //! Build/run/test: see the `tcp-stack-run` skill.  `cargo test` proves it offline.
 
+mod congestion; // congestion control: slow start + AIMD + fast recovery (used by tcp)
 mod icmp; // ICMP: parse + echo reply
 mod ip; // IPv4: parse + header checksum + (used by tcp) checksum writer
 mod reassembly; // out-of-order receive buffer (used by tcp)
