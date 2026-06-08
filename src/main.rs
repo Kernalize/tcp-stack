@@ -15,6 +15,7 @@
 //!   Day 12 — retransmit the control segments too: SYN, SYN-ACK, FIN (docs/day12-book.md)
 //!   Day 13 — Nagle's algorithm + TCP_NODELAY: coalesce small writes (docs/day13-book.md)
 //!   Day 14 — zero-window probes (persist timer): break the flow-control deadlock (docs/day14-book.md)
+//!   Day 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/day15-book.md)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
@@ -177,6 +178,8 @@ fn main() -> std::io::Result<()> {
             6 => {
                 if let Some(th) = tcp::parse(l4) {
                     let payload = &l4[th.data_offset.min(l4.len())..];
+                    // Day 15: the TCP options sit between the 20-byte fixed header and the data.
+                    let opts = tcp::parse_options(&l4[20..th.data_offset.min(l4.len())]);
                     println!(
                         "         └── TCP {} → {}  seq={} ack={} flags=[{}] win={}",
                         th.src_port,
@@ -196,7 +199,7 @@ fn main() -> std::io::Result<()> {
                         // Existing connection: let it advance its state machine.
                         Some(conn) => {
                             // Advance the state machine; send any ACK/control response.
-                            if let Some(out) = conn.on_packet_at(&th, payload, now_ms) {
+                            if let Some(out) = conn.on_segment(&th, payload, &opts, now_ms) {
                                 iface.send(&out)?;
                             }
                             // Application layer: read whatever was delivered in order and respond.
@@ -233,7 +236,7 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                         // New 4-tuple: a SYN opens a connection (passive open).
-                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th, now_ms) {
+                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms) {
                             Some((conn, synack)) => {
                                 iface.send(&synack)?;
                                 connections.insert(quad, conn);

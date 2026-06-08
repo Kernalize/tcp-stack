@@ -22,6 +22,67 @@ pub const PSH: u8 = 0x08;
 pub const ACK: u8 = 0x10;
 pub const URG: u8 = 0x20;
 
+// TCP option kinds (RFC 9293 §3.1, IANA "TCP Option Kind Numbers").
+const OPT_END: u8 = 0; // End of Option List (single byte)
+const OPT_NOP: u8 = 1; // No-Operation, used for alignment padding (single byte)
+const OPT_MSS: u8 = 2; // Maximum Segment Size (len 4), valid only on SYN segments
+
+/// The Maximum Segment Size we advertise — how big a segment WE are willing to *receive*. 1460 =
+/// 1500-byte interface MTU − 20 IP − 20 TCP (RFC 9293 §3.7.1). The peer's advertised MSS bounds how
+/// big a segment we may *send*; the effective send MSS is the smaller of the two. It coincides with
+/// the congestion module's MSS (same link), so we derive it rather than repeat the literal.
+pub const OUR_MSS: u16 = crate::congestion::MSS as u16;
+
+/// Default send MSS when the peer's SYN carried no MSS option. RFC 9293 §3.7.1 specifies 536 for
+/// IPv4, but every real peer advertises one; we default to OUR_MSS so our synthetic, option-less
+/// test SYNs still segment at full size. (Documented deviation; see docs/day15-book.md.)
+const DEFAULT_SEND_MSS: u16 = OUR_MSS;
+
+/// Parsed TCP options. Extended over the coming days (timestamps, window scale, SACK); for now it
+/// carries the peer's advertised MSS, present only on SYN segments.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TcpOptions {
+    pub mss: Option<u16>,
+}
+
+/// Parse the TCP options area — the bytes between the 20-byte fixed header and the data
+/// (`segment[20..data_offset]`). Walks kind/length-prefixed options, tolerating padding (NOP),
+/// the end marker, and malformed/truncated lengths (stop, don't panic). Unknown kinds are skipped
+/// by their length. RFC 9293 §3.1.
+pub fn parse_options(opts: &[u8]) -> TcpOptions {
+    let mut out = TcpOptions::default();
+    let mut i = 0;
+    while i < opts.len() {
+        match opts[i] {
+            OPT_END => break,        // no more options
+            OPT_NOP => i += 1,       // single-byte padding
+            kind => {
+                // Length-prefixed option: [kind, len, data…]; `len` counts the kind + len bytes too.
+                if i + 1 >= opts.len() {
+                    break; // truncated: a kind with no length byte
+                }
+                let len = opts[i + 1] as usize;
+                if len < 2 || i + len > opts.len() {
+                    break; // malformed/overlong length → stop parsing defensively
+                }
+                let data = &opts[i + 2..i + len];
+                if kind == OPT_MSS && data.len() == 2 {
+                    out.mss = Some(u16::from_be_bytes([data[0], data[1]]));
+                }
+                i += len;
+            }
+        }
+    }
+    out
+}
+
+/// The 4-byte MSS option blob `[kind=2, len=4, value_hi, value_lo]` — already 4-byte aligned, so it
+/// can be handed straight to `build_packet`.
+fn mss_option(mss: u16) -> [u8; 4] {
+    let v = mss.to_be_bytes();
+    [OPT_MSS, 4, v[0], v[1]]
+}
+
 /// A connection is identified by both endpoints. `remote` is the packet's source (the
 /// client); `local` is its destination (us). Used as the connection-table key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,6 +215,9 @@ pub struct Connection {
     /// or 0 when disarmed. Armed when the peer's window is shut with data pending and nothing in
     /// flight; firing pokes one byte into the closed window so a lost window-update can't deadlock us.
     persist_ms: u64,
+    /// Effective send MSS (Day 15): the largest payload we put in one segment, = min(OUR_MSS, the
+    /// peer's advertised MSS). Learned from the peer's SYN (RFC 9293 §3.7.1); bounds `poll_transmit`.
+    send_mss: u16,
 }
 
 impl Connection {
@@ -173,9 +237,10 @@ impl Connection {
         ip_src: Ipv4Addr,
         ip_dst: Ipv4Addr,
         th: &TcpHeader,
+        opts: &TcpOptions,
         now_ms: u64,
     ) -> Option<(Connection, Vec<u8>)> {
-        Self::accept_with_iss_at(ip_src, ip_dst, th, rand::random::<u32>(), now_ms)
+        Self::accept_with_iss_at(ip_src, ip_dst, th, opts, rand::random::<u32>(), now_ms)
     }
 
     /// Deterministic-ISS passive open for tests (records the SYN-ACK as if sent at t=0, which is
@@ -187,16 +252,17 @@ impl Connection {
         th: &TcpHeader,
         iss: u32,
     ) -> Option<(Connection, Vec<u8>)> {
-        Self::accept_with_iss_at(ip_src, ip_dst, th, iss, 0)
+        Self::accept_with_iss_at(ip_src, ip_dst, th, &TcpOptions::default(), iss, 0)
     }
 
     /// Passive open with a caller-chosen initial send sequence number (ISS) and send time. `accept`
     /// wraps this with a random ISS; tests pass a fixed ISS so the handshake's seq/ack numbers are
-    /// predictable.
+    /// predictable. `opts` carries the peer's SYN options (its advertised MSS).
     pub fn accept_with_iss_at(
         ip_src: Ipv4Addr,
         ip_dst: Ipv4Addr,
         th: &TcpHeader,
+        opts: &TcpOptions,
         iss: u32,
         now_ms: u64,
     ) -> Option<(Connection, Vec<u8>)> {
@@ -224,10 +290,14 @@ impl Connection {
             recv_buf: Vec::new(),
             nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
             persist_ms: 0, // persist timer disarmed until a zero window blocks pending data
+            // Day 15: the most we may send the peer per segment = min(our MSS, the MSS it advertised
+            // in its SYN). If it advertised none, fall back to our own (see DEFAULT_SEND_MSS).
+            send_mss: opts.mss.map_or(DEFAULT_SEND_MSS, |m| m.min(OUR_MSS)),
         };
 
-        // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1).
-        let synack = conn.segment(conn.send.iss, conn.recv.nxt, SYN | ACK, &[]);
+        // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
+        // OUR MSS option — what we are willing to receive (Day 15, RFC 9293 §3.7.1).
+        let synack = conn.segment_opts(conn.send.iss, conn.recv.nxt, SYN | ACK, &mss_option(OUR_MSS), &[]);
         // Day 12: the SYN-ACK consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it for
         // retransmission so a lost SYN-ACK is resent on RTO instead of hanging the handshake — the
         // peer's final ACK clears it (RFC 9293 §3.8.1).
@@ -272,9 +342,11 @@ impl Connection {
             recv_buf: Vec::new(),
             nagle: true, // Nagle on by default (RFC 9293 §3.7.4); TCP_NODELAY clears it
             persist_ms: 0, // persist timer disarmed until a zero window blocks pending data
+            // Day 15: until the SYN-ACK reveals the peer's MSS, segment at our own (updated below).
+            send_mss: DEFAULT_SEND_MSS,
         };
-        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet).
-        let syn = conn.segment(conn.send.iss, 0, SYN, &[]);
+        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option.
+        let syn = conn.segment_opts(conn.send.iss, 0, SYN, &mss_option(OUR_MSS), &[]);
         // Day 12: the SYN consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it so a
         // lost SYN is resent on RTO; the peer's SYN-ACK clears it (RFC 9293 §3.8.1).
         conn.retx.record(conn.send.nxt, syn.clone(), now_ms);
@@ -304,9 +376,23 @@ impl Connection {
         self.on_packet_at(th, payload, 0)
     }
 
-    /// Time-aware packet handler: `now_ms` lets sent data be queued for retransmission and
-    /// incoming ACKs clear the queue. Returns bytes to send back, if any.
+    /// Time-aware packet handler with no segment options — a thin wrapper over `on_segment` for
+    /// callers/tests that don't carry options. `now_ms` lets sent data be queued for retransmission
+    /// and incoming ACKs clear the queue. Returns bytes to send back, if any.
     pub fn on_packet_at(&mut self, th: &TcpHeader, payload: &[u8], now_ms: u64) -> Option<Vec<u8>> {
+        self.on_segment(th, payload, &TcpOptions::default(), now_ms)
+    }
+
+    /// Full segment handler: like `on_packet_at` but also given the parsed TCP `options`, so the
+    /// state machine can learn the peer's MSS (Day 15) and, later, timestamps / SACK blocks. `main`
+    /// calls this with the options parsed off the wire.
+    pub fn on_segment(
+        &mut self,
+        th: &TcpHeader,
+        payload: &[u8],
+        opts: &TcpOptions,
+        now_ms: u64,
+    ) -> Option<Vec<u8>> {
         // Active open: we sent a SYN and are waiting for the peer's SYN-ACK.
         if self.state == State::SynSent {
             // Accept the SYN-ACK only if it acknowledges our SYN (ack == SND.NXT).
@@ -315,6 +401,10 @@ impl Connection {
                 self.recv.nxt = th.seq.wrapping_add(1);
                 self.reasm = Reassembler::new(self.recv.nxt); // now we know the peer's ISN
                 self.send.una = th.ack;
+                // Day 15: learn the peer's MSS from its SYN-ACK; bound our send segments by it.
+                if let Some(mss) = opts.mss {
+                    self.send_mss = mss.min(OUR_MSS);
+                }
                 // Day 12: the SYN-ACK acknowledges our SYN — drop it from the retx queue (no RTT
                 // sample: a handshake segment can be ambiguous and isn't fed to the estimator here).
                 let _ = self.retx.ack(self.send.una, now_ms);
@@ -563,7 +653,7 @@ impl Connection {
         if self.state != State::Established {
             return out;
         }
-        let mss = crate::congestion::MSS as usize;
+        let mss = self.send_mss as usize; // Day 15: the negotiated send MSS, not a fixed constant
         while !self.send_buf.is_empty() {
             let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
             if n == 0 {
@@ -606,12 +696,23 @@ impl Connection {
     /// window is *our* receive window (`RCV.WND`) — how much WE can accept — never `send.wnd`,
     /// which is the peer's window and bounds only how much we may send.
     fn segment(&self, seq: u32, ack: u32, flags: u8, payload: &[u8]) -> Vec<u8> {
-        build_packet(self.local, self.remote, seq, ack, flags, self.recv.wnd, payload)
+        self.segment_opts(seq, ack, flags, &[], payload)
+    }
+
+    /// `segment` with explicit TCP options (must be 4-byte aligned). Used by the SYN/SYN-ACK path to
+    /// carry the MSS option (Day 15) and, later, timestamps / window scale / SACK-permitted.
+    fn segment_opts(&self, seq: u32, ack: u32, flags: u8, options: &[u8], payload: &[u8]) -> Vec<u8> {
+        build_packet(self.local, self.remote, seq, ack, flags, self.recv.wnd, options, payload)
     }
 }
 
-/// Build a complete IPv4 + TCP packet (no options on either header). This is the first time
-/// we synthesize headers from scratch rather than mutating a received packet.
+/// Build a complete IPv4 + TCP packet. `options` is the raw TCP-options blob, which **must already
+/// be padded to a 4-byte boundary** (the data offset counts 32-bit words); pass `&[]` for the
+/// common no-options case. This is the first time we synthesize headers from scratch rather than
+/// mutating a received packet.
+// A header builder genuinely needs each wire field as an argument; bundling them into a struct would
+// just move the noise. The two callers (`segment_opts`, `build_rst`) keep it readable.
+#[allow(clippy::too_many_arguments)]
 fn build_packet(
     src: (Ipv4Addr, u16),
     dst: (Ipv4Addr, u16),
@@ -619,12 +720,15 @@ fn build_packet(
     ack: u32,
     flags: u8,
     window: u16,
+    options: &[u8],
     payload: &[u8],
 ) -> Vec<u8> {
     let (src_ip, src_port) = src;
     let (dst_ip, dst_port) = dst;
 
-    let tcp_len = 20 + payload.len(); // TCP header (no options) + data
+    debug_assert!(options.len().is_multiple_of(4), "TCP options must be 4-byte aligned");
+    let tcp_hdr_len = 20 + options.len(); // fixed header + options
+    let tcp_len = tcp_hdr_len + payload.len(); // header + options + data
     let total_len = 20 + tcp_len; // IP header + TCP segment
     let mut pkt = vec![0u8; total_len];
 
@@ -638,17 +742,19 @@ fn build_packet(
     pkt[16..20].copy_from_slice(&dst_ip.octets());
     ip::write_header_checksum(&mut pkt[..20]); // sets bytes 10..12
 
-    // ── TCP header (bytes 20..40) + payload (40..) ──
+    // ── TCP header (bytes 20..20+tcp_hdr_len) + payload ──
     let t = 20;
     pkt[t..t + 2].copy_from_slice(&src_port.to_be_bytes());
     pkt[t + 2..t + 4].copy_from_slice(&dst_port.to_be_bytes());
     pkt[t + 4..t + 8].copy_from_slice(&seq.to_be_bytes());
     pkt[t + 8..t + 12].copy_from_slice(&ack.to_be_bytes());
-    pkt[t + 12] = 5 << 4; // data offset = 5 words (20 bytes); reserved bits 0
+    // Data offset = (20 + options) / 4 words, in the high nibble of byte 12; reserved bits 0.
+    pkt[t + 12] = ((tcp_hdr_len / 4) as u8) << 4;
     pkt[t + 13] = flags;
     pkt[t + 14..t + 16].copy_from_slice(&window.to_be_bytes());
     // checksum (t+16..t+18) and urgent pointer (t+18..t+20) left zero for now
-    pkt[t + 20..].copy_from_slice(payload);
+    pkt[t + 20..t + 20 + options.len()].copy_from_slice(options);
+    pkt[t + tcp_hdr_len..].copy_from_slice(payload);
 
     // TCP checksum covers a PSEUDO-HEADER (src/dst IP, proto, length) + the TCP segment.
     // The checksum field is currently zero, which is required while computing it.
@@ -688,7 +794,7 @@ pub fn build_rst(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, payload_len
         (0, th.seq.wrapping_add(seg_len), RST | ACK)
     };
     // src = us (the offending packet's destination), dst = the offending source. Window 0.
-    build_packet((ip_dst, th.dst_port), (ip_src, th.src_port), seq, ack, flags, 0, &[])
+    build_packet((ip_dst, th.dst_port), (ip_src, th.src_port), seq, ack, flags, 0, &[], &[])
 }
 
 /// One sent-but-unacknowledged segment, kept so we can resend it if its ACK never comes.
@@ -815,7 +921,7 @@ mod tests {
         let (conn, synack) = Connection::accept_with_iss(PEER, ME, &th, 0).expect("a SYN-ACK");
 
         assert_eq!(conn.state(), State::SynRcvd);
-        assert_eq!(synack.len(), 40); // 20 IP + 20 TCP, no payload
+        assert_eq!(synack.len(), 44); // 20 IP + 24 TCP (20 fixed + 4-byte MSS option), no payload
 
         // IP layer: addresses swapped, valid header checksum.
         let iph = ip::parse(&synack).unwrap();
@@ -824,15 +930,20 @@ mod tests {
         assert_eq!(iph.protocol, 6);
         assert_eq!(utils::checksum(&synack[..20]), 0, "IP checksum invalid");
 
-        // TCP layer: SYN|ACK, our seq = ISS (0), ack = client_seq + 1 = 101.
+        // TCP layer: SYN|ACK, our seq = ISS (0), ack = client_seq + 1 = 101, data offset 24 (options).
         let th2 = parse(&synack[20..]).unwrap();
         assert_eq!(th2.flags, SYN | ACK);
         assert_eq!(th2.seq, 0); // ISS
         assert_eq!(th2.ack, 101); // 100 + 1
         assert_eq!(th2.src_port, 80);
         assert_eq!(th2.dst_port, 0x1234);
+        assert_eq!(th2.data_offset, 24); // 20-byte fixed header + 4-byte MSS option
 
-        // TCP checksum must verify to 0 (includes the pseudo-header).
+        // The SYN-ACK advertises OUR receive MSS (Day 15).
+        let emitted = parse_options(&synack[20 + 20..20 + th2.data_offset]);
+        assert_eq!(emitted.mss, Some(OUR_MSS));
+
+        // TCP checksum must verify to 0 (includes the pseudo-header AND the option bytes).
         assert_eq!(tcp_checksum(ME, PEER, &synack[20..]), 0, "TCP checksum invalid");
     }
 
@@ -983,7 +1094,7 @@ mod tests {
         let mut seg = syn_segment();
         seg[13] = ACK; // an ACK to a closed connection is not a valid open
         let th = parse(&seg).unwrap();
-        assert!(Connection::accept(PEER, ME, &th, 0).is_none());
+        assert!(Connection::accept(PEER, ME, &th, &TcpOptions::default(), 0).is_none());
     }
 
     #[test]
@@ -1538,5 +1649,82 @@ mod tests {
         for _ in 0..3 {
             assert!(conn.on_packet_at(&zero, &[], 0).is_none(), "zero-window re-ack must not be a dup ACK");
         }
+    }
+
+    // ── Day 15: MSS option + outgoing segmentation ──
+
+    #[test]
+    fn parse_options_handles_mss_nop_eol_and_malformed() {
+        // NOP, NOP, MSS=1460 (0x05b4), End-of-Options, then trailing garbage (ignored after EOL).
+        let bytes = [OPT_NOP, OPT_NOP, OPT_MSS, 4, 0x05, 0xb4, OPT_END, 0xff];
+        assert_eq!(parse_options(&bytes).mss, Some(1460));
+        // No options at all.
+        assert_eq!(parse_options(&[]).mss, None);
+        // Truncated MSS (length says 4 but only 1 value byte present) → ignored, no panic.
+        assert_eq!(parse_options(&[OPT_MSS, 4, 0x05]).mss, None);
+        // A zero length is malformed → parsing stops without looping forever.
+        assert_eq!(parse_options(&[OPT_MSS, 0, 1, 2]).mss, None);
+    }
+
+    #[test]
+    fn synack_advertises_our_mss_and_negotiates_send_mss() {
+        let th = parse(&syn_segment()).unwrap();
+        // The peer's SYN advertised a 600-byte MSS.
+        let opts = TcpOptions { mss: Some(600) };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+
+        // We advertise OUR receive MSS in the SYN-ACK…
+        let h = parse(&synack[20..]).unwrap();
+        let emitted = parse_options(&synack[20 + 20..20 + h.data_offset]);
+        assert_eq!(emitted.mss, Some(OUR_MSS));
+        // …and our *send* MSS becomes min(OUR_MSS, peer's 600) = 600.
+        assert_eq!(conn.send_mss, 600);
+    }
+
+    #[test]
+    fn missing_peer_mss_falls_back_to_default() {
+        // syn_segment() carries no options → no peer MSS → we segment at the default (OUR_MSS).
+        let th = parse(&syn_segment()).unwrap();
+        let (conn, _s) = Connection::accept_with_iss(PEER, ME, &th, 0).unwrap();
+        assert_eq!(conn.send_mss, DEFAULT_SEND_MSS);
+    }
+
+    #[test]
+    fn outgoing_data_is_segmented_to_negotiated_mss() {
+        // The peer advertised a small 500-byte MSS, so our segments are capped at 500 — not the
+        // 1460 congestion MSS — even though cwnd (1·1460) would allow a bigger one.
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { mss: Some(500) };
+        let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+
+        conn.write(&vec![b'x'; 1200]);
+        let segs = conn.poll_transmit(0);
+        // cwnd=1460 admits 1000 bytes of in-flight here → two 500-byte segments; the 200-byte tail
+        // is held by Nagle (sub-MSS with data in flight), confirming the MSS bound.
+        assert_eq!(segs.len(), 2);
+        assert_eq!(payload_of(&segs[0]).len(), 500);
+        assert_eq!(payload_of(&segs[1]).len(), 500);
+    }
+
+    #[test]
+    fn active_open_learns_peer_mss_from_synack() {
+        let (mut conn, _syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        assert_eq!(conn.send_mss, DEFAULT_SEND_MSS); // unknown until the SYN-ACK
+
+        // The peer's SYN-ACK advertises a 700-byte MSS; on_segment learns it.
+        let synack = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 900, ack: 1,
+            data_offset: 24, flags: SYN | ACK, window: 0xffff,
+        };
+        let opts = TcpOptions { mss: Some(700) };
+        conn.on_segment(&synack, &[], &opts, 0);
+        assert_eq!(conn.state(), State::Established);
+        assert_eq!(conn.send_mss, 700);
     }
 }
