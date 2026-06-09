@@ -7,9 +7,9 @@ the protocol work — and implements enough of TCP (RFC 9293 + 6298 + 5681) that
 retransmission, flow control, out-of-order reassembly, congestion control, and clean teardown.
 
 It is also a **teaching project**: every feature ships with a heavily-commented reference module
-and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day11-book.md`).
+and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
-> Status: the full TCP **connection lifecycle** is implemented and unit-tested (61 tests, offline).
+> Status: the full TCP **connection lifecycle** is implemented and unit-tested (101 tests, offline).
 > What's *not* done is breadth/robustness hardening and live conformance/throughput testing — see
 > [Limitations](#limitations).
 
@@ -28,6 +28,13 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day11-book.m
 | 9 | Out-of-order **reassembly** (buffer + deliver contiguous) | 9293 | day9 |
 | 10 | **Congestion control**: slow start, AIMD, fast retransmit/recovery | 5681 | day10 |
 | 11 | Socket-style read/write API + send buffer + tiny **HTTP/1.0** server | 9293 | day11 |
+| 12 | Retransmit control segments (SYN, SYN-ACK, FIN) + exponential RTO backoff | 9293 / 6298 | day12 |
+| 13 | **Nagle's algorithm** + the `TCP_NODELAY` escape hatch | 896 / 9293 | day13 |
+| 14 | **Zero-window probes** (the persist timer) | 9293 | day14 |
+| 15 | **TCP options** framework + **MSS** negotiation | 9293 | day15 |
+| 16 | **Timestamps**: per-ACK RTT measurement + PAWS | 7323 | day16 |
+| 17 | **Window scaling** (SND.WND widened to 32 bits) | 7323 | day17 |
+| 18 | **SACK**: selective-ACK blocks + hole-only retransmission | 2018 | day18 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -61,8 +68,9 @@ artifacts go to a native-fs target dir (see `.cargo/config.toml`) so `setcap` wo
 
 ```bash
 # Verify correctness offline — no sudo, no TUN, no network:
-cargo test          # 61 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
-                    # reassembly, retransmission, and a differential check against `etherparse`
+cargo test          # 101 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
+                    # reassembly, retransmission, options (MSS/timestamps/wscale/SACK), and a
+                    # differential check against `etherparse`
 cargo clippy        # clean
 ```
 
@@ -92,9 +100,10 @@ sudo tc qdisc del dev tun0 root
 This is a correct, tested *core*, not a production stack. Not yet implemented (all are genuine
 TCP features, several are exercises in the day-books):
 
-- **Hardening:** SYN/FIN retransmission (only data is queued today), zero-window probes, window
-  scaling + timestamps (RFC 7323), SACK (RFC 2018), RFC 5961 RST validation, distinct CLOSE_WAIT,
-  half-close, MSS option negotiation, NewReno/CUBIC.
+- **Hardening:** RFC 5961 in-window RST/SYN validation, a distinct CLOSE_WAIT (today we fuse it
+  with the FIN-ACK on the echo path), half-close, and modern congestion control (NewReno/CUBIC —
+  we ship RFC 5681 Reno). SACK uses the pragmatic "skip SACKed ranges, resend only the holes" of
+  RFC 2018, not the full RFC 6675 scoreboard/pipe estimator.
 - **A blocking `TcpListener`/`TcpStream`** facade and multi-request/keep-alive HTTP.
 - **Live conformance + load testing:** `packetdrill` against the kernel, `iperf3` throughput under
   `tc netem`, profiling/flamegraphs (needs sudo/TUN and live runs).
@@ -103,6 +112,6 @@ TCP features, several are exercises in the day-books):
 
 ## Learning OS
 
-This repo follows a "from scratch" learning discipline (see `.claude/skills/`): the cores are meant
+This repo follows a "from scratch" learning discipline: the cores are meant
 to be hand-typed, with the `docs/*-book.md` chapters as the guide. Each book ends with a
 blank-file rebuild checklist and exercises.
