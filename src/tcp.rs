@@ -26,7 +26,14 @@ pub const URG: u8 = 0x20;
 const OPT_END: u8 = 0; // End of Option List (single byte)
 const OPT_NOP: u8 = 1; // No-Operation, used for alignment padding (single byte)
 const OPT_MSS: u8 = 2; // Maximum Segment Size (len 4), valid only on SYN segments
+const OPT_WS: u8 = 3; //  Window Scale (len 3): a 1-byte shift count (RFC 7323 §2)
 const OPT_TS: u8 = 8; //  Timestamps (len 10): TSval + TSecr (RFC 7323 §3)
+
+/// The window-scale shift WE advertise. Our receive buffer is small (1 KB), so we don't need to
+/// scale our *own* window — but we still send the option (shift 0) so scaling is negotiated and we
+/// may honor the peer's much larger window. RFC 7323 §2.2 caps the shift at 14.
+const OUR_RCV_WSCALE: u8 = 0;
+const MAX_WSCALE: u8 = 14;
 
 /// The Maximum Segment Size we advertise — how big a segment WE are willing to *receive*. 1460 =
 /// 1500-byte interface MTU − 20 IP − 20 TCP (RFC 9293 §3.7.1). The peer's advertised MSS bounds how
@@ -45,6 +52,8 @@ const DEFAULT_SEND_MSS: u16 = OUR_MSS;
 pub struct TcpOptions {
     pub mss: Option<u16>,
     pub timestamps: Option<(u32, u32)>,
+    /// Window-scale shift the peer advertised (SYN only), clamped to 14 (RFC 7323 §2.3).
+    pub window_scale: Option<u8>,
 }
 
 /// Parse the TCP options area — the bytes between the 20-byte fixed header and the data
@@ -75,6 +84,9 @@ pub fn parse_options(opts: &[u8]) -> TcpOptions {
                     let tsval = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
                     let tsecr = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
                     out.timestamps = Some((tsval, tsecr));
+                } else if kind == OPT_WS && data.len() == 1 {
+                    // Window Scale: a single shift byte, capped at 14 (RFC 7323 §2.3).
+                    out.window_scale = Some(data[0].min(MAX_WSCALE));
                 }
                 i += len;
             }
@@ -88,6 +100,12 @@ pub fn parse_options(opts: &[u8]) -> TcpOptions {
 fn mss_option(mss: u16) -> [u8; 4] {
     let v = mss.to_be_bytes();
     [OPT_MSS, 4, v[0], v[1]]
+}
+
+/// The Window Scale option blob (RFC 7323 §2), padded to 4 bytes with one leading NOP —
+/// `[NOP, kind=3, len=3, shift]`. The shift applies to the *advertiser's* window field.
+fn ws_option(shift: u8) -> [u8; 4] {
+    [OPT_NOP, OPT_WS, 3, shift]
 }
 
 /// The Timestamps option blob (RFC 7323 §3), padded to 12 bytes (a 4-byte boundary) with two
@@ -185,7 +203,9 @@ pub fn flags_str(flags: u8) -> String {
 struct SendSequence {
     una: u32, // oldest unacknowledged sequence number
     nxt: u32, // next sequence number we'll send
-    wnd: u16, // our send window (advertised by the peer)
+    // The peer's advertised window, already left-shifted by its window scale (Day 17). It is `u32`,
+    // not `u16`, because window scaling can stretch it past 64 KB up to ~1 GB (RFC 7323 §2).
+    wnd: u32,
     iss: u32, // our initial send sequence number
 }
 
@@ -247,6 +267,10 @@ pub struct Connection {
     /// Our timestamp clock (ms), refreshed from `now_ms` at every time-aware entry point and written
     /// as TSval. The peer echoes it back as TSecr, letting us measure RTT on every ACK.
     ts_val: u32,
+    /// The peer's window-scale shift (Day 17, RFC 7323 §2): we left-shift its advertised window field
+    /// by this to recover the true `SND.WND`. 0 when window scaling wasn't negotiated, so the shift
+    /// is a no-op and the field is taken literally.
+    snd_wscale: u8,
 }
 
 impl Connection {
@@ -299,12 +323,12 @@ impl Connection {
             return None;
         }
 
-        let wnd = 1024;
+        let wnd: u16 = 1024;
 
         let mut conn = Connection {
             state: State::SynRcvd,
-            // A SYN consumes one sequence number, so nxt = iss + 1.
-            send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd },
+            // A SYN consumes one sequence number, so nxt = iss + 1. SND.WND is u32 (window scaling).
+            send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd: wnd as u32 },
             // We expect the peer's next byte to be its SYN's seq + 1.
             recv: RecvSequence { irs: th.seq, nxt: th.seq.wrapping_add(1), wnd },
             local: (ip_dst, th.dst_port),
@@ -327,12 +351,18 @@ impl Connection {
             ts_enabled: opts.timestamps.is_some(),
             ts_recent: opts.timestamps.map_or(0, |(tsval, _)| tsval),
             ts_val: now_ms as u32,
+            // Day 17: window scaling negotiates per-direction. We left-shift the peer's window field
+            // by the shift it advertised; 0 (no scaling) if its SYN carried no window-scale option.
+            snd_wscale: opts.window_scale.unwrap_or(0),
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
-        // OUR MSS option (Day 15) and — only if the peer offered them — the Timestamps option,
-        // echoing the peer's SYN TSval (Day 16, RFC 7323).
+        // OUR MSS option (Day 15), and — only if the peer offered each — a Window Scale option
+        // (Day 17) and the Timestamps option echoing the peer's SYN TSval (Day 16, RFC 7323).
         let mut synack_opts = mss_option(OUR_MSS).to_vec();
+        if opts.window_scale.is_some() {
+            synack_opts.extend_from_slice(&ws_option(OUR_RCV_WSCALE));
+        }
         if conn.ts_enabled {
             synack_opts.extend_from_slice(&ts_option(conn.ts_val, conn.ts_recent));
         }
@@ -363,10 +393,10 @@ impl Connection {
         iss: u32,
         now_ms: u64,
     ) -> (Connection, Vec<u8>) {
-        let wnd = 1024;
+        let wnd: u16 = 1024;
         let mut conn = Connection {
             state: State::SynSent,
-            send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd },
+            send: SendSequence { iss, una: iss, nxt: iss.wrapping_add(1), wnd: wnd as u32 },
             // The peer's sequence space is unknown until its SYN-ACK arrives.
             recv: RecvSequence { irs: 0, nxt: 0, wnd },
             local,
@@ -388,10 +418,14 @@ impl Connection {
             ts_enabled: false,
             ts_recent: 0,
             ts_val: now_ms as u32,
+            // Day 17: learned from the SYN-ACK's window-scale option (0 until then = no scaling).
+            snd_wscale: 0,
         };
-        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option and a
-        // Timestamps option offering RTTM/PAWS (TSecr = 0 — we have nothing to echo yet).
+        // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
+        // Window Scale option (Day 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
+        // have nothing to echo yet).
         let mut syn_opts = mss_option(OUR_MSS).to_vec();
+        syn_opts.extend_from_slice(&ws_option(OUR_RCV_WSCALE));
         syn_opts.extend_from_slice(&ts_option(conn.ts_val, 0));
         let syn = conn.segment_opts(conn.send.iss, 0, SYN, &syn_opts, &[]);
         // Day 12: the SYN consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it so a
@@ -461,6 +495,10 @@ impl Connection {
                     self.ts_enabled = true;
                     self.ts_recent = tsval;
                 }
+                // Day 17: adopt the peer's window scale from its SYN-ACK (we offered ours in the SYN).
+                if let Some(shift) = opts.window_scale {
+                    self.snd_wscale = shift;
+                }
                 // Day 12: the SYN-ACK acknowledges our SYN — drop it from the retx queue (no RTT
                 // sample: a handshake segment can be ambiguous and isn't fed to the estimator here).
                 let _ = self.retx.ack(self.send.una, now_ms);
@@ -503,11 +541,13 @@ impl Connection {
             }
 
             // Flow control: track the peer's advertised receive window so we never send more
-            // unacknowledged data than it can hold (RFC 9293 §3.4). SND.WND was previously stuck
-            // at our own init value and never updated — this is the fix. Keep the prior value so
-            // the duplicate-ACK test below can tell a real dup from a pure window update (Day 14).
+            // unacknowledged data than it can hold (RFC 9293 §3.4). The 16-bit window field is
+            // left-shifted by the peer's negotiated window scale (Day 17) to recover the true
+            // SND.WND. Keep the prior value so the duplicate-ACK test below can tell a real dup from
+            // a pure window update (Day 14).
             let prev_wnd = self.send.wnd;
-            self.send.wnd = th.window;
+            let new_wnd = (th.window as u32) << self.snd_wscale;
+            self.send.wnd = new_wnd;
 
             // Advance SND.UNA only if the ack is *acceptable*: SND.UNA < ACK <= SND.NXT, on the
             // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
@@ -536,8 +576,8 @@ impl Connection {
                 } else if th.ack == self.send.una
                     && self.send.una != self.send.nxt
                     && payload.is_empty()
-                    && th.window == prev_wnd
-                    && th.window != 0
+                    && new_wnd == prev_wnd
+                    && new_wnd != 0
                 {
                     // Duplicate ACK (RFC 5681 §2, all four conditions): acks no new data, carries no
                     // data, data is still in flight, AND the window is unchanged — so this is a
@@ -701,7 +741,7 @@ impl Connection {
     /// Bytes we may still send right now. Bounded by BOTH the receiver and the network: the
     /// classic `min(SND.WND, cwnd) − FlightSize` (RFC 5681). Saturates at 0 when the window is full.
     pub fn usable_window(&self) -> u32 {
-        let limit = (self.send.wnd as u32).min(self.cong.window());
+        let limit = self.send.wnd.min(self.cong.window());
         limit.saturating_sub(self.flight_size())
     }
 
@@ -1832,7 +1872,7 @@ mod tests {
     #[test]
     fn timestamps_negotiated_and_synack_echoes_peer() {
         let th = parse(&syn_segment()).unwrap();
-        let opts = TcpOptions { mss: Some(1460), timestamps: Some((5000, 0)) };
+        let opts = TcpOptions { mss: Some(1460), timestamps: Some((5000, 0)), ..Default::default() };
         let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 100).unwrap();
         assert!(conn.ts_enabled);
 
@@ -1847,7 +1887,7 @@ mod tests {
     #[test]
     fn timestamps_disabled_when_peer_does_not_offer() {
         let th = parse(&syn_segment()).unwrap();
-        let opts = TcpOptions { mss: Some(1460), timestamps: None };
+        let opts = TcpOptions { mss: Some(1460), timestamps: None, ..Default::default() };
         let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
         assert!(!conn.ts_enabled);
         let h = parse(&synack[20..]).unwrap();
@@ -1857,13 +1897,13 @@ mod tests {
     /// Establish a timestamps-enabled connection (peer SYN TSval = `peer_ts`), handshake at t=0.
     fn established_ts_conn(peer_ts: u32) -> Connection {
         let th = parse(&syn_segment()).unwrap();
-        let opts = TcpOptions { mss: Some(1460), timestamps: Some((peer_ts, 0)) };
+        let opts = TcpOptions { mss: Some(1460), timestamps: Some((peer_ts, 0)), ..Default::default() };
         let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
         let hs_ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: ACK, window: 0xffff,
         };
-        let ack_opts = TcpOptions { mss: None, timestamps: Some((peer_ts, 0)) };
+        let ack_opts = TcpOptions { mss: None, timestamps: Some((peer_ts, 0)), ..Default::default() };
         conn.on_segment(&hs_ack, &[], &ack_opts, 0);
         assert_eq!(conn.state(), State::Established);
         conn
@@ -1882,7 +1922,7 @@ mod tests {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 3,
             data_offset: 20, flags: ACK, window: 0xffff,
         };
-        let ack_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)) };
+        let ack_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)), ..Default::default() };
         conn.on_segment(&ack, &[], &ack_opts, 120);
 
         // Sample R = 120 − 0 = 120 → first sample → SRTT 120, RTTVAR 60 → RTO = 120 + 4·60 = 360.
@@ -1900,7 +1940,7 @@ mod tests {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: PSH | ACK, window: 0xffff,
         };
-        let old_opts = TcpOptions { mss: None, timestamps: Some((4000, 0)) };
+        let old_opts = TcpOptions { mss: None, timestamps: Some((4000, 0)), ..Default::default() };
         let resp = conn.on_segment(&old, b"XX", &old_opts, 10).expect("a current ACK");
         assert_eq!(parse(&resp[20..]).unwrap().ack, 101); // RCV.NXT unmoved
         assert_eq!(conn.take_received(), b""); // nothing delivered
@@ -1910,7 +1950,7 @@ mod tests {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: PSH | ACK, window: 0xffff,
         };
-        let fresh_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)) };
+        let fresh_opts = TcpOptions { mss: None, timestamps: Some((5002, 0)), ..Default::default() };
         conn.on_segment(&fresh, b"hi", &fresh_opts, 20);
         assert_eq!(conn.take_received(), b"hi");
     }
@@ -1925,5 +1965,70 @@ mod tests {
         let h = parse(&segs[0][20..]).unwrap();
         let emitted = parse_options(&segs[0][20 + 20..20 + h.data_offset]);
         assert_eq!(emitted.timestamps, Some((7, 5000)));
+    }
+
+    // ── Day 17: window scaling ──
+
+    #[test]
+    fn parse_options_reads_and_clamps_window_scale() {
+        assert_eq!(parse_options(&[OPT_WS, 3, 7]).window_scale, Some(7));
+        // A shift above 14 is clamped to 14 (RFC 7323 §2.3).
+        assert_eq!(parse_options(&[OPT_WS, 3, 20]).window_scale, Some(MAX_WSCALE));
+        // Wrong length → not a valid window-scale option.
+        assert_eq!(parse_options(&[OPT_WS, 4, 7, 0]).window_scale, None);
+    }
+
+    #[test]
+    fn synack_offers_window_scale_when_peer_does() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { window_scale: Some(8), ..Default::default() };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert_eq!(conn.snd_wscale, 8);
+        let h = parse(&synack[20..]).unwrap();
+        let emitted = parse_options(&synack[20 + 20..20 + h.data_offset]);
+        assert_eq!(emitted.window_scale, Some(OUR_RCV_WSCALE));
+        assert_eq!(emitted.mss, Some(OUR_MSS));
+    }
+
+    #[test]
+    fn synack_omits_window_scale_when_peer_silent() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { window_scale: None, ..Default::default() };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert_eq!(conn.snd_wscale, 0);
+        let h = parse(&synack[20..]).unwrap();
+        assert_eq!(parse_options(&synack[20 + 20..20 + h.data_offset]).window_scale, None);
+    }
+
+    #[test]
+    fn peer_window_is_left_shifted_by_negotiated_scale() {
+        let th = parse(&syn_segment()).unwrap();
+        // The peer offers window scale 7 (×128).
+        let opts = TcpOptions { window_scale: Some(7), ..Default::default() };
+        let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert_eq!(conn.snd_wscale, 7);
+
+        // A later ACK whose window FIELD is 1000 really advertises 1000 << 7 = 128000 bytes.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 1000,
+        };
+        conn.on_packet_at(&ack, &[], 0);
+        assert_eq!(conn.send.wnd, 1000 << 7);
+    }
+
+    #[test]
+    fn active_open_adopts_peer_window_scale() {
+        let (mut conn, _syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        assert_eq!(conn.snd_wscale, 0); // unknown until the SYN-ACK
+
+        let synack = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 900, ack: 1,
+            data_offset: 24, flags: SYN | ACK, window: 0xffff,
+        };
+        let opts = TcpOptions { window_scale: Some(5), ..Default::default() };
+        conn.on_segment(&synack, &[], &opts, 0);
+        assert_eq!(conn.state(), State::Established);
+        assert_eq!(conn.snd_wscale, 5);
     }
 }

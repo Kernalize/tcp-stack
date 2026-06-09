@@ -17,6 +17,7 @@
 //!   Day 14 — zero-window probes (persist timer): break the flow-control deadlock (docs/day14-book.md)
 //!   Day 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/day15-book.md)
 //!   Day 16 — TCP timestamps: per-ACK RTT measurement + PAWS (RFC 7323) (docs/day16-book.md)
+//!   Day 17 — window scaling: honor the peer's scaled window, SND.WND→u32 (docs/day17-book.md)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
