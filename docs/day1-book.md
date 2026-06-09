@@ -3047,7 +3047,6 @@ src/
 docs/
   Manual.md, day1.md      — the original 12-week plan + day-1 walkthrough
   day1-book.md … day5-book.md — these teaching books
-.claude/skills/           — tcp-stack-run / -tutor / -day
 ```
 Dependency direction is strictly upward: `utils` depends on nothing; `ip` on `utils`; `icmp`/`tcp`
 on `ip`+`utils`; `main` on all. No cycles — a clean layering that mirrors the protocol stack
@@ -4429,7 +4428,7 @@ RFC conformance testing. A snippet (conceptual):
 If your stack's reply doesn't match the `<` line, packetdrill fails the test. This is how you'd
 verify the handshake against the spec, deterministically, without a flaky live peer.
 
-### AW.6 — Build/test (`cargo`) — see the `tcp-stack-run` skill
+### AW.6 — Build/test (`cargo`)
 ```bash
 cargo test                                   # offline correctness (no sudo/TUN)
 cargo build                                  # → ~/.tcp-stack-target/debug/tcp-stack
