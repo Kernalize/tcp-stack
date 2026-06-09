@@ -27,6 +27,8 @@ const OPT_END: u8 = 0; // End of Option List (single byte)
 const OPT_NOP: u8 = 1; // No-Operation, used for alignment padding (single byte)
 const OPT_MSS: u8 = 2; // Maximum Segment Size (len 4), valid only on SYN segments
 const OPT_WS: u8 = 3; //  Window Scale (len 3): a 1-byte shift count (RFC 7323 §2)
+const OPT_SACK_PERM: u8 = 4; // SACK-Permitted (len 2): negotiated on the SYN (RFC 2018 §2)
+const OPT_SACK: u8 = 5; //    SACK blocks (len 2 + 8·n): carried on ACKs (RFC 2018 §3)
 const OPT_TS: u8 = 8; //  Timestamps (len 10): TSval + TSecr (RFC 7323 §3)
 
 /// The window-scale shift WE advertise. Our receive buffer is small (1 KB), so we don't need to
@@ -34,6 +36,12 @@ const OPT_TS: u8 = 8; //  Timestamps (len 10): TSval + TSecr (RFC 7323 §3)
 /// may honor the peer's much larger window. RFC 7323 §2.2 caps the shift at 14.
 const OUR_RCV_WSCALE: u8 = 0;
 const MAX_WSCALE: u8 = 14;
+
+/// The most SACK blocks we emit in one ACK. The TCP option area is 40 bytes; a Timestamps option
+/// eats 12, leaving 28, and a SACK option after a 2-byte NOP pad is `4 + 8·n` bytes — so
+/// `4 + 8·n ≤ 28` gives `n ≤ 3`. Three separate holes is ample for our small window (RFC 2018 §3,
+/// RFC 7323 appendix A). We *parse* up to four (a peer without timestamps may send four).
+const MAX_SACK_BLOCKS: usize = 3;
 
 /// The Maximum Segment Size we advertise — how big a segment WE are willing to *receive*. 1460 =
 /// 1500-byte interface MTU − 20 IP − 20 TCP (RFC 9293 §3.7.1). The peer's advertised MSS bounds how
@@ -46,14 +54,20 @@ pub const OUR_MSS: u16 = crate::congestion::MSS as u16;
 /// test SYNs still segment at full size. (Documented deviation; see docs/day15-book.md.)
 const DEFAULT_SEND_MSS: u16 = OUR_MSS;
 
-/// Parsed TCP options. Extended over the coming days (window scale, SACK); carries the peer's
-/// advertised MSS (SYN only) and, when present, the Timestamps option `(TSval, TSecr)` (RFC 7323).
+/// Parsed TCP options: the peer's advertised MSS (SYN only); the Timestamps option `(TSval, TSecr)`
+/// when present (RFC 7323 §3); the window-scale shift (RFC 7323 §2); and the SACK fields (RFC 2018).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct TcpOptions {
     pub mss: Option<u16>,
     pub timestamps: Option<(u32, u32)>,
     /// Window-scale shift the peer advertised (SYN only), clamped to 14 (RFC 7323 §2.3).
     pub window_scale: Option<u8>,
+    /// The peer's SYN carried a SACK-Permitted option (RFC 2018 §2) — it understands SACK blocks.
+    pub sack_permitted: bool,
+    /// SACK blocks parsed from an ACK (RFC 2018 §3): `(left edge, right edge)` pairs of out-of-order
+    /// data the peer has buffered (right edge exclusive). `sack_block_count` says how many are valid.
+    pub sack_blocks: [(u32, u32); 4],
+    pub sack_block_count: usize,
 }
 
 /// Parse the TCP options area — the bytes between the 20-byte fixed header and the data
@@ -87,6 +101,22 @@ pub fn parse_options(opts: &[u8]) -> TcpOptions {
                 } else if kind == OPT_WS && data.len() == 1 {
                     // Window Scale: a single shift byte, capped at 14 (RFC 7323 §2.3).
                     out.window_scale = Some(data[0].min(MAX_WSCALE));
+                } else if kind == OPT_SACK_PERM && data.is_empty() {
+                    // SACK-Permitted (RFC 2018 §2): a bare flag (len 2, no payload) on the SYN,
+                    // meaning "I understand SACK blocks." Only consulted during the handshake.
+                    out.sack_permitted = true;
+                } else if kind == OPT_SACK && !data.is_empty() && data.len().is_multiple_of(8) {
+                    // SACK blocks (RFC 2018 §3): N×8 bytes, each a (left edge, right edge) pair of
+                    // 32-bit sequence numbers (right edge exclusive). Read up to four; a length that
+                    // isn't a positive multiple of 8 is malformed and ignored.
+                    let n = (data.len() / 8).min(out.sack_blocks.len());
+                    for k in 0..n {
+                        let b = &data[k * 8..k * 8 + 8];
+                        let left = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+                        let right = u32::from_be_bytes([b[4], b[5], b[6], b[7]]);
+                        out.sack_blocks[k] = (left, right);
+                    }
+                    out.sack_block_count = n;
                 }
                 i += len;
             }
@@ -119,6 +149,32 @@ fn ts_option(tsval: u32, tsecr: u32) -> [u8; 12] {
         val[0], val[1], val[2], val[3],
         ecr[0], ecr[1], ecr[2], ecr[3],
     ]
+}
+
+/// The SACK-Permitted option (RFC 2018 §2), padded to 4 bytes with two leading NOPs —
+/// `[NOP, NOP, kind=4, len=2]`. Sent only in the SYN / SYN-ACK to negotiate SACK; it carries no
+/// payload — its mere presence is the message.
+fn sack_perm_option() -> [u8; 4] {
+    [OPT_NOP, OPT_NOP, OPT_SACK_PERM, 2]
+}
+
+/// Encode SACK blocks as a wire option (RFC 2018 §3), padded to a 4-byte boundary with two leading
+/// NOPs — `[NOP, NOP, kind=5, len, (left, right)…]`, each edge a big-endian u32 (right exclusive).
+/// Emits at most `MAX_SACK_BLOCKS`; returns an empty vec for no blocks (so the caller adds no option).
+fn sack_option(blocks: &[(u32, u32)]) -> Vec<u8> {
+    let n = blocks.len().min(MAX_SACK_BLOCKS);
+    if n == 0 {
+        return Vec::new();
+    }
+    let len = 2 + 8 * n; // the value written into the option's length byte: kind + len + n×8
+    let mut out = Vec::with_capacity(2 + len); // + the two NOP pad bytes
+    out.extend_from_slice(&[OPT_NOP, OPT_NOP, OPT_SACK, len as u8]);
+    for &(left, right) in &blocks[..n] {
+        out.extend_from_slice(&left.to_be_bytes());
+        out.extend_from_slice(&right.to_be_bytes());
+    }
+    debug_assert!(out.len().is_multiple_of(4), "SACK option must be 4-byte aligned");
+    out
 }
 
 /// A connection is identified by both endpoints. `remote` is the packet's source (the
@@ -271,6 +327,10 @@ pub struct Connection {
     /// by this to recover the true `SND.WND`. 0 when window scaling wasn't negotiated, so the shift
     /// is a no-op and the field is taken literally.
     snd_wscale: u8,
+    /// SACK negotiated (Day 18, RFC 2018 §2): true only when BOTH SYNs carried SACK-Permitted. When
+    /// set, our ACKs describe buffered out-of-order data in SACK blocks, and incoming SACK blocks let
+    /// loss recovery retransmit only the genuine holes instead of go-back-N.
+    sack_ok: bool,
 }
 
 impl Connection {
@@ -354,6 +414,9 @@ impl Connection {
             // Day 17: window scaling negotiates per-direction. We left-shift the peer's window field
             // by the shift it advertised; 0 (no scaling) if its SYN carried no window-scale option.
             snd_wscale: opts.window_scale.unwrap_or(0),
+            // Day 18: enable SACK only if the peer's SYN offered it; we echo SACK-Permitted in the
+            // SYN-ACK below only in that case (RFC 2018 §2).
+            sack_ok: opts.sack_permitted,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
@@ -366,11 +429,15 @@ impl Connection {
         if conn.ts_enabled {
             synack_opts.extend_from_slice(&ts_option(conn.ts_val, conn.ts_recent));
         }
+        // Day 18: echo SACK-Permitted only if the peer's SYN offered it (RFC 2018 §2).
+        if conn.sack_ok {
+            synack_opts.extend_from_slice(&sack_perm_option());
+        }
         let synack = conn.segment_opts(conn.send.iss, conn.recv.nxt, SYN | ACK, &synack_opts, &[]);
         // Day 12: the SYN-ACK consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it for
         // retransmission so a lost SYN-ACK is resent on RTO instead of hanging the handshake — the
         // peer's final ACK clears it (RFC 9293 §3.8.1).
-        conn.retx.record(conn.send.nxt, synack.clone(), now_ms);
+        conn.retx.record(conn.send.iss, conn.send.nxt, synack.clone(), now_ms);
         Some((conn, synack))
     }
 
@@ -420,6 +487,9 @@ impl Connection {
             ts_val: now_ms as u32,
             // Day 17: learned from the SYN-ACK's window-scale option (0 until then = no scaling).
             snd_wscale: 0,
+            // Day 18: we OFFER SACK-Permitted in our SYN (below); it's enabled only if the SYN-ACK
+            // echoes it (decided in on_segment's SYN_SENT branch). RFC 2018 §2.
+            sack_ok: false,
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
         // Window Scale option (Day 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
@@ -427,10 +497,11 @@ impl Connection {
         let mut syn_opts = mss_option(OUR_MSS).to_vec();
         syn_opts.extend_from_slice(&ws_option(OUR_RCV_WSCALE));
         syn_opts.extend_from_slice(&ts_option(conn.ts_val, 0));
+        syn_opts.extend_from_slice(&sack_perm_option()); // Day 18: offer SACK (RFC 2018 §2)
         let syn = conn.segment_opts(conn.send.iss, 0, SYN, &syn_opts, &[]);
         // Day 12: the SYN consumes sequence number ISS (end = ISS + 1 = SND.NXT). Queue it so a
         // lost SYN is resent on RTO; the peer's SYN-ACK clears it (RFC 9293 §3.8.1).
-        conn.retx.record(conn.send.nxt, syn.clone(), now_ms);
+        conn.retx.record(conn.send.iss, conn.send.nxt, syn.clone(), now_ms);
         (conn, syn)
     }
 
@@ -446,7 +517,7 @@ impl Connection {
         self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes a sequence number
         // Day 12: queue the FIN (end = SND.NXT) so a lost FIN is resent until the peer ACKs it,
         // instead of leaving the teardown half-finished (RFC 9293 §3.8.1).
-        self.retx.record(self.send.nxt, out.clone(), now_ms);
+        self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms);
         self.state = State::FinWait1;
         Some(out)
     }
@@ -498,6 +569,10 @@ impl Connection {
                 // Day 17: adopt the peer's window scale from its SYN-ACK (we offered ours in the SYN).
                 if let Some(shift) = opts.window_scale {
                     self.snd_wscale = shift;
+                }
+                // Day 18: SACK is enabled iff the SYN-ACK also carried SACK-Permitted (RFC 2018 §2).
+                if opts.sack_permitted {
+                    self.sack_ok = true;
                 }
                 // Day 12: the SYN-ACK acknowledges our SYN — drop it from the retx queue (no RTT
                 // sample: a handshake segment can be ambiguous and isn't fed to the estimator here).
@@ -554,6 +629,12 @@ impl Connection {
             // out-of-window ack is ignored rather than blindly trusted — the defensive version
             // of the earlier "store whatever they sent".
             if th.flags & ACK != 0 {
+                // Day 18: apply any SACK blocks first (RFC 2018 §4) — mark those out-of-order ranges
+                // as selectively acked, so the fast-retransmit below resends the genuine hole rather
+                // than data the peer already holds. SACK blocks ride on (often duplicate) ACKs.
+                if self.sack_ok && opts.sack_block_count > 0 {
+                    self.retx.mark_sacked(&opts.sack_blocks[..opts.sack_block_count]);
+                }
                 if seq::between(self.send.una, th.ack, self.send.nxt) {
                     // New data acknowledged: advance SND.UNA, drop what was acked, sample the RTT
                     // (Karn's algorithm skips retransmitted segments), and grow the congestion
@@ -605,7 +686,10 @@ impl Connection {
                 }
                 // Acknowledge: a fresh RCV.NXT for in-order data, or a *duplicate ACK* for
                 // out-of-order/duplicate data (three of which trigger the sender's fast retransmit).
-                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+                // Day 18: when SACK is on and we have out-of-order data buffered, this ACK also names
+                // those ranges in SACK blocks, so the peer retransmits only the hole (RFC 2018 §3).
+                let ack_opts = self.ack_options();
+                return Some(self.segment_opts(self.send.nxt, self.recv.nxt, ACK, &ack_opts, &[]));
             }
 
             // The peer wants to close: a FIN (in order) occupies one sequence number. We
@@ -617,7 +701,7 @@ impl Connection {
                 let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
                 self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes one too
                 // Day 12: queue our FIN (end = SND.NXT) so it is resent until the peer's final ACK.
-                self.retx.record(self.send.nxt, out.clone(), now_ms);
+                self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms);
                 self.state = State::LastAck;
                 return Some(out);
             }
@@ -722,7 +806,7 @@ impl Connection {
                 if let Some(byte) = self.send_buf.pop_front() {
                     let probe = self.segment(self.send.nxt, self.recv.nxt, ACK, &[byte]);
                     self.send.nxt = self.send.nxt.wrapping_add(1);
-                    self.retx.record(self.send.nxt, probe.clone(), now_ms);
+                    self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, probe.clone(), now_ms);
                     out.push(probe);
                 }
                 self.persist_ms = 0; // disarm; the retx queue now repeats the probe on its own RTO
@@ -791,7 +875,7 @@ impl Connection {
             let payload: Vec<u8> = self.send_buf.drain(..n).collect();
             let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
             self.send.nxt = self.send.nxt.wrapping_add(n as u32);
-            self.retx.record(self.send.nxt, seg.clone(), now_ms);
+            self.retx.record(self.send.nxt.wrapping_sub(n as u32), self.send.nxt, seg.clone(), now_ms);
             out.push(seg);
         }
         out
@@ -833,6 +917,24 @@ impl Connection {
     /// carry the MSS option (Day 15) and, later, timestamps / window scale / SACK-permitted.
     fn segment_opts(&self, seq: u32, ack: u32, flags: u8, options: &[u8], payload: &[u8]) -> Vec<u8> {
         build_packet(self.local, self.remote, seq, ack, flags, self.recv.wnd, options, payload)
+    }
+
+    /// Options for an ordinary outgoing ACK: the Timestamps option (if negotiated), then SACK blocks
+    /// describing our buffered out-of-order data (if SACK is negotiated and any exist). Each sub-blob
+    /// is individually 4-byte aligned, so their concatenation is too (RFC 7323 §3, RFC 2018 §3).
+    fn ack_options(&self) -> Vec<u8> {
+        let mut o = Vec::new();
+        if self.ts_enabled {
+            o.extend_from_slice(&ts_option(self.ts_val, self.ts_recent));
+        }
+        if self.sack_ok {
+            let blocks = self.reasm.sack_blocks();
+            if !blocks.is_empty() {
+                let take = blocks.len().min(MAX_SACK_BLOCKS);
+                o.extend_from_slice(&sack_option(&blocks[..take]));
+            }
+        }
+        o
     }
 }
 
@@ -930,6 +1032,8 @@ pub fn build_rst(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, payload_len
 /// One sent-but-unacknowledged segment, kept so we can resend it if its ACK never comes.
 #[derive(Debug, Clone)]
 struct Unacked {
+    /// First sequence number this segment covers (Day 18) — its left edge, for matching SACK blocks.
+    start_seq: u32,
     /// One past the last sequence number this segment covers; fully acked when SND.UNA reaches it.
     end_seq: u32,
     /// The complete IP+TCP bytes, ready to resend verbatim.
@@ -938,6 +1042,9 @@ struct Unacked {
     sent_at_ms: u64,
     /// How many times it's been retransmitted (for backoff / giving up).
     retries: u32,
+    /// Selectively acknowledged by a peer SACK block (Day 18, RFC 2018): the peer holds this range
+    /// out of order, so loss recovery skips it and resends only the holes that precede it.
+    sacked: bool,
 }
 
 /// The per-connection retransmission queue (RFC 9293 §3.8.1) — the heart of TCP reliability.
@@ -950,9 +1057,17 @@ pub struct RetxQueue {
 
 #[allow(dead_code)] // is_empty()/len() are exercised only by tests
 impl RetxQueue {
-    /// Record a segment we just sent. `end_seq` = seq one past its last byte.
-    pub fn record(&mut self, end_seq: u32, packet: Vec<u8>, now_ms: u64) {
-        self.segments.push(Unacked { end_seq, packet, sent_at_ms: now_ms, retries: 0 });
+    /// Record a segment we just sent, covering `[start_seq, end_seq)` (a SYN/FIN counts as one byte,
+    /// so `end_seq = start_seq + 1`). `start_seq` is kept so a peer SACK block can mark it.
+    pub fn record(&mut self, start_seq: u32, end_seq: u32, packet: Vec<u8>, now_ms: u64) {
+        self.segments.push(Unacked {
+            start_seq,
+            end_seq,
+            packet,
+            sent_at_ms: now_ms,
+            retries: 0,
+            sacked: false,
+        });
     }
 
     /// Drop every segment the peer has now fully acknowledged (`end_seq <= SND.UNA`, mod 2³²).
@@ -978,7 +1093,10 @@ impl RetxQueue {
     pub fn due(&mut self, now_ms: u64, rto_ms: u64) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         for s in &mut self.segments {
-            if now_ms.saturating_sub(s.sent_at_ms) >= rto_ms {
+            // Day 18: never resend a SACKed range — the peer already has it (RFC 2018 §4); only the
+            // holes need retransmitting. (We keep SACK state across RTOs; a production stack clears
+            // it if it detects the peer reneging on previously-SACKed data, RFC 6675 §5.1.)
+            if !s.sacked && now_ms.saturating_sub(s.sent_at_ms) >= rto_ms {
                 s.sent_at_ms = now_ms;
                 s.retries += 1;
                 out.push(s.packet.clone());
@@ -991,11 +1109,32 @@ impl RetxQueue {
     /// Resets its timer and counts it as a retransmission so Karn's algorithm suppresses its
     /// RTT sample. Returns the packet bytes to send, or `None` if nothing is outstanding.
     pub fn fast_retransmit(&mut self, now_ms: u64) -> Option<Vec<u8>> {
-        self.segments.first_mut().map(|s| {
+        // Day 18: resend the oldest segment the peer has NOT selectively acked — the first genuine
+        // hole — instead of blindly the oldest (which SACK may reveal the peer already holds).
+        self.segments.iter_mut().find(|s| !s.sacked).map(|s| {
             s.retries += 1;
             s.sent_at_ms = now_ms;
             s.packet.clone()
         })
+    }
+
+    /// Mark every queued segment fully covered by one of the peer's SACK blocks (RFC 2018 §4) as
+    /// selectively acknowledged. A segment `[start, end)` is covered by a block `[left, right)` iff
+    /// `left ≤ start` and `end ≤ right`, all compared modulo 2³². SACKed segments are skipped by
+    /// `due` and `fast_retransmit`, so loss recovery resends only the holes between them.
+    pub fn mark_sacked(&mut self, blocks: &[(u32, u32)]) {
+        for s in &mut self.segments {
+            if s.sacked {
+                continue;
+            }
+            for &(left, right) in blocks {
+                let covered = !seq::before(s.start_seq, left) && !seq::after(s.end_seq, right);
+                if covered {
+                    s.sacked = true;
+                    break;
+                }
+            }
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1450,8 +1589,8 @@ mod tests {
     #[test]
     fn retx_records_acks_and_clears() {
         let mut q = RetxQueue::default();
-        q.record(11, vec![1, 2, 3], 0); // segment ending at seq 11
-        q.record(21, vec![4, 5, 6], 0); // segment ending at seq 21
+        q.record(8, 11, vec![1, 2, 3], 0); // segment [8,11)
+        q.record(18, 21, vec![4, 5, 6], 0); // segment [18,21)
         assert_eq!(q.len(), 2);
         assert_eq!(q.ack(11, 30), Some(30)); // UNA=11 → first acked at t=30 → RTT sample 30
         assert_eq!(q.len(), 1);
@@ -1462,8 +1601,8 @@ mod tests {
     #[test]
     fn retx_partial_ack_keeps_unacked() {
         let mut q = RetxQueue::default();
-        q.record(11, vec![1], 0);
-        q.record(21, vec![2], 0);
+        q.record(10, 11, vec![1], 0);
+        q.record(20, 21, vec![2], 0);
         q.ack(15, 0); // covers the first (end 11 <= 15), not the second (end 21 > 15)
         assert_eq!(q.len(), 1);
     }
@@ -1471,7 +1610,7 @@ mod tests {
     #[test]
     fn retx_fires_after_rto() {
         let mut q = RetxQueue::default();
-        q.record(11, vec![0xAB], 0);
+        q.record(10, 11, vec![0xAB], 0);
         assert!(q.due(50, 100).is_empty()); // 50ms < 100ms RTO → nothing due
         let resent = q.due(150, 100); // 150ms >= RTO → due
         assert_eq!(resent, vec![vec![0xABu8]]);
@@ -1483,7 +1622,7 @@ mod tests {
     fn retx_ack_wraparound() {
         let mut q = RetxQueue::default();
         // Segment ends just past the wrap; an ack past it (mod 2^32) clears it.
-        q.record(3, vec![9], 0); // end_seq 3, conceptually after wrapping from ~0xFFFFFFFF
+        q.record(2, 3, vec![9], 0); // [2,3), end_seq 3, conceptually after wrapping from ~0xFFFFFFFF
         q.ack(3, 0);
         assert!(q.is_empty());
     }
@@ -2030,5 +2169,146 @@ mod tests {
         conn.on_segment(&synack, &[], &opts, 0);
         assert_eq!(conn.state(), State::Established);
         assert_eq!(conn.snd_wscale, 5);
+    }
+
+    // ── Day 18: Selective Acknowledgment (SACK, RFC 2018) ──
+
+    /// Establish a SACK-negotiated connection (peer SYN offered SACK-Permitted), handshake at t=0.
+    /// RCV.NXT = 101 (peer ISN 100, SYN consumed it); SND.UNA = SND.NXT = 1.
+    fn established_sack_conn() -> Connection {
+        let th = parse(&syn_segment()).unwrap();
+        let syn_opts = TcpOptions { sack_permitted: true, ..Default::default() };
+        let (mut conn, _s) = Connection::accept_with_iss_at(PEER, ME, &th, &syn_opts, 0, 0).unwrap();
+        let hs_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&hs_ack, &[], 0);
+        assert_eq!(conn.state(), State::Established);
+        assert!(conn.sack_ok);
+        conn
+    }
+
+    #[test]
+    fn parse_options_reads_sack_permitted() {
+        // SACK-Permitted is kind=4, len=2, no payload.
+        assert!(parse_options(&[OPT_SACK_PERM, 2]).sack_permitted);
+        assert!(!parse_options(&[]).sack_permitted);
+        // Bundled after an MSS option with NOP padding — both parse.
+        let o = parse_options(&[OPT_MSS, 4, 0x05, 0xb4, OPT_NOP, OPT_NOP, OPT_SACK_PERM, 2]);
+        assert_eq!(o.mss, Some(1460));
+        assert!(o.sack_permitted);
+    }
+
+    #[test]
+    fn parse_options_reads_sack_blocks() {
+        // Two blocks [1000,2000) and [3000,4000): kind=5, len = 2 + 2×8 = 18.
+        let mut bytes = vec![OPT_SACK, 18];
+        for edge in [1000u32, 2000, 3000, 4000] {
+            bytes.extend_from_slice(&edge.to_be_bytes());
+        }
+        let o = parse_options(&bytes);
+        assert_eq!(o.sack_block_count, 2);
+        assert_eq!(o.sack_blocks[0], (1000, 2000));
+        assert_eq!(o.sack_blocks[1], (3000, 4000));
+        // A length that isn't a positive multiple of 8 is malformed → ignored.
+        assert_eq!(parse_options(&[OPT_SACK, 6, 0, 0, 0, 1]).sack_block_count, 0);
+    }
+
+    #[test]
+    fn syn_offers_sack_permitted() {
+        let (_conn, syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        let h = parse(&syn[20..]).unwrap();
+        let o = parse_options(&syn[20 + 20..20 + h.data_offset]);
+        assert!(o.sack_permitted, "our SYN must offer SACK");
+        assert_eq!(o.mss, Some(OUR_MSS)); // alongside MSS / window scale / timestamps
+    }
+
+    #[test]
+    fn synack_offers_sack_when_peer_permits() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { sack_permitted: true, ..Default::default() };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert!(conn.sack_ok);
+        let h = parse(&synack[20..]).unwrap();
+        assert!(parse_options(&synack[20 + 20..20 + h.data_offset]).sack_permitted);
+    }
+
+    #[test]
+    fn synack_omits_sack_when_peer_silent() {
+        let th = parse(&syn_segment()).unwrap();
+        let opts = TcpOptions { sack_permitted: false, ..Default::default() };
+        let (conn, synack) = Connection::accept_with_iss_at(PEER, ME, &th, &opts, 0, 0).unwrap();
+        assert!(!conn.sack_ok);
+        let h = parse(&synack[20..]).unwrap();
+        assert!(!parse_options(&synack[20 + 20..20 + h.data_offset]).sack_permitted);
+    }
+
+    #[test]
+    fn active_open_enables_sack_from_synack() {
+        let (mut conn, _syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        assert!(!conn.sack_ok); // not until the SYN-ACK confirms it
+        let synack = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 900, ack: 1,
+            data_offset: 20, flags: SYN | ACK, window: 0xffff,
+        };
+        let opts = TcpOptions { sack_permitted: true, ..Default::default() };
+        conn.on_segment(&synack, &[], &opts, 0);
+        assert_eq!(conn.state(), State::Established);
+        assert!(conn.sack_ok);
+    }
+
+    #[test]
+    fn out_of_order_data_acks_with_a_sack_block() {
+        let mut conn = established_sack_conn(); // RCV.NXT = 101
+        // Data at seq 104 arrives before the [101,104) gap is filled: a hole remains, so the dup ACK
+        // must SACK the buffered range [104,106) (RFC 2018 §3) while its cumulative ack stays at 101.
+        let ooo = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 104, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet_at(&ooo, b"DE", 0).expect("a dup ACK carrying SACK");
+        let h = parse(&ack[20..]).unwrap();
+        assert_eq!(h.ack, 101, "cumulative ack unmoved — the gap remains");
+        let o = parse_options(&ack[20 + 20..20 + h.data_offset]);
+        assert_eq!(o.sack_block_count, 1);
+        assert_eq!(o.sack_blocks[0], (104, 106));
+    }
+
+    #[test]
+    fn no_sack_block_when_data_is_in_order() {
+        let mut conn = established_sack_conn();
+        let inorder = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet_at(&inorder, b"hi", 0).expect("an ACK");
+        let h = parse(&ack[20..]).unwrap();
+        assert_eq!(h.ack, 103); // delivered in order → RCV.NXT advanced, no hole
+        assert_eq!(parse_options(&ack[20 + 20..20 + h.data_offset]).sack_block_count, 0);
+    }
+
+    #[test]
+    fn sack_marks_segment_so_retransmit_skips_it() {
+        // The selective-retransmit core (RFC 2018 §4), exercised directly on the queue.
+        let mut q = RetxQueue::default();
+        q.record(0, 100, vec![0xAA], 0); //   segment A [0,100)
+        q.record(100, 200, vec![0xBB], 0); // segment B [100,200)
+        q.record(200, 300, vec![0xCC], 0); // segment C [200,300)
+        // The peer SACKs the middle range — B is now selectively acknowledged.
+        q.mark_sacked(&[(100, 200)]);
+        // Fast retransmit resends the first NON-sacked segment (A), not the SACKed B.
+        assert_eq!(q.fast_retransmit(10), Some(vec![0xAA]));
+        // An RTO sweep resends only the holes A and C, never B.
+        assert_eq!(q.due(10_000, 200), vec![vec![0xAAu8], vec![0xCCu8]]);
+    }
+
+    #[test]
+    fn partial_sack_block_does_not_mark_a_segment() {
+        // A block must FULLY cover a segment to mark it: half-coverage leaves it retransmittable.
+        let mut q = RetxQueue::default();
+        q.record(0, 100, vec![0xAA], 0);
+        q.mark_sacked(&[(0, 50)]); // covers only the first half of [0,100)
+        assert_eq!(q.fast_retransmit(10), Some(vec![0xAA]));
     }
 }

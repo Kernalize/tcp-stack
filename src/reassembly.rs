@@ -89,6 +89,26 @@ impl Reassembler {
     pub fn buffered(&self) -> usize {
         self.frags.len()
     }
+
+    /// The currently-buffered out-of-order ranges, as absolute `(left edge, right edge)` sequence
+    /// pairs — exactly what we report in SACK blocks (RFC 2018 §3); right edges are exclusive.
+    /// Adjacent fragments are coalesced into one range, and ranges come back in ascending sequence
+    /// order. (RFC 2018 §4 says the first block SHOULD be the most recently received; we keep
+    /// ascending order — a SHOULD, not a MUST — because our reassembler doesn't track arrival order.)
+    pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
+        let mut blocks: Vec<(u32, u32)> = Vec::new();
+        for (&off, frag) in &self.frags {
+            let left = self.base.wrapping_add(off);
+            let right = left.wrapping_add(frag.len() as u32);
+            match blocks.last_mut() {
+                // The BTreeMap yields fragments in ascending offset order, so a fragment whose left
+                // edge meets the previous block's right edge extends it (the gap closed exactly).
+                Some(last) if last.1 == left => last.1 = right,
+                _ => blocks.push((left, right)),
+            }
+        }
+        blocks
+    }
 }
 
 #[cfg(test)]
@@ -148,5 +168,30 @@ mod tests {
         // Offset ~100k, well past MAX_AHEAD → dropped, not buffered.
         assert_eq!(r.recv(1000 + (1 << 17), b"zz", 1000), b"");
         assert_eq!(r.buffered(), 0);
+    }
+
+    #[test]
+    fn sack_blocks_empty_when_in_order() {
+        let mut r = Reassembler::new(BASE);
+        assert_eq!(r.recv(1000, b"abc", 1000), b"abc"); // delivered in order, nothing buffered
+        assert!(r.sack_blocks().is_empty());
+    }
+
+    #[test]
+    fn sack_blocks_reports_disjoint_buffered_ranges() {
+        let mut r = Reassembler::new(BASE);
+        assert_eq!(r.recv(1003, b"de", 1000), b""); // gap at [1000,1003): buffer [1003,1005)
+        assert_eq!(r.recv(1006, b"gh", 1000), b""); // another hole: buffer [1006,1008)
+        // Two disjoint ranges → two SACK blocks, ascending, right edge exclusive (RFC 2018 §3).
+        assert_eq!(r.sack_blocks(), vec![(1003, 1005), (1006, 1008)]);
+    }
+
+    #[test]
+    fn sack_blocks_coalesces_adjacent_fragments() {
+        let mut r = Reassembler::new(BASE);
+        assert_eq!(r.recv(1003, b"de", 1000), b""); //   [1003,1005)
+        assert_eq!(r.recv(1005, b"fg", 1000), b""); //   [1005,1007) abuts the previous fragment
+        // Adjacent fragments collapse into a single block — the SACK option stays compact.
+        assert_eq!(r.sack_blocks(), vec![(1003, 1007)]);
     }
 }

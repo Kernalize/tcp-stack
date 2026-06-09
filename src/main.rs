@@ -18,6 +18,8 @@
 //!   Day 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/day15-book.md)
 //!   Day 16 — TCP timestamps: per-ACK RTT measurement + PAWS (RFC 7323) (docs/day16-book.md)
 //!   Day 17 — window scaling: honor the peer's scaled window, SND.WND→u32 (docs/day17-book.md)
+//!   Day 18 — SACK: negotiate SACK-Permitted, emit SACK blocks for out-of-order data, and
+//!            retransmit only the holes a peer's SACK blocks reveal (docs/day18-book.md, RFC 2018)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
@@ -26,7 +28,7 @@
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
 //!
-//! Build/run/test: see the `tcp-stack-run` skill.  `cargo test` proves it offline.
+//! Build/run/test: see README.md.  `cargo test` proves it offline.
 
 mod congestion; // congestion control: slow start + AIMD + fast recovery (used by tcp)
 mod icmp; // ICMP: parse + echo reply
