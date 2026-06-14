@@ -10,8 +10,8 @@ It is also a **teaching project**: every feature ships with a heavily-commented 
 and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
-> 5961/1337 robustness are implemented and unit-tested (131 tests, offline). What's *not* done is
-> live conformance/throughput testing and breadth (BBR, SYN cookies, keepalive) — see
+> 5961/1337 robustness are implemented and unit-tested (133 tests, offline). What's *not* done is
+> live conformance/throughput testing and breadth (BBR, SYN cookies) — see
 > [Limitations](#limitations).
 
 ## What works
@@ -43,6 +43,7 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 | 23 | **Robustness**: RFC 5961 §5 blind-data ACK check + randomized challenge-ACK throttle (CVE-2016-5696) + reaper timeouts | 5961 | day23 |
 | 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | day24 |
 | 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | day25 |
+| 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -113,8 +114,9 @@ TCP features, several are exercises in the day-books):
 
 - **Hardening:** **CUBIC** congestion control (Day 25) over NewReno + RFC 6675 SACK recovery
   (Days 20–21) with **RACK-TLP** time-based loss detection (Day 24); RFC 5961 RST/SYN/data challenge
-  ACKs (Days 19, 23) throttled per CVE-2016-5696, and CLOSE_WAIT/FIN_WAIT_2 reaped (Day 23). Still
-  missing: **BBR** congestion control, **SYN cookies** (SYN-flood defence), and **`SO_KEEPALIVE`**.
+  ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaped (Day 23), and
+  `SO_KEEPALIVE` for idle ESTABLISHED connections (Day 26). Still missing: **BBR** congestion control
+  and **SYN cookies** (SYN-flood defence).
 - **A multi-connection socket facade.** We ship a single-connection blocking `TcpListener`/`TcpStream`
   over a `PacketIo` trait (Day 22, loopback-tested) and keep-alive HTTP/1.1, but the façade demuxes
   one connection at a time and isn't wired into `main` (which keeps its own multi-protocol loop).

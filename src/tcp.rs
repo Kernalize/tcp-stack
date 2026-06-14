@@ -64,6 +64,13 @@ const DUP_THRESH: u32 = 3;
 /// (the lesson of CVE-2016-5696, where a shared, predictable counter became an oracle).
 const CHALLENGE_ACK_MAX: u32 = 5;
 
+/// Day 26 — TCP keepalive (RFC 9293 §3.8.4). After a connection sits idle `KEEPALIVE_IDLE_MS` we
+/// probe it; a real stack defaults to 2 hours, but we shorten it for a teaching demo. Probes are
+/// spaced `KEEPALIVE_INTVL_MS` apart; after `KEEPALIVE_PROBES` go unanswered the peer is declared dead.
+const KEEPALIVE_IDLE_MS: u64 = 60_000;
+const KEEPALIVE_INTVL_MS: u64 = 5_000;
+const KEEPALIVE_PROBES: u32 = 3;
+
 /// Parsed TCP options: the peer's advertised MSS (SYN only); the Timestamps option `(TSval, TSecr)`
 /// when present (RFC 7323 §3); the window-scale shift (RFC 7323 §2); and the SACK fields (RFC 2018).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -375,6 +382,11 @@ pub struct Connection {
     tlp_deadline_ms: u64,
     /// Day 24 — whether a TLP probe is currently outstanding (one per tail; a fresh ACK re-arms it).
     tlp_sent: bool,
+    /// Day 26 — TCP keepalive opt-in (off by default, like `SO_KEEPALIVE`); when set, an idle
+    /// ESTABLISHED connection is probed and a dead peer eventually reaped.
+    keepalive_enabled: bool,
+    /// Day 26 — keepalive probes sent since the last activity; reset by any arriving segment.
+    keepalive_probes_sent: u32,
 }
 
 impl Connection {
@@ -485,6 +497,8 @@ impl Connection {
             last_active_ms: now_ms, // Day 23: reaper baseline
             tlp_deadline_ms: 0,     // Day 24: Tail Loss Probe disarmed
             tlp_sent: false,
+            keepalive_enabled: false,  // Day 26: SO_KEEPALIVE off by default
+            keepalive_probes_sent: 0,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
@@ -567,6 +581,8 @@ impl Connection {
             last_active_ms: now_ms, // Day 23: reaper baseline
             tlp_deadline_ms: 0,     // Day 24: Tail Loss Probe disarmed
             tlp_sent: false,
+            keepalive_enabled: false,  // Day 26: SO_KEEPALIVE off by default
+            keepalive_probes_sent: 0,
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
         // Window Scale option (Day 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
@@ -716,6 +732,7 @@ impl Connection {
     ) -> Option<Vec<u8>> {
         self.ts_val = now_ms as u32; // Day 16: refresh our timestamp clock for anything we send
         self.last_active_ms = now_ms; // Day 23: a segment arrived — reset the half-close reaper
+        self.keepalive_probes_sent = 0; // Day 26: a segment arrived — the peer is alive, reset probes
 
         // ── Incoming RST (RFC 5961 §3), Day 19 ── A blind off-path attacker who guesses the
         // 4-tuple can try to tear the connection down with a forged RST. Rather than honor any
@@ -1116,6 +1133,31 @@ impl Connection {
         } else {
             self.persist_ms = 0; // window open, nothing to send, or a probe already in flight
         }
+
+        // Day 26 — TCP keepalive (RFC 9293 §3.8.4). Probe an idle ESTABLISHED connection so a peer
+        // that vanished WITHOUT a FIN/RST (a crash, a pulled cable) is eventually detected — the
+        // reaper (Day 23) only covers half-closed states, and an idle connection with nothing in
+        // flight has no RTO/RACK timer to lean on. The probe is a segment at SND.NXT−1 (a byte the
+        // peer has already acknowledged); a live peer answers with a bare ACK, which resets the
+        // timer. After KEEPALIVE_PROBES unanswered probes, the peer is declared dead.
+        if self.keepalive_enabled
+            && self.state == State::Established
+            && self.flight_size() == 0
+            && self.send_buf.is_empty()
+        {
+            let next_probe_at = self
+                .last_active_ms
+                .saturating_add(KEEPALIVE_IDLE_MS)
+                .saturating_add(self.keepalive_probes_sent as u64 * KEEPALIVE_INTVL_MS);
+            if now_ms >= next_probe_at {
+                if self.keepalive_probes_sent >= KEEPALIVE_PROBES {
+                    self.state = State::Closed; // unanswered after the last probe → peer is gone
+                } else {
+                    self.keepalive_probes_sent += 1;
+                    out.push(self.segment(self.send.nxt.wrapping_sub(1), self.recv.nxt, ACK, &[]));
+                }
+            }
+        }
         out
     }
 
@@ -1143,6 +1185,14 @@ impl Connection {
     #[allow(dead_code)]
     pub fn set_nodelay(&mut self, nodelay: bool) {
         self.nagle = !nodelay;
+    }
+
+    /// Day 26 — `SO_KEEPALIVE` (RFC 9293 §3.8.4): when enabled, an idle ESTABLISHED connection is
+    /// probed by `on_tick`, and a peer that has silently vanished is eventually reaped. Off by
+    /// default, like the real socket option; the server binary leaves it off (exercised by tests).
+    #[allow(dead_code)]
+    pub fn set_keepalive(&mut self, on: bool) {
+        self.keepalive_enabled = on;
     }
 
     /// Drain the send buffer into wire segments, bounded by the **usable window**
@@ -3252,5 +3302,45 @@ mod tests {
         assert_eq!(q.rack_mark_lost(30, 20), vec![vec![0xAAu8]]); // elapsed 30 > 20
         // Its timer reset on retransmit, so it isn't resent again immediately.
         assert!(q.rack_mark_lost(40, 20).is_empty());
+    }
+
+    // ── Day 26: TCP keepalive (SO_KEEPALIVE, RFC 9293 §3.8.4) ──
+
+    #[test]
+    fn keepalive_probes_idle_connection_then_declares_it_dead() {
+        let mut conn = established_conn(); // last activity at t=0 (the handshake)
+        conn.set_keepalive(true);
+        // Nothing before the idle threshold.
+        assert!(conn.on_tick(KEEPALIVE_IDLE_MS - 1).is_empty());
+        // First probe at the idle threshold: a segment at SND.NXT − 1 (a byte the peer has acked).
+        let p1 = conn.on_tick(KEEPALIVE_IDLE_MS);
+        assert_eq!(p1.len(), 1);
+        assert_eq!(parse(&p1[0][20..]).unwrap().seq, conn.snd_nxt().wrapping_sub(1));
+        // Probes repeat every interval; the connection survives while probing, up to the limit.
+        assert!(conn.on_tick(KEEPALIVE_IDLE_MS + 1).is_empty()); // before the next interval
+        assert_eq!(conn.on_tick(KEEPALIVE_IDLE_MS + KEEPALIVE_INTVL_MS).len(), 1); // 2nd probe
+        assert_eq!(conn.on_tick(KEEPALIVE_IDLE_MS + 2 * KEEPALIVE_INTVL_MS).len(), 1); // 3rd probe
+        assert_eq!(conn.state(), State::Established); // still alive while probes go unanswered
+        // After KEEPALIVE_PROBES unanswered probes → the peer is declared dead.
+        conn.on_tick(KEEPALIVE_IDLE_MS + 3 * KEEPALIVE_INTVL_MS);
+        assert_eq!(conn.state(), State::Closed);
+    }
+
+    #[test]
+    fn keepalive_is_reset_by_a_peer_response() {
+        let mut conn = established_conn();
+        conn.set_keepalive(true);
+        assert_eq!(conn.on_tick(KEEPALIVE_IDLE_MS).len(), 1); // 1st probe sent
+        // The peer answers (a bare ACK) → it's alive; keepalive restarts from this moment.
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let t = KEEPALIVE_IDLE_MS + 1;
+        conn.on_packet_at(&ack, &[], t);
+        // No probe until idle again, now measured from the response.
+        assert!(conn.on_tick(t + KEEPALIVE_IDLE_MS - 1).is_empty());
+        assert_eq!(conn.on_tick(t + KEEPALIVE_IDLE_MS).len(), 1);
+        assert_eq!(conn.state(), State::Established);
     }
 }

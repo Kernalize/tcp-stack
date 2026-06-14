@@ -34,6 +34,8 @@
 //!            reordering tolerance (docs/day24-book.md, RFC 8985)
 //!   Day 25 — CUBIC: cubic-curve congestion avoidance (β = 0.7, RTT-independent) that fills fat
 //!            pipes far faster than Reno's slope (docs/day25-book.md, RFC 8312/9438)
+//!   Day 26 — keepalive (SO_KEEPALIVE): probe an idle ESTABLISHED connection to detect a vanished
+//!            peer (docs/day26-book.md, RFC 9293 §3.8.4)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
