@@ -10,8 +10,8 @@ It is also a **teaching project**: every feature ships with a heavily-commented 
 and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
-> 5961/1337 robustness are implemented and unit-tested (129 tests, offline). What's *not* done is
-> live conformance/throughput testing and breadth (CUBIC, RACK-TLP, SYN cookies, keepalive) — see
+> 5961/1337 robustness are implemented and unit-tested (131 tests, offline). What's *not* done is
+> live conformance/throughput testing and breadth (CUBIC/BBR, SYN cookies, keepalive) — see
 > [Limitations](#limitations).
 
 ## What works
@@ -41,6 +41,7 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 | 21 | **SACK loss recovery**: `pipe` estimator + `IsLost`, retransmit every hole and refill in one RTT | 6675 | day21 |
 | 22 | **Socket API**: blocking `TcpListener`/`TcpStream` (loopback-tested), active half-close, keep-alive HTTP/1.1 | 9293 / 9112 | day22 |
 | 23 | **Robustness**: RFC 5961 §5 blind-data ACK check + randomized challenge-ACK throttle (CVE-2016-5696) + reaper timeouts | 5961 | day23 |
+| 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | day24 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -109,11 +110,11 @@ sudo tc qdisc del dev tun0 root
 This is a correct, tested *core*, not a production stack. Not yet implemented (all are genuine
 TCP features, several are exercises in the day-books):
 
-- **Hardening:** CUBIC/BBR-class congestion control (we ship **NewReno** over RFC 5681 Reno, Day 20)
-  and RACK-TLP/tail-loss probing (we ship the RFC 6675 `pipe`/`IsLost` core, Day 21, with the RTO as
-  the tail-loss fallback). RFC 5961 RST/SYN/data challenge ACKs (Days 19, 23) are throttled per
-  CVE-2016-5696, and CLOSE_WAIT/FIN_WAIT_2 are reaped (Day 23); still missing are **SYN cookies**
-  (SYN-flood defence) and **`SO_KEEPALIVE`**.
+- **Hardening:** CUBIC/BBR-class congestion control (we ship **NewReno** over RFC 5681 Reno, Day 20,
+  with RFC 6675 SACK recovery, Day 21, and **RACK-TLP** time-based loss detection + Tail Loss Probe,
+  Day 24). RFC 5961 RST/SYN/data challenge ACKs (Days 19, 23) are throttled per CVE-2016-5696, and
+  CLOSE_WAIT/FIN_WAIT_2 are reaped (Day 23); still missing are **CUBIC/BBR**, **SYN cookies**
+  (SYN-flood defence), and **`SO_KEEPALIVE`**.
 - **A multi-connection socket facade.** We ship a single-connection blocking `TcpListener`/`TcpStream`
   over a `PacketIo` trait (Day 22, loopback-tested) and keep-alive HTTP/1.1, but the façade demuxes
   one connection at a time and isn't wired into `main` (which keeps its own multi-protocol loop).

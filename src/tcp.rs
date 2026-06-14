@@ -370,6 +370,11 @@ pub struct Connection {
     /// Day 23 — the time the last segment arrived; drives the CLOSE_WAIT / FIN_WAIT_2 reaper, so a
     /// peer that vanishes can't pin a half-closed connection (and its memory) open forever.
     last_active_ms: u64,
+    /// Day 24 — Tail Loss Probe (RFC 8985 §7): absolute time (ms) the probe is due, or 0 disarmed.
+    /// Armed when the tail of a transfer is outstanding with nothing new to send; fires one probe.
+    tlp_deadline_ms: u64,
+    /// Day 24 — whether a TLP probe is currently outstanding (one per tail; a fresh ACK re-arms it).
+    tlp_sent: bool,
 }
 
 impl Connection {
@@ -478,6 +483,8 @@ impl Connection {
             challenge_budget: 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX, // Day 23: randomized
             challenge_window_ms: now_ms,
             last_active_ms: now_ms, // Day 23: reaper baseline
+            tlp_deadline_ms: 0,     // Day 24: Tail Loss Probe disarmed
+            tlp_sent: false,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
@@ -558,6 +565,8 @@ impl Connection {
             challenge_budget: 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX, // Day 23: randomized
             challenge_window_ms: now_ms,
             last_active_ms: now_ms, // Day 23: reaper baseline
+            tlp_deadline_ms: 0,     // Day 24: Tail Loss Probe disarmed
+            tlp_sent: false,
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
         // Window Scale option (Day 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
@@ -827,6 +836,8 @@ impl Connection {
                     // window (slow start / congestion avoidance, RFC 5681).
                     let acked = th.ack.wrapping_sub(self.send.una);
                     self.send.una = th.ack;
+                    self.tlp_sent = false; // Day 24: forward progress — re-arm the Tail Loss Probe
+                    self.tlp_deadline_ms = 0;
                     // RTT: with timestamps (Day 16) the echoed TSecr dates the acked data exactly, so
                     // every ACK yields a clean sample — even for retransmitted data, since the echo
                     // disambiguates which copy (no Karn restriction). Without timestamps, fall back to
@@ -1048,13 +1059,36 @@ impl Connection {
         {
             self.state = State::Closed;
         }
-        let mut out = self.retx.due(now_ms, self.rtt.rto());
-        if !out.is_empty() {
-            // The retransmission timer fired — the strongest congestion signal. Collapse cwnd to
-            // one segment and re-enter slow start (RFC 5681 §3.1).
+        // Day 24 — RACK (RFC 8985) time-based loss detection: resend any hole a later ACK exposed
+        // once the reordering window (≈ RTO/4) has elapsed, without waiting for three dup-ACKs or
+        // the full RTO. This is not a congestion event by itself (no cwnd collapse here).
+        let reo_wnd = (self.rtt.rto() / 4).max(1);
+        let mut out = self.retx.rack_mark_lost(now_ms, reo_wnd);
+
+        // Day 24 — Tail Loss Probe (RFC 8985 §7): the tail of a transfer is outstanding with nothing
+        // new to send and we're not recovering; at the probe deadline (~RTO/2) retransmit the last
+        // segment to elicit an ACK/SACK before the far longer RTO. One probe per tail.
+        if self.tlp_deadline_ms != 0
+            && now_ms >= self.tlp_deadline_ms
+            && self.flight_size() > 0
+            && !self.cong.in_recovery()
+            && !self.tlp_sent
+        {
+            if let Some(probe) = self.retx.retransmit_last(now_ms) {
+                out.push(probe);
+                self.tlp_sent = true;
+            }
+            self.tlp_deadline_ms = 0;
+        }
+
+        // RTO backstop: anything still due after RACK/TLP is a genuine timeout — the strongest
+        // congestion signal. Collapse cwnd to one segment and re-enter slow start (RFC 5681 §3.1).
+        let due = self.retx.due(now_ms, self.rtt.rto());
+        if !due.is_empty() {
             let flight = self.flight_size();
             self.cong.on_timeout(flight);
             self.rtt.back_off(); // double the RTO per timeout (RFC 6298 §5.5 / Karn's backoff)
+            out.extend(due);
         }
 
         // Persist timer / zero-window probe (RFC 9293 §3.8.6.1). If the peer's window is shut but we
@@ -1181,6 +1215,18 @@ impl Connection {
             self.send.nxt = self.send.nxt.wrapping_add(n as u32);
             self.retx.record(self.send.nxt.wrapping_sub(n as u32), self.send.nxt, seg.clone(), now_ms);
             out.push(seg);
+        }
+
+        // Day 24 — arm the Tail Loss Probe (RFC 8985 §7): data is outstanding with nothing new
+        // queued (a possible tail loss) and we're not already recovering → schedule a probe at
+        // ~RTO/2, ahead of the full RTO. Re-armed on each new send; disarmed when there's no tail.
+        if self.flight_size() > 0 && self.send_buf.is_empty() && !self.cong.in_recovery() {
+            if self.tlp_deadline_ms == 0 {
+                self.tlp_deadline_ms = now_ms.saturating_add((self.rtt.rto() / 2).max(1));
+            }
+        } else {
+            self.tlp_deadline_ms = 0;
+            self.tlp_sent = false;
         }
         out
     }
@@ -1365,6 +1411,11 @@ struct Unacked {
 #[derive(Debug, Default)]
 pub struct RetxQueue {
     segments: Vec<Unacked>,
+    /// Day 24 — RACK (RFC 8985): the transmit time and right edge of the most recently SENT segment
+    /// that has since been acked or SACKed. A still-outstanding segment sent before this, once the
+    /// reordering window has elapsed, is presumed lost. `0` until the first ack/sack.
+    rack_xmit_ts: u64,
+    rack_end_seq: u32,
 }
 
 #[allow(dead_code)] // is_empty()/len() are exercised only by tests
@@ -1389,14 +1440,24 @@ impl RetxQueue {
     /// algorithm, RFC 6298 §3). The caller feeds any returned sample to the RTT estimator.
     pub fn ack(&mut self, una: u32, now_ms: u64) -> Option<u64> {
         let mut sample = None;
+        let (mut rack_ts, mut rack_end) = (self.rack_xmit_ts, self.rack_end_seq);
         self.segments.retain(|s| {
             // `una` still "before" end_seq ⇒ segment not yet fully acked ⇒ keep it.
             let still_unacked = seq::before(una, s.end_seq);
-            if !still_unacked && s.retries == 0 && sample.is_none() {
-                sample = Some(now_ms.saturating_sub(s.sent_at_ms));
+            if !still_unacked {
+                if s.retries == 0 && sample.is_none() {
+                    sample = Some(now_ms.saturating_sub(s.sent_at_ms));
+                }
+                // Day 24 — RACK: remember the most-recently-sent of the segments now acked.
+                if s.sent_at_ms >= rack_ts {
+                    rack_ts = s.sent_at_ms;
+                    rack_end = s.end_seq;
+                }
             }
             still_unacked
         });
+        self.rack_xmit_ts = rack_ts;
+        self.rack_end_seq = rack_end;
         sample
     }
 
@@ -1435,6 +1496,7 @@ impl RetxQueue {
     /// `left ≤ start` and `end ≤ right`, all compared modulo 2³². SACKed segments are skipped by
     /// `due` and `fast_retransmit`, so loss recovery resends only the holes between them.
     pub fn mark_sacked(&mut self, blocks: &[(u32, u32)]) {
+        let (mut rack_ts, mut rack_end) = (self.rack_xmit_ts, self.rack_end_seq);
         for s in &mut self.segments {
             if s.sacked {
                 continue;
@@ -1443,10 +1505,52 @@ impl RetxQueue {
                 let covered = !seq::before(s.start_seq, left) && !seq::after(s.end_seq, right);
                 if covered {
                     s.sacked = true;
+                    // Day 24 — RACK: a SACKed segment is "received"; track the most recent of them.
+                    if s.sent_at_ms >= rack_ts {
+                        rack_ts = s.sent_at_ms;
+                        rack_end = s.end_seq;
+                    }
                     break;
                 }
             }
         }
+        self.rack_xmit_ts = rack_ts;
+        self.rack_end_seq = rack_end;
+    }
+
+    /// Day 24 — RACK (RFC 8985 §6.2) time-based loss detection. A still-outstanding segment is
+    /// presumed lost if a more-recently-SENT segment has already been acked/SACKed (so this one is
+    /// sequenced below `rack_end_seq` and was sent before `rack_xmit_ts`) AND more than the
+    /// reordering window `reo_wnd_ms` has elapsed since it was sent. Retransmits each such hole
+    /// (resetting its timer) and returns the packets. Catches losses that reordering hides from a
+    /// pure dup-ACK count — and, with the Tail Loss Probe, the tail an RTO would otherwise wait on.
+    pub fn rack_mark_lost(&mut self, now_ms: u64, reo_wnd_ms: u64) -> Vec<Vec<u8>> {
+        let (rack_ts, rack_end) = (self.rack_xmit_ts, self.rack_end_seq);
+        let mut out = Vec::new();
+        for s in &mut self.segments {
+            if s.sacked {
+                continue;
+            }
+            let sent_before_acked = s.sent_at_ms < rack_ts && seq::before(s.start_seq, rack_end);
+            if sent_before_acked && now_ms.saturating_sub(s.sent_at_ms) > reo_wnd_ms {
+                s.retries += 1;
+                s.sent_at_ms = now_ms;
+                out.push(s.packet.clone());
+            }
+        }
+        out
+    }
+
+    /// Day 24 — the Tail Loss Probe target (RFC 8985 §7): the highest-sequence outstanding
+    /// (non-SACKed) segment. Retransmitting it when the tail of a transfer is outstanding and no
+    /// dup-ACKs are coming elicits an ACK/SACK before the (far longer) RTO. Marks it retransmitted.
+    /// (Segments are recorded in ascending order, so the last non-SACKed one is the highest.)
+    pub fn retransmit_last(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        let idx = (0..self.segments.len()).rev().find(|&i| !self.segments[i].sacked)?;
+        let s = &mut self.segments[idx];
+        s.retries += 1;
+        s.sent_at_ms = now_ms;
+        Some(s.packet.clone())
     }
 
     /// Day 21 — RFC 6675 §4 `IsLost`: treat the segment at `idx` as lost if at least `dup_thresh`
@@ -1921,21 +2025,22 @@ mod tests {
         assert_eq!(segs.len(), 1);
         let echo = segs[0].clone();
 
-        // No RTT sample yet, so the RTO is the conservative 200 ms default.
+        // No RTT sample yet → RTO is the 200 ms default, so the Tail Loss Probe (Day 24) is due at
+        // ~RTO/2 = 100 ms — ahead of the full RTO.
         assert_eq!(conn.rto(), 200);
-        assert!(conn.on_tick(150).is_empty()); // before RTO: nothing resent
-        let resent = conn.on_tick(250); // after the 200 ms RTO: the echo is resent
+        assert!(conn.on_tick(50).is_empty()); // before the probe deadline
+        let resent = conn.on_tick(150); // the tail loss probe resends the echo (ahead of the RTO)
         assert_eq!(resent, vec![echo]);
 
-        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears. The segment
-        // was retransmitted, so Karn suppresses the RTT sample and the backed-off RTO holds — the
-        // one timeout doubled it 200 → 400.
+        // Peer ACKs our echoed data (SND.NXT advanced to 3) → the retx queue clears. The segment was
+        // retransmitted, so Karn suppresses the RTT sample (no fresh sample; a probe doesn't back
+        // off) — the RTO stays at the 200 ms default.
         let ack = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 103, ack: 3,
             data_offset: 20, flags: ACK, window: 0xffff,
         };
         conn.on_packet_at(&ack, &[], 300);
-        assert_eq!(conn.rto(), 400);
+        assert_eq!(conn.rto(), 200);
         assert!(conn.on_tick(600).is_empty());
     }
 
@@ -3112,5 +3217,40 @@ mod tests {
         assert_eq!(conn.state(), State::CloseWait);
         conn.on_tick(121_000); // idle past the CLOSE_WAIT reaper → reaped
         assert_eq!(conn.state(), State::Closed);
+    }
+
+    // ── Day 24: RACK-TLP — time-based loss detection + Tail Loss Probe (RFC 8985) ──
+
+    #[test]
+    fn tail_loss_probe_retransmits_the_last_segment() {
+        // The classic tail loss: the last segment is dropped, so NO dup-ACKs come and there's nothing
+        // above it to SACK. Pre-RACK that waits for the full RTO; the TLP probes at ~RTO/2 instead.
+        let mut conn = established_conn(); // cwnd 1·MSS, no RTT sample → RTO 200, PTO ≈ 100
+        conn.write(b"hi");
+        let segs = conn.poll_transmit(0); // sends the tail; arms the TLP at ~100 ms
+        assert_eq!(segs.len(), 1);
+        let sent = segs[0].clone();
+        assert!(conn.on_tick(50).is_empty()); // before the PTO
+        // At the PTO (before the RTO) the probe retransmits the last segment.
+        assert_eq!(conn.on_tick(120), vec![sent.clone()]);
+        // One probe per tail — it doesn't fire again.
+        assert!(conn.on_tick(150).is_empty());
+    }
+
+    #[test]
+    fn rack_marks_earlier_segment_lost_once_reorder_window_passes() {
+        // RACK detects a loss by TIME: a later-sent segment was SACKed, and the reordering window has
+        // elapsed since the earlier one — so it was dropped, not merely reordered. (Exercised on the
+        // queue directly, where the per-segment send times live.)
+        let mut q = RetxQueue::default();
+        q.record(0, 100, vec![0xAA], 0); //    segment A, sent at t=0
+        q.record(100, 200, vec![0xBB], 10); // segment B, sent at t=10
+        q.mark_sacked(&[(100, 200)]); //       B SACKed → RACK reference = (xmit_ts 10, end_seq 200)
+        // Within the reordering window, A is NOT yet declared lost (it may still be in transit)…
+        assert!(q.rack_mark_lost(15, 20).is_empty()); // elapsed since A = 15 ≤ reo_wnd 20
+        // …but once more than the reordering window has elapsed, RACK retransmits A.
+        assert_eq!(q.rack_mark_lost(30, 20), vec![vec![0xAAu8]]); // elapsed 30 > 20
+        // Its timer reset on retransmit, so it isn't resent again immediately.
+        assert!(q.rack_mark_lost(40, 20).is_empty());
     }
 }

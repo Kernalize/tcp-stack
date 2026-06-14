@@ -30,6 +30,8 @@
 //!            active half-close (recv in FIN_WAIT_2), keep-alive HTTP/1.1 (docs/day22-book.md)
 //!   Day 23 — robustness: RFC 5961 §5 blind-data ACK acceptability + randomized challenge-ACK
 //!            throttle (CVE-2016-5696) + CLOSE_WAIT/FIN_WAIT_2 reaper timeouts (docs/day23-book.md)
+//!   Day 24 — RACK-TLP: time-based loss detection + Tail Loss Probe — fast tail-loss recovery and
+//!            reordering tolerance (docs/day24-book.md, RFC 8985)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
