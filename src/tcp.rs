@@ -862,7 +862,7 @@ impl Connection {
                             return Some(pkt); // retransmit the next hole immediately
                         }
                     } else {
-                        self.cong.on_ack(acked); // slow start / CA, or the full-ACK recovery exit
+                        self.cong.on_ack(acked, now_ms); // slow start / CUBIC CA / full-ACK exit
                     }
                 } else if th.ack == self.send.una
                     && self.send.una != self.send.nxt
@@ -3065,9 +3065,9 @@ mod tests {
         };
         assert!(conn.on_packet_at(&full, &[], 5).is_none()); // no more holes to retransmit
         assert!(!conn.in_recovery());
-        // On exit cwnd deflates to ssthresh, set at the 3rd dup ACK to max(FlightSize/2, 2·MSS).
-        // FlightSize was 3·MSS there → ssthresh = max(1.5·MSS, 2·MSS) = 2·MSS.
-        assert_eq!(conn.cwnd(), 2 * MSS);
+        // On exit cwnd deflates to ssthresh, set at the 3rd dup ACK by CUBIC (Day 25) to
+        // max(cwnd·0.7, 2·MSS). cwnd was 3·MSS there → ssthresh = 3·MSS·7/10 = 3066 bytes.
+        assert_eq!(conn.cwnd(), 3 * MSS * 7 / 10);
     }
 
     // ── Day 21: RFC 6675 SACK-based loss recovery (the pipe estimator) ──
