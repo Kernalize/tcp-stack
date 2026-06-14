@@ -89,6 +89,25 @@ impl CongestionControl {
         self.dup_acks = 0;
         self.in_recovery = false;
     }
+
+    /// Day 20 — are we inside a fast-recovery episode? NewReno (RFC 6582) needs this to route an
+    /// incoming ACK: during recovery a *partial* ACK is handled specially (see `on_partial_ack`),
+    /// while outside recovery an ACK grows the window normally (`on_ack`).
+    pub fn in_recovery(&self) -> bool {
+        self.in_recovery
+    }
+
+    /// Day 20 — NewReno **partial ACK** (RFC 6582 §3). During fast recovery, an ACK advanced
+    /// SND.UNA but did *not* reach `recover` (the SND.NXT at recovery start), so at least one more
+    /// segment in that window was also lost. Deflate `cwnd` by the `acked` bytes (they left the
+    /// network) and add back one MSS for the segment the ACK just freed, then **stay in recovery** —
+    /// the caller retransmits the next hole. This is the entire point of NewReno: a *second* loss in
+    /// one window is repaired on the next RTT instead of stalling until an RTO. Plain Reno (Day 10)
+    /// would have treated this very ACK as "recovery complete," deflated, and lost the thread.
+    pub fn on_partial_ack(&mut self, acked: u32) {
+        self.dup_acks = 0;
+        self.cwnd = self.cwnd.saturating_sub(acked).saturating_add(MSS).max(MSS);
+    }
 }
 
 #[cfg(test)]
@@ -140,6 +159,38 @@ mod tests {
         c.on_dup_ack(flight); // recovery, ssthresh = 5·MSS, cwnd = 8·MSS
         c.on_ack(MSS); // new data acked → deflate to ssthresh
         assert_eq!(c.window(), 5 * MSS);
+    }
+
+    #[test]
+    fn reports_recovery_state() {
+        let mut c = CongestionControl::default();
+        assert!(!c.in_recovery());
+        let flight = 10 * MSS;
+        c.on_dup_ack(flight);
+        c.on_dup_ack(flight);
+        c.on_dup_ack(flight); // 3rd dup ACK → enter fast recovery
+        assert!(c.in_recovery());
+        c.on_ack(MSS); // a full ACK ends recovery (the on_ack deflate path)
+        assert!(!c.in_recovery());
+    }
+
+    #[test]
+    fn newreno_partial_ack_deflates_and_stays_in_recovery() {
+        let mut c = CongestionControl::default();
+        let flight = 10 * MSS;
+        c.on_dup_ack(flight);
+        c.on_dup_ack(flight);
+        c.on_dup_ack(flight); // recovery: ssthresh = 5·MSS, cwnd = 8·MSS
+        assert_eq!(c.window(), 8 * MSS);
+        // A partial ACK for one MSS: cwnd −= MSS then += MSS ⇒ unchanged, and we stay in recovery
+        // (unlike on_ack — a *full* ACK — which would deflate to ssthresh and exit).
+        c.on_partial_ack(MSS);
+        assert_eq!(c.window(), 8 * MSS);
+        assert!(c.in_recovery());
+        // A partial ACK for two MSS: cwnd = 8·MSS − 2·MSS + MSS = 7·MSS, still in recovery.
+        c.on_partial_ack(2 * MSS);
+        assert_eq!(c.window(), 7 * MSS);
+        assert!(c.in_recovery());
     }
 
     #[test]

@@ -54,6 +54,16 @@ pub const OUR_MSS: u16 = crate::congestion::MSS as u16;
 /// test SYNs still segment at full size. (Documented deviation; see docs/day15-book.md.)
 const DEFAULT_SEND_MSS: u16 = OUR_MSS;
 
+/// Day 21 — RFC 6675 duplicate/SACK threshold: the receiver must SACK three segments above a hole
+/// before we presume it lost (the SACK analogue of three duplicate ACKs). Matches the congestion
+/// module's dup-ACK threshold; named here because the `RetxQueue` `pipe`/loss logic consult it.
+const DUP_THRESH: u32 = 3;
+
+/// Day 23 — the per-window challenge-ACK budget ceiling (RFC 5961 ACK throttling). The actual budget
+/// is randomized in `1..=CHALLENGE_ACK_MAX` each window so the count can't be inferred off-path
+/// (the lesson of CVE-2016-5696, where a shared, predictable counter became an oracle).
+const CHALLENGE_ACK_MAX: u32 = 5;
+
 /// Parsed TCP options: the peer's advertised MSS (SYN only); the Timestamps option `(TSval, TSecr)`
 /// when present (RFC 7323 §3); the window-scale shift (RFC 7323 §2); and the SACK fields (RFC 2018).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -193,6 +203,10 @@ pub enum State {
     /// Passive open: we received a SYN and sent a SYN-ACK; await the peer's ACK.
     SynRcvd,
     Established,
+    /// Passive close (Day 19): the peer sent its FIN; we ACKed it and entered CLOSE_WAIT. Our send
+    /// side stays open — the local app may keep sending until it calls `close`, which sends our FIN
+    /// and moves to LAST_ACK. The passive closer never enters TIME_WAIT (RFC 9293 §3.3.2).
+    CloseWait,
     /// Passive close: we received the peer's FIN and sent our FIN; await the final ACK.
     LastAck,
     /// Active close: we sent our FIN; await its ACK and/or the peer's FIN.
@@ -331,11 +345,51 @@ pub struct Connection {
     /// set, our ACKs describe buffered out-of-order data in SACK blocks, and incoming SACK blocks let
     /// loss recovery retransmit only the genuine holes instead of go-back-N.
     sack_ok: bool,
+    /// Day 19 — the peer has sent its FIN (we are at/after CLOSE_WAIT): the application is at EOF.
+    /// Set when we honor an in-order FIN; read by `peer_closed()` so a socket veneer can return
+    /// `Ok(0)`. Distinct from our *own* close, which `close()` drives.
+    peer_fin: bool,
+    /// Day 19 — the sequence number the peer's FIN sits at, recorded when the FIN arrives out of
+    /// order (its data gap isn't filled yet). Honored — consumed, EOF, → CLOSE_WAIT — once RCV.NXT
+    /// reaches it. `None` when no FIN is outstanding. (A real stack tracks this inside the
+    /// reassembler; one pending FIN is all a single peer can have in flight.)
+    pending_fin: Option<u32>,
+    /// Day 20 — NewReno (RFC 6582) recovery point: the SND.NXT captured when a fast-recovery
+    /// episode begins. An ACK that reaches `recover` is a *full* ACK (recovery complete); one that
+    /// falls short is a *partial* ACK (another hole to retransmit). Meaningless outside recovery.
+    recover: u32,
+    /// Day 23 — RFC 5961 §5: the largest send window we've seen, defining the blind-data
+    /// ACK-acceptability range `SND.UNA − MAX.SND.WND ≤ SEG.ACK ≤ SND.NXT`. An ACK outside it (e.g.
+    /// one acking data we never sent) earns a challenge ACK instead of being trusted.
+    max_snd_wnd: u32,
+    /// Day 23 — challenge-ACK throttle (RFC 5961, hardened against CVE-2016-5696): a per-connection,
+    /// randomized budget refilled each ~second, so challenge ACKs can't be farmed as an off-path
+    /// oracle. `challenge_window_ms` is the start of the current budget window.
+    challenge_budget: u32,
+    challenge_window_ms: u64,
+    /// Day 23 — the time the last segment arrived; drives the CLOSE_WAIT / FIN_WAIT_2 reaper, so a
+    /// peer that vanishes can't pin a half-closed connection (and its memory) open forever.
+    last_active_ms: u64,
 }
 
 impl Connection {
     pub fn state(&self) -> State {
         self.state
+    }
+
+    /// Day 19: has the peer closed its half (sent FIN)? Once true the application is at EOF — a
+    /// `read()` veneer returns `Ok(0)`. We may still *send* until we `close()` our own half.
+    /// Part of the socket-style API for a future `TcpStream` (day11-book §11); `main` decides via
+    /// `state()`, so this is exercised by tests — hence `allow(dead_code)`.
+    #[allow(dead_code)]
+    pub fn peer_closed(&self) -> bool {
+        self.peer_fin
+    }
+
+    /// Day 19: true when the application's send buffer is fully drained onto the wire. `main` uses
+    /// it to decide a CLOSE_WAIT connection has nothing left to send and may close its own half.
+    pub fn send_buffer_empty(&self) -> bool {
+        self.send_buf.is_empty()
     }
 
     /// Passive open: a SYN arrived for a connection we don't have yet. Create the TCB in
@@ -417,6 +471,13 @@ impl Connection {
             // Day 18: enable SACK only if the peer's SYN offered it; we echo SACK-Permitted in the
             // SYN-ACK below only in that case (RFC 2018 §2).
             sack_ok: opts.sack_permitted,
+            peer_fin: false,   // Day 19: no peer FIN seen yet
+            pending_fin: None, // Day 19: no out-of-order FIN deferred
+            recover: iss,      // Day 20: NewReno recovery point (only meaningful during recovery)
+            max_snd_wnd: wnd as u32,                              // Day 23: RFC 5961 §5 ACK window
+            challenge_budget: 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX, // Day 23: randomized
+            challenge_window_ms: now_ms,
+            last_active_ms: now_ms, // Day 23: reaper baseline
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
@@ -490,6 +551,13 @@ impl Connection {
             // Day 18: we OFFER SACK-Permitted in our SYN (below); it's enabled only if the SYN-ACK
             // echoes it (decided in on_segment's SYN_SENT branch). RFC 2018 §2.
             sack_ok: false,
+            peer_fin: false,   // Day 19: no peer FIN seen yet
+            pending_fin: None, // Day 19: no out-of-order FIN deferred
+            recover: iss,      // Day 20: NewReno recovery point (only meaningful during recovery)
+            max_snd_wnd: wnd as u32,                              // Day 23: RFC 5961 §5 ACK window
+            challenge_budget: 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX, // Day 23: randomized
+            challenge_window_ms: now_ms,
+            last_active_ms: now_ms, // Day 23: reaper baseline
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
         // Window Scale option (Day 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
@@ -505,20 +573,26 @@ impl Connection {
         (conn, syn)
     }
 
-    /// Active close: send our FIN (valid only from ESTABLISHED) and enter FIN_WAIT_1. `now_ms`
-    /// timestamps the FIN for retransmission (Day 12). The HTTP path in `main` calls this; the
-    /// echo path closes passively.
+    /// Close our send side: emit our FIN. From ESTABLISHED this is an *active close* → FIN_WAIT_1;
+    /// from CLOSE_WAIT (Day 19) it finishes a *passive* half-close → LAST_ACK. Returns `None` from
+    /// any other state (no FIN to send). `now_ms` timestamps the FIN for retransmission (Day 12).
+    /// The HTTP path in `main` actively closes; the echo path closes from CLOSE_WAIT once the peer's
+    /// FIN has arrived and our send buffer is drained.
     pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
-        if self.state != State::Established {
-            return None;
-        }
+        // The FIN is legal only while our send side is still open. ESTABLISHED → we initiate the
+        // close (FIN_WAIT_1); CLOSE_WAIT → we are the passive closer finishing up (LAST_ACK).
+        let next = match self.state {
+            State::Established => State::FinWait1,
+            State::CloseWait => State::LastAck,
+            _ => return None,
+        };
         self.ts_val = now_ms as u32; // Day 16: stamp the FIN with the current clock
         let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
         self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes a sequence number
         // Day 12: queue the FIN (end = SND.NXT) so a lost FIN is resent until the peer ACKs it,
         // instead of leaving the teardown half-finished (RFC 9293 §3.8.1).
         self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms);
-        self.state = State::FinWait1;
+        self.state = next;
         Some(out)
     }
 
@@ -536,6 +610,91 @@ impl Connection {
         self.on_segment(th, payload, &TcpOptions::default(), now_ms)
     }
 
+    /// Day 19 — a connection is "synchronized" once both ISNs are fixed: ESTABLISHED and every
+    /// close state (RFC 9293). RFC 5961's RST/SYN defenses apply only here; SYN_SENT and SYN_RCVD
+    /// are still handshaking and handle SYN / SYN-ACK on their own.
+    fn is_synchronized(&self) -> bool {
+        matches!(
+            self.state,
+            State::Established
+                | State::FinWait1
+                | State::FinWait2
+                | State::CloseWait
+                | State::Closing
+                | State::LastAck
+                | State::TimeWait
+        )
+    }
+
+    /// Day 19 — is `seq` inside our receive window `[RCV.NXT, RCV.NXT + RCV.WND)` on the wrapping
+    /// 32-bit circle (RFC 9293 §3.4 acceptability)? Used by the RFC 5961 RST check.
+    fn in_window(&self, seq: u32) -> bool {
+        let end = self.recv.nxt.wrapping_add(self.recv.wnd as u32);
+        !seq::before(seq, self.recv.nxt) && seq::before(seq, end)
+    }
+
+    /// Day 19 — a *challenge ACK* (RFC 5961): a bare ACK of our current state, `SEQ = SND.NXT`,
+    /// `ACK = RCV.NXT`. Sent instead of trusting a suspicious in-window RST, instead of resetting on
+    /// an in-window SYN, or instead of acting on an out-of-window ACK; a genuine peer answers it with
+    /// a correctly-sequenced segment.
+    fn challenge_ack(&self) -> Vec<u8> {
+        self.segment(self.send.nxt, self.recv.nxt, ACK, &[])
+    }
+
+    /// Day 23 — a *throttled* challenge ACK (RFC 5961 ACK throttling, hardened per CVE-2016-5696).
+    /// Returns a challenge ACK only while this connection's randomized per-window budget lasts, then
+    /// suppresses (returns `None`) until the next ~second refills it. A *shared, deterministic*
+    /// counter (early Linux) let an off-path attacker probe whether a target connection existed by
+    /// exhausting the global budget and watching for the missing challenge; a per-connection,
+    /// randomized budget removes that signal.
+    fn maybe_challenge(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        const WINDOW_MS: u64 = 1000;
+        if now_ms.wrapping_sub(self.challenge_window_ms) >= WINDOW_MS {
+            self.challenge_window_ms = now_ms;
+            self.challenge_budget = 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX;
+        }
+        if self.challenge_budget == 0 {
+            return None; // throttled — drop silently this window
+        }
+        self.challenge_budget -= 1;
+        Some(self.challenge_ack())
+    }
+
+    /// Day 23 — RFC 5961 §5 ACK acceptability: an ACK is acceptable iff
+    /// `SND.UNA − MAX.SND.WND ≤ SEG.ACK ≤ SND.NXT` on the wrapping circle. The tight upper bound
+    /// rejects an ACK for data we never sent (a blind injection probe); the lower bound tolerates
+    /// genuinely old duplicate ACKs. An unacceptable ACK earns a challenge ACK, not blind action.
+    fn ack_acceptable(&self, ack: u32) -> bool {
+        let low = self.send.una.wrapping_sub(self.max_snd_wnd);
+        !seq::before(ack, low) && !seq::after(ack, self.send.nxt)
+    }
+
+    /// Day 19 — handle an incoming RST. SYN_SENT: a RST is acceptable only if it acknowledges our
+    /// SYN (RFC 9293 §3.10.7.3) — the peer refused the connection. TIME_WAIT: ignore it (RFC 1337,
+    /// "TIME-WAIT assassination" — a late RST must not free the 4-tuple early). Otherwise follow
+    /// RFC 5961 §3.2: a RST whose seq is *exactly* RCV.NXT resets the connection; an in-window but
+    /// inexact RST earns a challenge ACK (not a reset); an out-of-window RST is dropped. This blunts
+    /// the blind-reset attack, where an off-path attacker need only land a RST anywhere in window.
+    fn on_rst(&mut self, th: &TcpHeader, now_ms: u64) -> Option<Vec<u8>> {
+        if self.state == State::SynSent {
+            if th.flags & ACK != 0 && th.ack == self.send.nxt {
+                self.state = State::Closed;
+            }
+            return None;
+        }
+        if self.state == State::TimeWait {
+            return None; // RFC 1337: never honor a RST in TIME_WAIT
+        }
+        if th.seq == self.recv.nxt {
+            self.state = State::Closed; // exactly expected → honor the reset
+            None
+        } else if self.in_window(th.seq) {
+            self.maybe_challenge(now_ms) // in window but off-by-some → (throttled) challenge, no reset
+        } else {
+            None // out of window → ignore
+        }
+    }
+
     /// Full segment handler: like `on_packet_at` but also given the parsed TCP `options`, so the
     /// state machine can learn the peer's MSS (Day 15) and, later, timestamps / SACK blocks. `main`
     /// calls this with the options parsed off the wire.
@@ -547,6 +706,15 @@ impl Connection {
         now_ms: u64,
     ) -> Option<Vec<u8>> {
         self.ts_val = now_ms as u32; // Day 16: refresh our timestamp clock for anything we send
+        self.last_active_ms = now_ms; // Day 23: a segment arrived — reset the half-close reaper
+
+        // ── Incoming RST (RFC 5961 §3), Day 19 ── A blind off-path attacker who guesses the
+        // 4-tuple can try to tear the connection down with a forged RST. Rather than honor any
+        // in-window RST (the loose RFC 793 rule), accept only one whose seq is exactly RCV.NXT;
+        // challenge-ACK an in-window-but-inexact one; drop the rest. Checked before all else.
+        if th.flags & RST != 0 {
+            return self.on_rst(th, now_ms);
+        }
 
         // Active open: we sent a SYN and are waiting for the peer's SYN-ACK.
         if self.state == State::SynSent {
@@ -584,6 +752,17 @@ impl Connection {
             return None; // not the SYN-ACK we expect → ignore
         }
 
+        // ── Blind in-window SYN (RFC 5961 §4), Day 19 ── A SYN to an already-synchronized
+        // connection once forced a reset (RFC 793), letting an attacker kill connections with a
+        // single in-window SYN. Instead send a challenge ACK and drop the SYN (irrespective of its
+        // sequence number): a peer that truly restarted replies with a correctly-sequenced RST,
+        // which the RST path above then honors. A retransmitted SYN-ACK arriving after our final
+        // ACK was lost lands here too — the challenge ACK doubles as that missing ACK, completing
+        // the peer's handshake.
+        if th.flags & SYN != 0 && self.is_synchronized() {
+            return self.maybe_challenge(now_ms); // Day 23: throttled (RFC 5961 ACK rate limit)
+        }
+
         // Complete the handshake if we're still waiting for the client's ACK. (That ACK may
         // also piggyback data, so we fall through to data handling afterwards.)
         if self.state == State::SynRcvd {
@@ -597,7 +776,7 @@ impl Connection {
             }
         }
 
-        if self.state == State::Established {
+        if self.state == State::Established || self.state == State::CloseWait {
             // Day 16 — PAWS (Protect Against Wrapped Sequences, RFC 7323 §5): on a fast, long-lived
             // connection the 32-bit sequence space can wrap, so an ancient duplicate could land in
             // the current window. Its *timestamp*, however, is older than anything we've recently
@@ -623,12 +802,19 @@ impl Connection {
             let prev_wnd = self.send.wnd;
             let new_wnd = (th.window as u32) << self.snd_wscale;
             self.send.wnd = new_wnd;
+            self.max_snd_wnd = self.max_snd_wnd.max(new_wnd); // Day 23: RFC 5961 §5 ACK window bound
 
             // Advance SND.UNA only if the ack is *acceptable*: SND.UNA < ACK <= SND.NXT, on the
             // wrapping 32-bit circle (RFC 9293 §3.4 via `seq::between`). A duplicate or
             // out-of-window ack is ignored rather than blindly trusted — the defensive version
             // of the earlier "store whatever they sent".
             if th.flags & ACK != 0 {
+                // Day 23 — RFC 5961 §5 blind-data-injection defence: an ACK outside
+                // [SND.UNA − MAX.SND.WND, SND.NXT] (e.g. acking data we never sent) is not trusted —
+                // answer with a (throttled) challenge ACK and drop the segment.
+                if !self.ack_acceptable(th.ack) {
+                    return self.maybe_challenge(now_ms);
+                }
                 // Day 18: apply any SACK blocks first (RFC 2018 §4) — mark those out-of-order ranges
                 // as selectively acked, so the fast-retransmit below resends the genuine hole rather
                 // than data the peer already holds. SACK blocks ride on (often duplicate) ACKs.
@@ -653,7 +839,20 @@ impl Connection {
                     } else if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
                         self.rtt.sample(rtt_ms);
                     }
-                    self.cong.on_ack(acked);
+                    // Day 20 — NewReno (RFC 6582). During fast recovery, a *partial* ACK (advances
+                    // SND.UNA but stops short of `recover`, so a later segment in the same window was
+                    // also lost) retransmits the next hole and STAYS in recovery; only a *full* ACK
+                    // (SEG.ACK ≥ recover) ends the episode. Plain Reno (Day 10) treated the first new
+                    // ACK as "done" and then stalled on the second loss until an RTO. Outside
+                    // recovery this is an ordinary slow-start / congestion-avoidance ACK.
+                    if self.cong.in_recovery() && seq::before(th.ack, self.recover) {
+                        self.cong.on_partial_ack(acked);
+                        if let Some(pkt) = self.retx.fast_retransmit(now_ms) {
+                            return Some(pkt); // retransmit the next hole immediately
+                        }
+                    } else {
+                        self.cong.on_ack(acked); // slow start / CA, or the full-ACK recovery exit
+                    }
                 } else if th.ack == self.send.una
                     && self.send.una != self.send.nxt
                     && payload.is_empty()
@@ -667,6 +866,9 @@ impl Connection {
                     // waiting for the RTO (RFC 5681 §3.2). Window changes and zero-window re-acks are
                     // excluded here so they can't masquerade as loss (Day 14).
                     if self.cong.on_dup_ack(self.flight_size()) {
+                        // Day 20 (RFC 6582): freeze the recovery point at the current SND.NXT, so the
+                        // partial/full-ACK test above knows when this loss window is fully repaired.
+                        self.recover = self.send.nxt;
                         if let Some(pkt) = self.retx.fast_retransmit(now_ms) {
                             return Some(pkt);
                         }
@@ -674,36 +876,58 @@ impl Connection {
                 }
             }
 
-            // Data handling via the reassembler: it buffers out-of-order segments, drops
-            // duplicates, and returns only the bytes now contiguous from RCV.NXT (RFC 9293 §3.4).
-            // Delivered bytes go into the receive buffer for the application; we do NOT echo here —
-            // the app reads (`take_received`) and responds (`write` + `poll_transmit`).
-            if !payload.is_empty() {
+            // Data handling via the reassembler: it buffers out-of-order segments, drops duplicates,
+            // and returns only the bytes now contiguous from RCV.NXT (RFC 9293 §3.4). Delivered
+            // bytes go into the receive buffer for the application; we do NOT echo here — the app
+            // reads (`take_received`) and responds. Day 19: do NOT return yet — a FIN may ride on
+            // this very segment (a peer may set FIN on its last data segment), and a previously
+            // deferred FIN may now be deliverable, so fall through to the FIN handling below.
+            let had_data = !payload.is_empty();
+            if had_data {
                 let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
                 if !delivered.is_empty() {
                     self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
                     self.recv_buf.extend_from_slice(&delivered);
                 }
-                // Acknowledge: a fresh RCV.NXT for in-order data, or a *duplicate ACK* for
-                // out-of-order/duplicate data (three of which trigger the sender's fast retransmit).
-                // Day 18: when SACK is on and we have out-of-order data buffered, this ACK also names
-                // those ranges in SACK blocks, so the peer retransmits only the hole (RFC 2018 §3).
-                let ack_opts = self.ack_options();
-                return Some(self.segment_opts(self.send.nxt, self.recv.nxt, ACK, &ack_opts, &[]));
             }
 
-            // The peer wants to close: a FIN (in order) occupies one sequence number. We
-            // acknowledge it AND, since an echo server has no more data to send, include our
-            // own FIN in the same segment, then wait for the final ACK in LAST_ACK. (A full
-            // stack would pass through CLOSE_WAIT while the local app finishes sending.)
-            if th.flags & FIN != 0 && th.seq == self.recv.nxt {
-                self.recv.nxt = self.recv.nxt.wrapping_add(1); // FIN consumes a seq number
-                let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
-                self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes one too
-                // Day 12: queue our FIN (end = SND.NXT) so it is resent until the peer's final ACK.
-                self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms);
-                self.state = State::LastAck;
-                return Some(out);
+            // ── The peer's FIN (RFC 9293 §3.5), Day 19 half-close ── A FIN occupies one sequence
+            // number positioned AFTER the segment's data, at SEG.SEQ + SEG.LEN.
+            if th.flags & FIN != 0 {
+                let fin_seq = th.seq.wrapping_add(payload.len() as u32);
+                if self.state == State::CloseWait && !seq::after(fin_seq, self.recv.nxt) {
+                    // A retransmitted FIN we have already accepted (our earlier ACK was lost):
+                    // re-acknowledge current state so the peer can finish its own teardown.
+                    return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+                }
+                // Record where the FIN sits (at or ahead of RCV.NXT). It is *honored* below once
+                // everything up to it is in order — so an out-of-order data+FIN defers correctly
+                // and still completes when its gap fills.
+                if self.state == State::Established && !seq::before(fin_seq, self.recv.nxt) {
+                    self.pending_fin = Some(fin_seq);
+                }
+            }
+
+            // Honor a pending FIN (possibly deferred from an earlier out-of-order segment) now that
+            // RCV.NXT has reached it. Day 19: this is the real half-close. ACK the FIN with a *pure
+            // ACK* and enter CLOSE_WAIT — our send side stays open. The local app closes when it is
+            // done, which sends our FIN and advances to LAST_ACK (see `close`). We no longer fuse
+            // our FIN onto this ACK, so a server can keep sending after the client half-closes.
+            if self.state == State::Established && self.pending_fin == Some(self.recv.nxt) {
+                self.recv.nxt = self.recv.nxt.wrapping_add(1); // the FIN consumes a sequence number
+                self.pending_fin = None;
+                self.peer_fin = true; // the application now sees EOF on reads
+                self.state = State::CloseWait;
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+            }
+
+            // Plain data with no FIN to honor on this segment: acknowledge. A fresh RCV.NXT for
+            // in-order data, or a *duplicate ACK* for out-of-order/duplicate data (three of which
+            // trigger the sender's fast retransmit). Day 18: when SACK is on and out-of-order data
+            // is buffered, this ACK also names those ranges in SACK blocks (RFC 2018 §3).
+            if had_data {
+                let ack_opts = self.ack_options();
+                return Some(self.segment_opts(self.send.nxt, self.recv.nxt, ACK, &ack_opts, &[]));
             }
         }
 
@@ -716,7 +940,10 @@ impl Connection {
             return None;
         }
 
-        // ── Active-close states (we initiated the close via `close()`) ──
+        // ── Active-close states (we initiated the close via `close()`) ── Day 22: after we close
+        // our SEND side our RECEIVE side stays open (the active half-close: send a request, then
+        // `shutdown(SHUT_WR)`, then read the response). So FIN_WAIT_1/2 still deliver incoming data
+        // and acknowledge it, in addition to driving the teardown (RFC 9293 §3.5).
         if self.state == State::FinWait1 {
             let acked_our_fin = th.flags & ACK != 0 && th.ack == self.send.nxt;
             // Day 12: once our FIN is acknowledged, drop it from the retx queue (whichever close
@@ -724,9 +951,19 @@ impl Connection {
             if acked_our_fin {
                 let _ = self.retx.ack(th.ack, now_ms);
             }
-            // The peer also sent its FIN (in order) — acknowledge it.
-            if th.flags & FIN != 0 && th.seq == self.recv.nxt {
+            // Day 22: deliver any data the peer sent (our read side is still open).
+            if !payload.is_empty() {
+                let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
+                if !delivered.is_empty() {
+                    self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
+                    self.recv_buf.extend_from_slice(&delivered);
+                }
+            }
+            // The peer also sent its FIN (in order, possibly piggybacked on that data) — ACK it.
+            let fin_seq = th.seq.wrapping_add(payload.len() as u32);
+            if th.flags & FIN != 0 && fin_seq == self.recv.nxt {
                 self.recv.nxt = self.recv.nxt.wrapping_add(1);
+                self.peer_fin = true;
                 let out = self.segment(self.send.nxt, self.recv.nxt, ACK, &[]);
                 if acked_our_fin {
                     self.state = State::TimeWait; // our FIN acked AND theirs received
@@ -739,17 +976,35 @@ impl Connection {
             if acked_our_fin {
                 self.state = State::FinWait2;
             }
+            // Data without an in-order FIN → acknowledge it.
+            if !payload.is_empty() {
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
+            }
             return None;
         }
 
         if self.state == State::FinWait2 {
-            // Await the peer's FIN; acknowledge it and enter TIME_WAIT.
-            if th.flags & FIN != 0 && th.seq == self.recv.nxt {
+            // Day 22: our read side is still open — deliver incoming data first.
+            if !payload.is_empty() {
+                let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
+                if !delivered.is_empty() {
+                    self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
+                    self.recv_buf.extend_from_slice(&delivered);
+                }
+            }
+            // Await the peer's FIN (possibly piggybacked); acknowledge it and enter TIME_WAIT.
+            let fin_seq = th.seq.wrapping_add(payload.len() as u32);
+            if th.flags & FIN != 0 && fin_seq == self.recv.nxt {
                 self.recv.nxt = self.recv.nxt.wrapping_add(1);
+                self.peer_fin = true;
                 let out = self.segment(self.send.nxt, self.recv.nxt, ACK, &[]);
                 self.state = State::TimeWait;
                 self.time_wait_ms = now_ms;
                 return Some(out);
+            }
+            // Data without an in-order FIN → acknowledge it.
+            if !payload.is_empty() {
+                return Some(self.segment(self.send.nxt, self.recv.nxt, ACK, &[]));
             }
             return None;
         }
@@ -780,6 +1035,19 @@ impl Connection {
         {
             self.state = State::Closed;
         }
+        // Day 23 — reap a connection idling in a half-closed state: a peer that vanished after
+        // sending its FIN (we're in CLOSE_WAIT) or after we closed our half (FIN_WAIT_2) must not pin
+        // the TCB (and its memory) open forever. `last_active_ms` is the last time a segment arrived,
+        // so an active half-close still exchanging data keeps resetting it — only a genuinely idle
+        // connection is reaped (cf. Linux's `tcp_fin_timeout`).
+        const FIN_WAIT2_TIMEOUT_MS: u64 = 60_000;
+        const CLOSE_WAIT_TIMEOUT_MS: u64 = 120_000;
+        let idle = now_ms.saturating_sub(self.last_active_ms);
+        if (self.state == State::FinWait2 && idle >= FIN_WAIT2_TIMEOUT_MS)
+            || (self.state == State::CloseWait && idle >= CLOSE_WAIT_TIMEOUT_MS)
+        {
+            self.state = State::Closed;
+        }
         let mut out = self.retx.due(now_ms, self.rtt.rto());
         if !out.is_empty() {
             // The retransmission timer fired — the strongest congestion signal. Collapse cwnd to
@@ -795,7 +1063,7 @@ impl Connection {
         // the closed window after one RTO. Once that probe is outstanding (FlightSize > 0) the
         // ordinary RTO retransmission keeps re-probing it; the peer's ACK (carrying its now-current
         // window) breaks the stall.
-        if self.state == State::Established
+        if (self.state == State::Established || self.state == State::CloseWait)
             && self.send.wnd == 0
             && !self.send_buf.is_empty()
             && self.flight_size() == 0
@@ -857,10 +1125,46 @@ impl Connection {
     /// flight, are never held.
     pub fn poll_transmit(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
-        if self.state != State::Established {
+        // Our send side is open in ESTABLISHED and, after a peer half-close, in CLOSE_WAIT (Day 19).
+        if self.state != State::Established && self.state != State::CloseWait {
             return out;
         }
         self.ts_val = now_ms as u32; // Day 16: stamp outgoing data with the current clock
+
+        // Day 21 — RFC 6675 SACK loss recovery. While recovering on a SACK-enabled connection, pace
+        // transmission by the `pipe` estimate (bytes truly in flight) rather than FlightSize, which
+        // over-counts SACKed and lost data. Retransmit every hole the scoreboard reveals, then send
+        // new data, keeping the pipe full at min(cwnd, SND.WND) — so a window with several losses is
+        // repaired in ONE round trip and the link stays busy, not NewReno's one-hole-per-RTT crawl.
+        if self.sack_ok && self.cong.in_recovery() {
+            let limit = self.send.wnd.min(self.cong.window());
+            while self.retx.pipe(DUP_THRESH) < limit {
+                match self.retx.next_lost_retransmit(DUP_THRESH, now_ms) {
+                    Some(pkt) => out.push(pkt), // (1) retransmit the next hole, oldest first
+                    None => break,
+                }
+            }
+            let mss = self.send_mss as usize;
+            while !self.send_buf.is_empty() {
+                let pipe = self.retx.pipe(DUP_THRESH);
+                if pipe >= limit {
+                    break;
+                }
+                // (2) fill the remaining pipe with NEW data (Nagle is irrelevant during recovery —
+                // we are deliberately keeping the window full while the holes heal).
+                let n = ((limit - pipe) as usize).min(mss).min(self.send_buf.len());
+                if n == 0 {
+                    break;
+                }
+                let payload: Vec<u8> = self.send_buf.drain(..n).collect();
+                let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
+                self.send.nxt = self.send.nxt.wrapping_add(n as u32);
+                self.retx.record(self.send.nxt.wrapping_sub(n as u32), self.send.nxt, seg.clone(), now_ms);
+                out.push(seg);
+            }
+            return out;
+        }
+
         let mss = self.send_mss as usize; // Day 15: the negotiated send MSS, not a fixed constant
         while !self.send_buf.is_empty() {
             let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
@@ -898,6 +1202,14 @@ impl Connection {
     #[cfg(test)]
     fn rto(&self) -> u64 {
         self.rtt.rto()
+    }
+    #[cfg(test)]
+    fn cwnd(&self) -> u32 {
+        self.cong.window()
+    }
+    #[cfg(test)]
+    fn in_recovery(&self) -> bool {
+        self.cong.in_recovery()
     }
 
     /// Build a segment from THIS connection's perspective (src = us, dst = peer). The advertised
@@ -1137,6 +1449,63 @@ impl RetxQueue {
         }
     }
 
+    /// Day 21 — RFC 6675 §4 `IsLost`: treat the segment at `idx` as lost if at least `dup_thresh`
+    /// segments with HIGHER sequence numbers have been SACKed — the SACK analogue of three duplicate
+    /// ACKs (the receiver holds later data but not this, so this is presumed dropped). An
+    /// already-SACKed segment is never "lost." (We count SACKed *segments* above, each ≈ one MSS,
+    /// rather than RFC 6675's discontiguous *blocks* / `(dup_thresh−1)·SMSS bytes`; equivalent for
+    /// our one-record-per-segment queue.)
+    fn is_lost(&self, idx: usize, dup_thresh: u32) -> bool {
+        let seg = &self.segments[idx];
+        if seg.sacked {
+            return false;
+        }
+        let sacked_above = self
+            .segments
+            .iter()
+            .filter(|s| s.sacked && seq::after(s.start_seq, seg.start_seq))
+            .count() as u32;
+        sacked_above >= dup_thresh
+    }
+
+    /// Day 21 — RFC 6675 §4 `Pipe()`: an estimate of the bytes actually in flight between us and the
+    /// receiver — the rate-control signal for SACK loss recovery. A segment counts toward `pipe`
+    /// unless the receiver already holds it (SACKed) or it is presumed lost and not yet
+    /// retransmitted; a retransmitted segment counts again (it is back on the wire). `pipe < cwnd`
+    /// is the gate that lets the sender keep the pipe full *during* recovery — retransmitting holes
+    /// AND sending new data — instead of going quiet, which is SACK recovery's edge over NewReno.
+    pub fn pipe(&self, dup_thresh: u32) -> u32 {
+        let mut pipe = 0u32;
+        for i in 0..self.segments.len() {
+            let s = &self.segments[i];
+            if s.sacked {
+                continue; // the receiver holds it → not in flight
+            }
+            let retransmitted = s.retries > 0;
+            if !self.is_lost(i, dup_thresh) || retransmitted {
+                pipe = pipe.wrapping_add(s.end_seq.wrapping_sub(s.start_seq));
+            }
+            // a lost, never-retransmitted segment has left the network → contributes nothing
+        }
+        pipe
+    }
+
+    /// Day 21 — RFC 6675 §4 `NextSeg` (the retransmission case): the lowest-sequence segment that
+    /// `IsLost` reports and that we have not already retransmitted this recovery. Marks it
+    /// retransmitted (resets its timer, bumps `retries`) and returns its bytes. `None` when no
+    /// un-retransmitted lost segment remains — then the caller may send NEW data to fill the pipe.
+    /// (Segments are recorded in ascending sequence order, so the first match is the lowest.)
+    pub fn next_lost_retransmit(&mut self, dup_thresh: u32, now_ms: u64) -> Option<Vec<u8>> {
+        let idx = (0..self.segments.len()).find(|&i| {
+            let s = &self.segments[i];
+            !s.sacked && s.retries == 0 && self.is_lost(i, dup_thresh)
+        })?;
+        let s = &mut self.segments[idx];
+        s.retries += 1;
+        s.sent_at_ms = now_ms;
+        Some(s.packet.clone())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
@@ -1335,19 +1704,29 @@ mod tests {
         conn.on_packet(&hs_ack, &[]);
         assert_eq!(conn.state(), State::Established);
 
-        // Client closes: FIN at seq 101.
+        // Client closes: FIN at seq 101. Day 19 — half-close: we ACK with a *pure ACK* (not the old
+        // fused FIN|ACK) and enter CLOSE_WAIT; our send side stays open.
         let fin = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: FIN | ACK, window: 0xffff,
         };
-        let finack = conn.on_packet(&fin, &[]).expect("our FIN-ACK");
-        assert_eq!(conn.state(), State::LastAck);
+        let ack = conn.on_packet(&fin, &[]).expect("a pure ACK of their FIN");
+        assert_eq!(conn.state(), State::CloseWait);
+        assert!(conn.peer_closed()); // the application now sees EOF
 
-        let t = parse(&finack[20..]).unwrap();
-        assert_eq!(t.flags, FIN | ACK);
-        assert_eq!(t.seq, 1); // our send position
+        let t = parse(&ack[20..]).unwrap();
+        assert_eq!(t.flags, ACK); // a bare ACK — no FIN yet
+        assert_eq!(t.seq, 1); // our send position, unconsumed
         assert_eq!(t.ack, 102); // acknowledges their FIN (101 + 1)
-        assert_eq!(tcp_checksum(ME, PEER, &finack[20..]), 0, "TCP checksum invalid");
+        assert_eq!(tcp_checksum(ME, PEER, &ack[20..]), 0, "TCP checksum invalid");
+
+        // The application has nothing more to send, so it closes its half → our FIN, LAST_ACK.
+        let our_fin = conn.close(0).expect("our FIN");
+        assert_eq!(conn.state(), State::LastAck);
+        let f = parse(&our_fin[20..]).unwrap();
+        assert_eq!(f.flags, FIN | ACK);
+        assert_eq!(f.seq, 1); // our FIN at SND.NXT
+        assert_eq!(f.ack, 102);
 
         // Client ACKs our FIN → fully closed.
         let last = TcpHeader {
@@ -1710,14 +2089,18 @@ mod tests {
         };
         conn.on_packet_at(&hs_ack, &[], 0);
 
-        // Peer closes; our FIN-ACK (LastAck) is queued at t=0, end_seq = SND.NXT = 2.
+        // Peer closes; Day 19: we ACK and enter CLOSE_WAIT (no FIN queued yet).
         let fin = TcpHeader {
             src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
             data_offset: 20, flags: FIN | ACK, window: 0xffff,
         };
-        let finack = conn.on_packet_at(&fin, &[], 0).expect("our FIN-ACK");
+        conn.on_packet_at(&fin, &[], 0).expect("a pure ACK of their FIN");
+        assert_eq!(conn.state(), State::CloseWait);
+
+        // The app closes its half → our FIN (LAST_ACK), queued at t=0, end_seq = SND.NXT = 2.
+        let our_fin = conn.close(0).expect("our FIN");
         assert_eq!(conn.state(), State::LastAck);
-        assert_eq!(conn.on_tick(250), vec![finack.clone()]); // resent after the RTO
+        assert_eq!(conn.on_tick(250), vec![our_fin.clone()]); // resent after the RTO
 
         // The peer's ACK of our FIN closes the connection and clears the queue.
         let last = TcpHeader {
@@ -2310,5 +2693,424 @@ mod tests {
         q.record(0, 100, vec![0xAA], 0);
         q.mark_sacked(&[(0, 50)]); // covers only the first half of [0,100)
         assert_eq!(q.fast_retransmit(10), Some(vec![0xAA]));
+    }
+
+    // ── Day 19: half-close (CLOSE_WAIT) + RFC 5961 RST/SYN validation ──
+
+    /// A peer's pure FIN at seq 101 (helper): the common "client half-closes" segment.
+    fn peer_fin_segment() -> TcpHeader {
+        TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: FIN | ACK, window: 0xffff,
+        }
+    }
+
+    #[test]
+    fn data_and_fin_in_one_segment_delivers_data_and_enters_close_wait() {
+        // The peer sends its last 2 bytes "hi" AND its FIN in a single segment at seq 101. The FIN
+        // sits at seq 103 (one past the data). We must deliver "hi", consume the FIN, ACK through
+        // 104, and reach CLOSE_WAIT — the pre-Day-19 code returned on the data branch and dropped a
+        // piggybacked FIN entirely.
+        let mut conn = established_conn();
+        let data_fin = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: FIN | PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet(&data_fin, b"hi").expect("an ACK of data + FIN");
+        assert_eq!(conn.state(), State::CloseWait);
+        assert!(conn.peer_closed());
+        assert_eq!(conn.take_received(), b"hi"); // data delivered, not dropped
+        let h = parse(&ack[20..]).unwrap();
+        assert_eq!(h.flags, ACK);
+        assert_eq!(h.ack, 104); // 101 + 2 data + 1 FIN
+        assert_eq!(conn.rcv_nxt(), 104);
+    }
+
+    #[test]
+    fn half_close_lets_local_side_keep_sending() {
+        let mut conn = established_conn();
+        // Peer closes its half (pure FIN at 101) → we ACK, CLOSE_WAIT.
+        let ack = conn.on_packet(&peer_fin_segment(), &[]).expect("a pure ACK");
+        assert_eq!(conn.state(), State::CloseWait);
+        assert_eq!(parse(&ack[20..]).unwrap().ack, 102);
+
+        // Our send side is still open: the app writes and poll_transmit puts it on the wire even in
+        // CLOSE_WAIT (this is the whole point of half-close).
+        conn.write(b"bye");
+        let segs = conn.poll_transmit(0);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(payload_of(&segs[0]), b"bye");
+        assert_eq!(parse(&segs[0][20..]).unwrap().seq, 1); // our data at SND.NXT
+
+        // The peer ACKs our 3 bytes (ack 4) — handled in CLOSE_WAIT just like ESTABLISHED.
+        let peer_ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 102, ack: 4,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&peer_ack, &[], 0).is_none());
+
+        // Now the app closes its half → our FIN, LAST_ACK, sequenced after the data.
+        let our_fin = conn.close(0).expect("our FIN");
+        assert_eq!(conn.state(), State::LastAck);
+        let f = parse(&our_fin[20..]).unwrap();
+        assert_eq!(f.flags, FIN | ACK);
+        assert_eq!(f.seq, 4); // after the 3 sent bytes (1 + 3)
+        assert_eq!(f.ack, 102);
+    }
+
+    #[test]
+    fn close_wait_reacks_a_retransmitted_fin() {
+        let mut conn = established_conn();
+        conn.on_packet(&peer_fin_segment(), &[]).expect("first ACK");
+        assert_eq!(conn.state(), State::CloseWait);
+
+        // The peer never saw our ACK and retransmits its FIN. We must re-ACK current state (RCV.NXT
+        // is already past the FIN) rather than ignore it, so the peer can complete its teardown.
+        let reack = conn.on_packet(&peer_fin_segment(), &[]).expect("a re-ACK");
+        let h = parse(&reack[20..]).unwrap();
+        assert_eq!(h.flags, ACK);
+        assert_eq!(h.ack, 102);
+        assert_eq!(conn.state(), State::CloseWait); // unchanged
+    }
+
+    #[test]
+    fn out_of_order_data_with_fin_defers_then_completes_the_close() {
+        let mut conn = established_conn(); // RCV.NXT = 101
+        // A data+FIN segment arrives out of order (seq 103, the [101,103) gap missing). The FIN sits
+        // at seq 105 and MUST be deferred — we stay ESTABLISHED and dup-ACK 101, not jump to
+        // CLOSE_WAIT on a FIN whose preceding bytes we don't yet have.
+        let ooo = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 103, ack: 1,
+            data_offset: 20, flags: FIN | PSH | ACK, window: 0xffff,
+        };
+        let dup = conn.on_packet(&ooo, b"XY").expect("a dup ACK");
+        assert_eq!(parse(&dup[20..]).unwrap().ack, 101); // gap remains
+        assert_eq!(conn.state(), State::Established); // FIN not yet honored
+        assert!(!conn.peer_closed());
+
+        // The missing bytes arrive (seq 101) → the gap fills, "ABXY" delivers, and the deferred FIN
+        // is now honored in the same call: CLOSE_WAIT, ACK through 106 (101 + 4 data + 1 FIN).
+        let fill = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet(&fill, b"AB").expect("an ACK");
+        assert_eq!(conn.state(), State::CloseWait);
+        assert!(conn.peer_closed());
+        assert_eq!(parse(&ack[20..]).unwrap().ack, 106);
+        assert_eq!(conn.take_received(), b"ABXY");
+    }
+
+    #[test]
+    fn rst_at_rcv_nxt_resets_the_connection() {
+        // RFC 5961 §3.2: a RST whose seq is exactly RCV.NXT is honored — the connection is reset.
+        let mut conn = established_conn(); // RCV.NXT = 101
+        let rst = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: RST, window: 0,
+        };
+        assert!(conn.on_packet(&rst, &[]).is_none()); // honored silently, no reply
+        assert_eq!(conn.state(), State::Closed);
+    }
+
+    #[test]
+    fn in_window_rst_is_challenged_not_honored() {
+        // RFC 5961 §3.2: a RST inside the window but NOT exactly at RCV.NXT is suspicious → send a
+        // challenge ACK and do NOT reset. (RCV.NXT = 101, RCV.WND = 1024 → window [101, 1125).)
+        let mut conn = established_conn();
+        let rst = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 200, ack: 1,
+            data_offset: 20, flags: RST, window: 0,
+        };
+        let chal = conn.on_packet(&rst, &[]).expect("a challenge ACK");
+        let h = parse(&chal[20..]).unwrap();
+        assert_eq!(h.flags, ACK);
+        assert_eq!(h.seq, 1); // SND.NXT
+        assert_eq!(h.ack, 101); // RCV.NXT
+        assert_eq!(conn.state(), State::Established); // NOT reset
+    }
+
+    #[test]
+    fn out_of_window_rst_is_ignored() {
+        // A RST far outside the receive window is dropped silently (RFC 5961 §3.2).
+        let mut conn = established_conn(); // window [101, 1125)
+        let rst = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 5000, ack: 1,
+            data_offset: 20, flags: RST, window: 0,
+        };
+        assert!(conn.on_packet(&rst, &[]).is_none());
+        assert_eq!(conn.state(), State::Established); // untouched
+    }
+
+    #[test]
+    fn rst_in_time_wait_is_ignored() {
+        // RFC 1337: a RST in TIME_WAIT can only be a delayed segment from the old connection; honoring
+        // it risks "TIME-WAIT assassination". Drive a full active close to TIME_WAIT, then RST it.
+        let mut conn = established_conn();
+        conn.close(0).expect("our FIN"); // → FIN_WAIT_1
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0); // our FIN acked → FIN_WAIT_2
+        let peer_fin = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: FIN | ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&peer_fin, &[], 0); // their FIN → TIME_WAIT
+        assert_eq!(conn.state(), State::TimeWait);
+
+        // A RST exactly at RCV.NXT (102) would reset a synchronized connection — but not in TIME_WAIT.
+        let rst = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 102, ack: 2,
+            data_offset: 20, flags: RST, window: 0,
+        };
+        assert!(conn.on_packet_at(&rst, &[], 0).is_none());
+        assert_eq!(conn.state(), State::TimeWait); // ignored, not assassinated
+    }
+
+    #[test]
+    fn in_window_syn_gets_a_challenge_ack() {
+        // RFC 5961 §4: a SYN into a synchronized connection earns a challenge ACK and is dropped —
+        // never a reset (which an attacker could exploit to kill connections).
+        let mut conn = established_conn();
+        let syn = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 0,
+            data_offset: 20, flags: SYN, window: 0xffff,
+        };
+        let chal = conn.on_packet(&syn, &[]).expect("a challenge ACK");
+        let h = parse(&chal[20..]).unwrap();
+        assert_eq!(h.flags, ACK);
+        assert_eq!(h.seq, 1);
+        assert_eq!(h.ack, 101);
+        assert_eq!(conn.state(), State::Established); // NOT reset
+    }
+
+    #[test]
+    fn syn_sent_rst_that_acks_our_syn_refuses_the_connection() {
+        // RFC 9293 §3.10.7.3: in SYN_SENT a RST is acceptable only if it acknowledges our SYN.
+        let (mut conn, _syn) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        assert_eq!(conn.state(), State::SynSent);
+        let rst = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 0, ack: 1, // ack == SND.NXT (ISS 0 + 1)
+            data_offset: 20, flags: RST | ACK, window: 0,
+        };
+        assert!(conn.on_packet(&rst, &[]).is_none());
+        assert_eq!(conn.state(), State::Closed); // connection refused
+
+        // A RST that does NOT acknowledge our SYN is ignored in SYN_SENT.
+        let (mut conn2, _s2) = Connection::connect_with_iss((ME, 50000), (PEER, 80), 0, 0);
+        let stray = TcpHeader {
+            src_port: 80, dst_port: 50000, seq: 0, ack: 999,
+            data_offset: 20, flags: RST | ACK, window: 0,
+        };
+        assert!(conn2.on_packet(&stray, &[]).is_none());
+        assert_eq!(conn2.state(), State::SynSent); // unchanged
+    }
+
+    // ── Day 20: NewReno fast recovery (RFC 6582) ──
+
+    #[test]
+    fn newreno_partial_ack_retransmits_the_next_hole_and_stays_in_recovery() {
+        use crate::congestion::MSS;
+        let mut conn = established_conn(); // cwnd = 1·MSS, SND.NXT = 1
+
+        // Grow cwnd to 3·MSS over two slow-start rounds so three segments can be in flight together.
+        conn.write(&vec![b'x'; 6 * MSS as usize]);
+        assert_eq!(conn.poll_transmit(0).len(), 1); // seg1 [1, 1+MSS)
+        let ack1 = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack1, &[], 0); // cwnd → 2·MSS
+        assert_eq!(conn.poll_transmit(0).len(), 2); // seg2, seg3
+        let ack2 = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + 3 * MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack2, &[], 0); // cwnd → 3·MSS
+        assert_eq!(conn.poll_transmit(0).len(), 3); // seg4, seg5, seg6 → SND.NXT = 1 + 6·MSS
+
+        // seg4 and seg5 are "lost"; seg6 arrives → the peer dup-ACKs at 1+3·MSS.
+        let dup = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + 3 * MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&dup, &[], 1).is_none()); // dup #1
+        assert!(conn.on_packet_at(&dup, &[], 2).is_none()); // dup #2
+        let rx4 = conn.on_packet_at(&dup, &[], 3).expect("fast retransmit"); // dup #3
+        assert_eq!(parse(&rx4[20..]).unwrap().seq, 1 + 3 * MSS); // the first hole, seg4
+        assert!(conn.in_recovery());
+
+        // The retransmitted seg4 reaches the peer; seg5 is still missing, so the cumulative ACK only
+        // advances to 1+4·MSS — a PARTIAL ACK. NewReno retransmits the next hole (seg5) and stays in
+        // recovery, rather than declaring victory and waiting for an RTO to find the second loss.
+        let partial = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + 4 * MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let rx5 = conn.on_packet_at(&partial, &[], 4).expect("partial-ACK retransmit");
+        assert_eq!(parse(&rx5[20..]).unwrap().seq, 1 + 4 * MSS); // the next hole, seg5
+        assert!(conn.in_recovery());
+
+        // seg5 arrives → everything through `recover` (1+6·MSS) is acked: a FULL ACK ends recovery.
+        let full = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1 + 6 * MSS,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        assert!(conn.on_packet_at(&full, &[], 5).is_none()); // no more holes to retransmit
+        assert!(!conn.in_recovery());
+        // On exit cwnd deflates to ssthresh, set at the 3rd dup ACK to max(FlightSize/2, 2·MSS).
+        // FlightSize was 3·MSS there → ssthresh = max(1.5·MSS, 2·MSS) = 2·MSS.
+        assert_eq!(conn.cwnd(), 2 * MSS);
+    }
+
+    // ── Day 21: RFC 6675 SACK-based loss recovery (the pipe estimator) ──
+
+    #[test]
+    fn pipe_excludes_sacked_and_lost_counts_retransmitted() {
+        let mut q = RetxQueue::default();
+        for i in 0..5u32 {
+            q.record(i * 100, i * 100 + 100, vec![i as u8], 0); // [0,100) … [400,500)
+        }
+        // SACK the top three segments → the bottom two each have 3 SACKed above ⇒ presumed lost.
+        q.mark_sacked(&[(200, 300), (300, 400), (400, 500)]);
+        // Nothing in flight: seg0/seg1 lost-not-retransmitted (0), seg2/3/4 SACKed (0).
+        assert_eq!(q.pipe(3), 0);
+        // Retransmit the first hole → it re-enters the pipe.
+        assert!(q.next_lost_retransmit(3, 10).is_some());
+        assert_eq!(q.pipe(3), 100);
+        // Retransmit the second hole → both holes now in flight.
+        assert!(q.next_lost_retransmit(3, 10).is_some());
+        assert_eq!(q.pipe(3), 200);
+        // No more lost, un-retransmitted segments remain.
+        assert!(q.next_lost_retransmit(3, 10).is_none());
+    }
+
+    #[test]
+    fn pipe_does_not_presume_loss_below_threshold() {
+        let mut q = RetxQueue::default();
+        for i in 0..4u32 {
+            q.record(i * 100, i * 100 + 100, vec![i as u8], 0);
+        }
+        q.mark_sacked(&[(200, 300), (300, 400)]); // only TWO SACKed above the holes (< DupThresh 3)
+        // seg0, seg1 are NOT presumed lost → still in flight; seg2, seg3 SACKed → out. pipe = 200.
+        assert_eq!(q.pipe(3), 200);
+        assert!(q.next_lost_retransmit(3, 0).is_none()); // nothing crosses the loss threshold yet
+    }
+
+    #[test]
+    fn sack_recovery_retransmits_all_holes_in_one_round() {
+        use crate::congestion::MSS;
+        let mut conn = established_sack_conn(); // SACK negotiated; cwnd = 1·MSS
+
+        // A bare cumulative ACK carrying `ack`.
+        let cum = |ack: u32| TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+
+        // Ramp cwnd to 5·MSS over slow-start rounds so five segments (s11..s15) end up in flight.
+        conn.write(&vec![b'x'; 15 * MSS as usize]);
+        conn.poll_transmit(0); // s1                       (cwnd 1)
+        conn.on_packet_at(&cum(1 + MSS), &[], 0); //         → cwnd 2
+        conn.poll_transmit(0); // s2, s3
+        conn.on_packet_at(&cum(1 + 3 * MSS), &[], 0); //     → cwnd 3
+        conn.poll_transmit(0); // s4, s5, s6
+        conn.on_packet_at(&cum(1 + 6 * MSS), &[], 0); //     → cwnd 4
+        conn.poll_transmit(0); // s7..s10
+        conn.on_packet_at(&cum(1 + 10 * MSS), &[], 0); //    → cwnd 5
+        conn.poll_transmit(0); // s11..s15, SND.NXT = 1 + 15·MSS
+        assert_eq!(conn.snd_nxt(), 1 + 15 * MSS);
+
+        // The peer receives s13,s14,s15 but loses s11,s12 → dup-ACKs at 1+10·MSS, SACKing the top
+        // three as one coalesced block [1+12·MSS, 1+15·MSS).
+        let sack_opts = TcpOptions {
+            sack_blocks: [(1 + 12 * MSS, 1 + 15 * MSS), (0, 0), (0, 0), (0, 0)],
+            sack_block_count: 1,
+            ..Default::default()
+        };
+        let dup = cum(1 + 10 * MSS);
+        conn.on_segment(&dup, &[], &sack_opts, 1); // dup #1 (SACK marks s13..s15)
+        conn.on_segment(&dup, &[], &sack_opts, 2); // dup #2
+        let rx11 = conn.on_segment(&dup, &[], &sack_opts, 3).expect("fast retransmit"); // dup #3
+        assert_eq!(parse(&rx11[20..]).unwrap().seq, 1 + 10 * MSS); // first hole, s11
+        assert!(conn.in_recovery());
+
+        // RFC 6675: the SACK scoreboard already shows the SECOND hole (s12) is lost, so poll_transmit
+        // retransmits it in the SAME round — no waiting an RTT for a partial ACK (NewReno) or an RTO.
+        let more = conn.poll_transmit(3);
+        assert_eq!(more.len(), 1);
+        assert_eq!(parse(&more[0][20..]).unwrap().seq, 1 + 11 * MSS); // second hole, s12
+    }
+
+    // ── Day 23: robustness — RFC 5961 §5 ACK acceptability, challenge-ACK throttle, reaper timeouts ──
+
+    #[test]
+    fn ack_for_unsent_data_gets_challenge_ack() {
+        // RFC 5961 §5: an ACK above SND.NXT (acking data we never sent) is a blind-injection probe —
+        // answer with a challenge ACK and drop it, rather than acting on it.
+        let mut conn = established_conn(); // SND.NXT = 1, RCV.NXT = 101
+        let bogus = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 5000, // far above SND.NXT
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        let chal = conn.on_packet(&bogus, &[]).expect("a challenge ACK");
+        let h = parse(&chal[20..]).unwrap();
+        assert_eq!(h.flags, ACK);
+        assert_eq!(h.seq, 1); // SND.NXT
+        assert_eq!(h.ack, 101); // RCV.NXT
+        assert_eq!(conn.state(), State::Established); // unperturbed
+    }
+
+    #[test]
+    fn challenge_acks_are_rate_limited() {
+        // RFC 5961 ACK throttling (CVE-2016-5696 hardening): within one window the number of challenge
+        // ACKs is capped by the randomized budget, so they can't be farmed as an off-path oracle.
+        let mut conn = established_conn();
+        // An in-window-but-inexact RST is challenged (Day 19); fire many at the SAME time so the
+        // budget never refills between them.
+        let rst = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 300, ack: 1,
+            data_offset: 20, flags: RST, window: 0,
+        };
+        let challenges = (0..50).filter(|_| conn.on_packet_at(&rst, &[], 0).is_some()).count() as u32;
+        assert!(challenges >= 1, "the first challenge is sent");
+        assert!(challenges <= CHALLENGE_ACK_MAX, "but they are capped per window (got {challenges})");
+        assert_eq!(conn.state(), State::Established); // an in-window RST never resets
+    }
+
+    #[test]
+    fn fin_wait2_reaped_after_idle_timeout() {
+        // A peer that vanishes after ACKing our FIN leaves us in FIN_WAIT_2; the reaper collects it.
+        let mut conn = established_conn();
+        conn.close(0).expect("our FIN"); // → FIN_WAIT_1
+        let ack = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 2,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&ack, &[], 0); // ACK of our FIN → FIN_WAIT_2 (last activity at t=0)
+        assert_eq!(conn.state(), State::FinWait2);
+        conn.on_tick(59_000); // within tcp_fin_timeout — still waiting
+        assert_eq!(conn.state(), State::FinWait2);
+        conn.on_tick(61_000); // idle past the timeout → reaped
+        assert_eq!(conn.state(), State::Closed);
+    }
+
+    #[test]
+    fn close_wait_reaped_after_idle_timeout() {
+        // A peer that sends FIN then disappears (the app never calls close) leaves us in CLOSE_WAIT —
+        // the famous fd leak. The reaper bounds it.
+        let mut conn = established_conn();
+        let fin = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: 101, ack: 1,
+            data_offset: 20, flags: FIN | ACK, window: 0xffff,
+        };
+        conn.on_packet_at(&fin, &[], 0); // peer FIN → CLOSE_WAIT (last activity at t=0)
+        assert_eq!(conn.state(), State::CloseWait);
+        conn.on_tick(119_000);
+        assert_eq!(conn.state(), State::CloseWait);
+        conn.on_tick(121_000); // idle past the CLOSE_WAIT reaper → reaped
+        assert_eq!(conn.state(), State::Closed);
     }
 }
