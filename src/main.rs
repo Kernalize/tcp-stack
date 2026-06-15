@@ -77,6 +77,10 @@ fn protocol_name(protocol: u8) -> &'static str {
 // Day 22: HTTP/1.x request handling (full header buffering + keep-alive) lives in `src/http.rs`;
 // the per-connection request buffer and serving loop are wired into the TCP handler in `main`.
 
+/// Day 27: how many half-open (SYN_RCVD) connections we'll hold before switching to SYN cookies.
+/// Beyond this, a SYN flood can't pin memory — we answer statelessly with a cookie instead.
+const SYN_BACKLOG: usize = 128;
+
 fn main() -> std::io::Result<()> {
     // without_packet_info: no 4-byte TUN PI header, so buf[0] is the IP version nibble. §3.
     let iface = Iface::without_packet_info("tun0", Mode::Tun)?;
@@ -96,6 +100,9 @@ fn main() -> std::io::Result<()> {
     // (`\r\n\r\n`) arrives, so one connection can carry many keep-alive requests. Absent for a
     // non-HTTP (raw `nc` echo) connection; present once we've recognised an HTTP client.
     let mut http_bufs: HashMap<tcp::Quad, Vec<u8>> = HashMap::new();
+    // Day 27: a per-process secret keying SYN cookies; randomized at startup so cookies are
+    // unforgeable across runs (and between hosts). Never logged or sent — only the cookie is.
+    let syn_secret: u64 = rand::random();
 
     // Non-blocking I/O so one thread can both read packets AND fire retransmission timers.
     iface.set_non_blocking()?;
@@ -288,20 +295,59 @@ fn main() -> std::io::Result<()> {
                                 println!("         · connection closed, removed from table");
                             }
                         }
-                        // New 4-tuple: a SYN opens a connection (passive open).
-                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms) {
-                            Some((conn, synack)) => {
-                                iface.send(&synack)?;
-                                connections.insert(quad, conn);
-                                println!("         → sent SYN-ACK (state SynRcvd)");
-                            }
-                            None => {
-                                // Not a SYN to a closed/unknown connection → RST (RFC 9293).
+                        // New 4-tuple (Day 27): a SYN opens a connection. While the half-open
+                        // (SYN_RCVD) backlog has room, do the normal passive open. When it's full —
+                        // a SYN flood — switch to SYN cookies: a stateless SYN-ACK whose ISS encodes
+                        // the handshake, allocating NO TCB until a valid cookie returns in the final
+                        // ACK. A final ACK to no connection is checked as a returning cookie.
+                        None => {
+                            let is_syn = th.flags & tcp::SYN != 0 && th.flags & tcp::ACK == 0;
+                            let is_bare_ack = th.flags & tcp::ACK != 0
+                                && th.flags & (tcp::SYN | tcp::RST) == 0;
+                            let local = (hdr.dst, th.dst_port);
+                            let remote = (hdr.src, th.src_port);
+                            if is_syn
+                                && connections.values().filter(|c| c.state() == tcp::State::SynRcvd).count()
+                                    < SYN_BACKLOG
+                            {
+                                if let Some((conn, synack)) =
+                                    tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms)
+                                {
+                                    iface.send(&synack)?;
+                                    connections.insert(quad, conn);
+                                    println!("         → sent SYN-ACK (state SynRcvd)");
+                                }
+                            } else if is_syn {
+                                // Backlog full → stateless SYN cookie (no TCB).
+                                let cookie = tcp::syn_cookie(
+                                    syn_secret, local, remote, th.seq, opts.mss.unwrap_or(536), now_ms,
+                                );
+                                iface.send(&tcp::build_syn_cookie_synack(hdr.src, hdr.dst, &th, cookie))?;
+                                println!("         → SYN backlog full; sent SYN cookie (no TCB)");
+                            } else if is_bare_ack {
+                                // A final ACK to no connection: validate it as a returning cookie.
+                                let cookie = th.ack.wrapping_sub(1);
+                                let peer_isn = th.seq.wrapping_sub(1);
+                                if let Some(mss) =
+                                    tcp::check_syn_cookie(syn_secret, local, remote, peer_isn, cookie, now_ms)
+                                {
+                                    let conn = tcp::Connection::from_syn_cookie(
+                                        local, remote, peer_isn, cookie, mss, now_ms,
+                                    );
+                                    connections.insert(quad, conn);
+                                    println!("         → SYN cookie validated (state Established)");
+                                } else {
+                                    let rst = tcp::build_rst(hdr.src, hdr.dst, &th, payload.len());
+                                    iface.send(&rst)?;
+                                    println!("         → stray ACK / bad cookie → sent RST");
+                                }
+                            } else {
+                                // Anything else to a closed/unknown connection → RST (RFC 9293).
                                 let rst = tcp::build_rst(hdr.src, hdr.dst, &th, payload.len());
                                 iface.send(&rst)?;
                                 println!("         → sent RST (no connection)");
                             }
-                        },
+                        }
                     }
                 }
             }

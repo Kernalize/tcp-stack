@@ -71,6 +71,13 @@ const KEEPALIVE_IDLE_MS: u64 = 60_000;
 const KEEPALIVE_INTVL_MS: u64 = 5_000;
 const KEEPALIVE_PROBES: u32 = 3;
 
+/// Day 27 — SYN-cookie scheme (Bernstein-style, teaching-grade). Under a SYN flood the server encodes
+/// the handshake into the SYN-ACK's ISN — a slow counter (for expiry), a 2-bit MSS index, and a keyed
+/// 24-bit hash of the 4-tuple + the client's ISN — and allocates NO TCB until a valid cookie returns
+/// in the final ACK. Layout of the 32-bit cookie: `[counter:6][mss_idx:2][mac:24]`.
+const COOKIE_TICK_MS: u64 = 64_000; // the cookie counter advances ~once a minute (bounds cookie life)
+const COOKIE_MSS_TABLE: [u16; 4] = [536, 1220, 1460, 8960]; // 2-bit MSS encoding (common path MTUs)
+
 /// Parsed TCP options: the peer's advertised MSS (SYN only); the Timestamps option `(TSval, TSecr)`
 /// when present (RFC 7323 §3); the window-scale shift (RFC 7323 §2); and the SACK fields (RFC 2018).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -596,6 +603,57 @@ impl Connection {
         // lost SYN is resent on RTO; the peer's SYN-ACK clears it (RFC 9293 §3.8.1).
         conn.retx.record(conn.send.iss, conn.send.nxt, syn.clone(), now_ms);
         (conn, syn)
+    }
+
+    /// Day 27 — reconstruct an ESTABLISHED connection from a validated SYN cookie. Under a SYN flood
+    /// the server allocates no TCB on the SYN; it returns a cookie as the SYN-ACK's ISS. When the
+    /// client's final ACK echoes `cookie + 1`, `check_syn_cookie` validates it and we build the TCB
+    /// directly in ESTABLISHED — no half-open state ever existed. `peer_isn` is the client's ISN (the
+    /// final ACK's seq − 1); `cookie` was our ISS; `send_mss` was decoded from the cookie. SYN cookies
+    /// carry only the MSS, so timestamps / window scale / SACK are NOT negotiated on this connection.
+    pub fn from_syn_cookie(
+        local: (Ipv4Addr, u16),
+        remote: (Ipv4Addr, u16),
+        peer_isn: u32,
+        cookie: u32,
+        send_mss: u16,
+        now_ms: u64,
+    ) -> Connection {
+        let wnd: u16 = 1024;
+        let iss = cookie; // our SYN-ACK used the cookie as ISS, so it consumed `cookie`; SND.NXT = cookie+1
+        Connection {
+            state: State::Established,
+            send: SendSequence { iss, una: iss.wrapping_add(1), nxt: iss.wrapping_add(1), wnd: wnd as u32 },
+            recv: RecvSequence { irs: peer_isn, nxt: peer_isn.wrapping_add(1), wnd },
+            local,
+            remote,
+            retx: RetxQueue::default(),
+            time_wait_ms: 0,
+            rtt: RttEstimator::default(),
+            reasm: Reassembler::new(peer_isn.wrapping_add(1)),
+            cong: CongestionControl::default(),
+            send_buf: VecDeque::new(),
+            recv_buf: Vec::new(),
+            nagle: true,
+            persist_ms: 0,
+            send_mss: send_mss.min(OUR_MSS),
+            ts_enabled: false, // SYN cookies drop option negotiation — only the MSS survives
+            ts_recent: 0,
+            ts_val: now_ms as u32,
+            snd_wscale: 0,
+            sack_ok: false,
+            peer_fin: false,
+            pending_fin: None,
+            recover: iss,
+            max_snd_wnd: wnd as u32,
+            challenge_budget: 1 + rand::random::<u32>() % CHALLENGE_ACK_MAX,
+            challenge_window_ms: now_ms,
+            last_active_ms: now_ms,
+            tlp_deadline_ms: 0,
+            tlp_sent: false,
+            keepalive_enabled: false,
+            keepalive_probes_sent: 0,
+        }
     }
 
     /// Close our send side: emit our FIN. From ESTABLISHED this is an *active close* → FIN_WAIT_1;
@@ -1416,6 +1474,88 @@ fn tcp_checksum(src: Ipv4Addr, dst: Ipv4Addr, segment: &[u8]) -> u16 {
     buf.extend_from_slice(&(segment.len() as u16).to_be_bytes()); // TCP length
     buf.extend_from_slice(segment); //                     the TCP header + data
     utils::checksum(&buf)
+}
+
+/// Day 27 — a cheap keyed mix folding the secret, 4-tuple, client ISN, and counter into 32 bits.
+/// NOT cryptographic (a real stack uses SipHash) — enough to demonstrate the SYN-cookie structure.
+fn cookie_mix(
+    secret: u64,
+    local: (Ipv4Addr, u16),
+    remote: (Ipv4Addr, u16),
+    peer_isn: u32,
+    counter: u32,
+) -> u32 {
+    let mut h = secret;
+    for v in [
+        u32::from(remote.0) as u64,
+        remote.1 as u64,
+        u32::from(local.0) as u64,
+        local.1 as u64,
+        peer_isn as u64,
+        counter as u64,
+    ] {
+        h = (h ^ v).wrapping_mul(0x0000_0100_0000_01B3); // FNV-1a 64-bit prime, one mixing round each
+    }
+    (h ^ (h >> 32)) as u32
+}
+
+/// Day 27 — compute a SYN cookie to use as our SYN-ACK ISS for the `(local, remote)` handshake whose
+/// SYN carried `peer_isn` and advertised `peer_mss`. Encodes a coarse time counter (for expiry), the
+/// MSS as a 2-bit table index, and a keyed 24-bit MAC. No connection state is stored — the cookie is
+/// the state. RFC 4987 (TCP SYN-flood mitigations).
+pub fn syn_cookie(
+    secret: u64,
+    local: (Ipv4Addr, u16),
+    remote: (Ipv4Addr, u16),
+    peer_isn: u32,
+    peer_mss: u16,
+    now_ms: u64,
+) -> u32 {
+    let counter = (now_ms / COOKIE_TICK_MS) as u32;
+    let mss_idx = COOKIE_MSS_TABLE.iter().rposition(|&m| m <= peer_mss).unwrap_or(0) as u32;
+    let mac = cookie_mix(secret, local, remote, peer_isn, counter) & 0x00FF_FFFF;
+    ((counter & 0x3f) << 26) | ((mss_idx & 0x3) << 24) | mac
+}
+
+/// Day 27 — validate a returned SYN cookie (the final ACK's `ack − 1`). Returns the encoded send MSS
+/// iff the cookie is authentic for this 4-tuple/secret/`peer_isn` AND recent (within a couple of
+/// counter ticks of `now_ms`); else `None` (a stray ACK or a forged/expired cookie → caller RSTs).
+pub fn check_syn_cookie(
+    secret: u64,
+    local: (Ipv4Addr, u16),
+    remote: (Ipv4Addr, u16),
+    peer_isn: u32,
+    cookie: u32,
+    now_ms: u64,
+) -> Option<u16> {
+    let counter_bits = (cookie >> 26) & 0x3f;
+    let mss_idx = ((cookie >> 24) & 0x3) as usize;
+    let mac = cookie & 0x00FF_FFFF;
+    let now_counter = (now_ms / COOKIE_TICK_MS) as u32;
+    // Accept the current counter tick or the previous two (clock/RTT skew); reject older (expired).
+    for back in 0..=2u32 {
+        let c = now_counter.wrapping_sub(back);
+        if (c & 0x3f) == counter_bits && (cookie_mix(secret, local, remote, peer_isn, c) & 0x00FF_FFFF) == mac {
+            return Some(COOKIE_MSS_TABLE[mss_idx]);
+        }
+    }
+    None
+}
+
+/// Day 27 — the SYN-ACK for a cookie handshake: ISS = `cookie`, ack = `peer_isn + 1`, carrying ONLY
+/// our MSS option (SYN cookies drop the rest). Builds the bytes directly — no `Connection` exists.
+pub fn build_syn_cookie_synack(ip_src: Ipv4Addr, ip_dst: Ipv4Addr, th: &TcpHeader, cookie: u32) -> Vec<u8> {
+    let opts = mss_option(OUR_MSS).to_vec();
+    build_packet(
+        (ip_dst, th.dst_port), // src = us (the SYN's destination)
+        (ip_src, th.src_port), // dst = the client
+        cookie,
+        th.seq.wrapping_add(1),
+        SYN | ACK,
+        1024,
+        &opts,
+        &[],
+    )
 }
 
 /// Build a TCP RST for a segment that arrived for a closed/unknown connection (RFC 9293
@@ -3342,5 +3482,65 @@ mod tests {
         assert!(conn.on_tick(t + KEEPALIVE_IDLE_MS - 1).is_empty());
         assert_eq!(conn.on_tick(t + KEEPALIVE_IDLE_MS).len(), 1);
         assert_eq!(conn.state(), State::Established);
+    }
+
+    // ── Day 27: SYN cookies (RFC 4987) ──
+
+    #[test]
+    fn syn_cookie_round_trips_and_recovers_mss() {
+        let secret = 0xdead_beef_cafe_f00d;
+        let (local, remote) = ((ME, 80), (PEER, 0x1234));
+        let cookie = syn_cookie(secret, local, remote, 1000, 1460, 5000);
+        // The matching final ACK validates and recovers the (table-rounded) MSS.
+        assert_eq!(check_syn_cookie(secret, local, remote, 1000, cookie, 5000), Some(1460));
+        // A smaller advertised MSS rounds down to the nearest table entry (1220).
+        let c2 = syn_cookie(secret, local, remote, 1000, 1300, 5000);
+        assert_eq!(check_syn_cookie(secret, local, remote, 1000, c2, 5000), Some(1220));
+    }
+
+    #[test]
+    fn syn_cookie_rejects_tampering() {
+        let secret = 0x1111_2222_3333_4444;
+        let (local, remote) = ((ME, 80), (PEER, 0x1234));
+        let cookie = syn_cookie(secret, local, remote, 1000, 1460, 5000);
+        // A wrong secret, 4-tuple, peer ISN, or a flipped bit all fail to validate.
+        assert!(check_syn_cookie(0xffff, local, remote, 1000, cookie, 5000).is_none());
+        assert!(check_syn_cookie(secret, (ME, 81), remote, 1000, cookie, 5000).is_none());
+        assert!(check_syn_cookie(secret, local, (PEER, 0x9999), 1000, cookie, 5000).is_none());
+        assert!(check_syn_cookie(secret, local, remote, 1001, cookie, 5000).is_none());
+        assert!(check_syn_cookie(secret, local, remote, 1000, cookie ^ 1, 5000).is_none());
+    }
+
+    #[test]
+    fn syn_cookie_expires() {
+        let secret = 0xabcd_1234;
+        let (local, remote) = ((ME, 80), (PEER, 0x1234));
+        let cookie = syn_cookie(secret, local, remote, 1000, 1460, 0);
+        // Valid now and a tick later…
+        assert!(check_syn_cookie(secret, local, remote, 1000, cookie, 0).is_some());
+        assert!(check_syn_cookie(secret, local, remote, 1000, cookie, COOKIE_TICK_MS).is_some());
+        // …but a cookie many ticks old no longer validates.
+        assert!(check_syn_cookie(secret, local, remote, 1000, cookie, 10 * COOKIE_TICK_MS).is_none());
+    }
+
+    #[test]
+    fn from_syn_cookie_builds_established_connection() {
+        // The cookie SYN-ACK used ISS = cookie (ack = peer_isn+1); the client's final ACK
+        // (seq = peer_isn+1, ack = cookie+1) reconstructs an ESTABLISHED connection with no TCB
+        // having existed in between.
+        let cookie = 0x5000_0000u32;
+        let peer_isn = 100u32;
+        let mut conn = Connection::from_syn_cookie((ME, 80), (PEER, 0x1234), peer_isn, cookie, 1460, 0);
+        assert_eq!(conn.state(), State::Established);
+        assert_eq!(conn.snd_nxt(), cookie.wrapping_add(1)); // the SYN-ACK consumed the cookie
+        assert_eq!(conn.rcv_nxt(), peer_isn.wrapping_add(1));
+        // It behaves like any established connection: data is delivered and acknowledged.
+        let data = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: peer_isn + 1, ack: cookie.wrapping_add(1),
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet(&data, b"hi").expect("an ACK");
+        assert_eq!(parse(&ack[20..]).unwrap().ack, peer_isn + 3); // the 2 bytes delivered
+        assert_eq!(conn.take_received(), b"hi");
     }
 }

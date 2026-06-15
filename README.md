@@ -10,8 +10,8 @@ It is also a **teaching project**: every feature ships with a heavily-commented 
 and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
-> 5961/1337 robustness are implemented and unit-tested (133 tests, offline). What's *not* done is
-> live conformance/throughput testing and breadth (BBR, SYN cookies) — see
+> 5961/1337 robustness are implemented and unit-tested (137 tests, offline). What's *not* done is
+> live conformance/throughput testing and breadth (BBR) — see
 > [Limitations](#limitations).
 
 ## What works
@@ -44,6 +44,7 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 | 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | day24 |
 | 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | day25 |
 | 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
+| 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | day27 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -80,7 +81,7 @@ artifacts go to a native-fs target dir (see `.cargo/config.toml`) so `setcap` wo
 
 ```bash
 # Verify correctness offline — no sudo, no TUN, no network:
-cargo test          # 101 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
+cargo test          # 137 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
                     # reassembly, retransmission, options (MSS/timestamps/wscale/SACK), and a
                     # differential check against `etherparse`
 cargo clippy        # clean
@@ -115,8 +116,8 @@ TCP features, several are exercises in the day-books):
 - **Hardening:** **CUBIC** congestion control (Day 25) over NewReno + RFC 6675 SACK recovery
   (Days 20–21) with **RACK-TLP** time-based loss detection (Day 24); RFC 5961 RST/SYN/data challenge
   ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaped (Day 23), and
-  `SO_KEEPALIVE` for idle ESTABLISHED connections (Day 26). Still missing: **BBR** congestion control
-  and **SYN cookies** (SYN-flood defence).
+  `SO_KEEPALIVE` for idle ESTABLISHED connections (Day 26), and **SYN cookies** for SYN-flood
+  survival (Day 27). Still missing: **BBR** congestion control.
 - **A multi-connection socket facade.** We ship a single-connection blocking `TcpListener`/`TcpStream`
   over a `PacketIo` trait (Day 22, loopback-tested) and keep-alive HTTP/1.1, but the façade demuxes
   one connection at a time and isn't wired into `main` (which keeps its own multi-protocol loop).
