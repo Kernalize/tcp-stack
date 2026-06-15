@@ -18,6 +18,24 @@
 //!   Day 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/day15-book.md)
 //!   Day 16 — TCP timestamps: per-ACK RTT measurement + PAWS (RFC 7323) (docs/day16-book.md)
 //!   Day 17 — window scaling: honor the peer's scaled window, SND.WND→u32 (docs/day17-book.md)
+//!   Day 18 — SACK: negotiate SACK-Permitted, emit SACK blocks for out-of-order data, and
+//!            retransmit only the holes a peer's SACK blocks reveal (docs/day18-book.md, RFC 2018)
+//!   Day 19 — finish the state machine: real half-close via CLOSE_WAIT (distinct from LAST_ACK)
+//!            + RFC 5961 in-window RST/SYN validation with challenge ACKs (docs/day19-book.md)
+//!   Day 20 — NewReno: recover from MULTIPLE losses in one window via partial-ACK handling, no RTO
+//!            stall (docs/day20-book.md, RFC 6582)
+//!   Day 21 — SACK loss recovery: pipe estimator + IsLost, retransmit every hole and fill the pipe
+//!            in one round trip (docs/day21-book.md, RFC 6675)
+//!   Day 22 — socket API: blocking TcpListener/TcpStream over a PacketIo trait (loopback-tested),
+//!            active half-close (recv in FIN_WAIT_2), keep-alive HTTP/1.1 (docs/day22-book.md)
+//!   Day 23 — robustness: RFC 5961 §5 blind-data ACK acceptability + randomized challenge-ACK
+//!            throttle (CVE-2016-5696) + CLOSE_WAIT/FIN_WAIT_2 reaper timeouts (docs/day23-book.md)
+//!   Day 24 — RACK-TLP: time-based loss detection + Tail Loss Probe — fast tail-loss recovery and
+//!            reordering tolerance (docs/day24-book.md, RFC 8985)
+//!   Day 25 — CUBIC: cubic-curve congestion avoidance (β = 0.7, RTT-independent) that fills fat
+//!            pipes far faster than Reno's slope (docs/day25-book.md, RFC 8312/9438)
+//!   Day 26 — keepalive (SO_KEEPALIVE): probe an idle ESTABLISHED connection to detect a vanished
+//!            peer (docs/day26-book.md, RFC 9293 §3.8.4)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
@@ -26,14 +44,16 @@
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
 //!
-//! Build/run/test: see the `tcp-stack-run` skill.  `cargo test` proves it offline.
+//! Build/run/test: see README.md.  `cargo test` proves it offline.
 
 mod congestion; // congestion control: slow start + AIMD + fast recovery (used by tcp)
+mod http; // Day 22: HTTP/1.x request parsing + keep-alive responder (used by the server below)
 mod icmp; // ICMP: parse + echo reply
 mod ip; // IPv4: parse + header checksum + (used by tcp) checksum writer
 mod reassembly; // out-of-order receive buffer (used by tcp)
 mod rtt; // RTT estimation + adaptive RTO (RFC 6298)
 mod seq; // 32-bit wrapping sequence-number arithmetic (used by tcp)
+mod socket; // Day 22: blocking TcpListener/TcpStream façade over Connection (embeddable; day22-book)
 mod tcp; // TCP: parse + connection state machine (handshake)
 mod udp; // UDP: parse + pseudo-header checksum (stateless)
 mod utils; // Internet checksum (shared)
@@ -54,26 +74,12 @@ fn protocol_name(protocol: u8) -> &'static str {
     }
 }
 
-/// Minimal HTTP/1.0 responder: if the received bytes start with a request line, return a canned
-/// `200 OK`; otherwise `None` (the caller then echoes). A real server buffers until the blank
-/// line `\r\n\r\n`, but a simple `curl` GET arrives in a single segment over our local link, so
-/// responding on the request line is enough to satisfy the Manual's Week-10 milestone.
-fn http_response(received: &[u8]) -> Option<Vec<u8>> {
-    let is_http = received.starts_with(b"GET ")
-        || received.starts_with(b"HEAD ")
-        || received.starts_with(b"POST ");
-    if !is_http {
-        return None;
-    }
-    let body = b"Hello from a TCP/IP stack built from scratch in Rust!\n";
-    let mut resp = format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
-    resp.extend_from_slice(body);
-    Some(resp)
-}
+// Day 22: HTTP/1.x request handling (full header buffering + keep-alive) lives in `src/http.rs`;
+// the per-connection request buffer and serving loop are wired into the TCP handler in `main`.
+
+/// Day 27: how many half-open (SYN_RCVD) connections we'll hold before switching to SYN cookies.
+/// Beyond this, a SYN flood can't pin memory — we answer statelessly with a cookie instead.
+const SYN_BACKLOG: usize = 128;
 
 fn main() -> std::io::Result<()> {
     // without_packet_info: no 4-byte TUN PI header, so buf[0] is the IP version nibble. §3.
@@ -85,11 +91,18 @@ fn main() -> std::io::Result<()> {
     println!("    sudo ip link set {} up", iface.name());
     println!("    ping 192.168.0.2            # ICMP echo reply (0% loss)");
     println!("    nc 192.168.0.2 8080         # TCP echo: type a line, get it back");
-    println!("    curl http://192.168.0.2:8080/   # HTTP/1.0 200 OK, then clean close");
+    println!("    curl http://192.168.0.2:8080/   # HTTP/1.1 200 OK (keep-alive; --http1.0 to close)");
     println!("──────────────────────────────────────────────");
 
     // The connection table: one TCB per active 4-tuple. This is TCP's "memory".
     let mut connections: HashMap<tcp::Quad, tcp::Connection> = HashMap::new();
+    // Day 22: per-connection HTTP request buffer — accumulate bytes until a full request head
+    // (`\r\n\r\n`) arrives, so one connection can carry many keep-alive requests. Absent for a
+    // non-HTTP (raw `nc` echo) connection; present once we've recognised an HTTP client.
+    let mut http_bufs: HashMap<tcp::Quad, Vec<u8>> = HashMap::new();
+    // Day 27: a per-process secret keying SYN cookies; randomized at startup so cookies are
+    // unforgeable across runs (and between hosts). Never logged or sent — only the cookie is.
+    let syn_secret: u64 = rand::random();
 
     // Non-blocking I/O so one thread can both read packets AND fire retransmission timers.
     iface.set_non_blocking()?;
@@ -114,6 +127,7 @@ fn main() -> std::io::Result<()> {
         }
         for quad in closed {
             connections.remove(&quad);
+            http_bufs.remove(&quad);
             println!("         · TIME_WAIT expired, connection removed");
         }
 
@@ -204,29 +218,72 @@ fn main() -> std::io::Result<()> {
                             if let Some(out) = conn.on_segment(&th, payload, &opts, now_ms) {
                                 iface.send(&out)?;
                             }
-                            // Application layer: read whatever was delivered in order and respond.
-                            // An HTTP request gets a canned 200 OK (then we close); anything else is
-                            // echoed. `poll_transmit` puts the response on the wire as the send
-                            // window (min(cwnd, rwnd)) allows — the same API a TcpStream exposes.
+                            // Application layer (Day 22): read in-order bytes and respond. An HTTP
+                            // client's bytes accumulate in a per-connection buffer until a full
+                            // request head (`\r\n\r\n`) arrives; we then serve every complete request
+                            // (pipelining + keep-alive) and close only when a response says so.
+                            // Anything that doesn't look like HTTP is echoed (the raw `nc` path).
+                            // `poll_transmit` puts responses on the wire as min(cwnd, rwnd) allows —
+                            // the same API a TcpStream exposes.
                             let received = conn.take_received();
-                            let mut serving_http = false;
+                            let mut closing_http = false;
                             if !received.is_empty() {
-                                if let Some(resp) = http_response(&received) {
-                                    conn.write(&resp);
-                                    serving_http = true;
+                                let is_http = http_bufs.contains_key(&quad)
+                                    || http::looks_like_request(&received);
+                                if is_http {
+                                    let hbuf = http_bufs.entry(quad).or_default();
+                                    hbuf.extend_from_slice(&received);
+                                    // Serve each complete request currently buffered.
+                                    while let Some(head_len) = http::request_head_len(hbuf) {
+                                        let head: Vec<u8> = hbuf.drain(..head_len).collect();
+                                        match http::parse_request(&head) {
+                                            Some(req) => {
+                                                conn.write(&http::response(&req));
+                                                println!(
+                                                    "         → HTTP {} {} ({}, {})",
+                                                    req.method,
+                                                    req.path,
+                                                    if req.version == http::Version::Http11 {
+                                                        "1.1"
+                                                    } else {
+                                                        "1.0"
+                                                    },
+                                                    if req.keep_alive { "keep-alive" } else { "close" }
+                                                );
+                                                if !req.keep_alive {
+                                                    closing_http = true;
+                                                    break;
+                                                }
+                                            }
+                                            None => {
+                                                closing_http = true; // malformed → close
+                                                break;
+                                            }
+                                        }
+                                    }
                                 } else {
-                                    conn.write(&received); // echo application
+                                    conn.write(&received); // echo application (raw nc)
                                 }
                             }
                             for seg in conn.poll_transmit(now_ms) {
                                 iface.send(&seg)?;
                             }
-                            if serving_http {
-                                // HTTP/1.0 "Connection: close": actively close once the response is
-                                // on the wire (the FIN_WAIT teardown path from Day 7).
+                            if closing_http {
+                                // The response asked to close (HTTP/1.0, or `Connection: close`):
+                                // actively close once it's on the wire (the Day 7 FIN_WAIT path).
                                 if let Some(fin) = conn.close(now_ms) {
                                     iface.send(&fin)?;
-                                    println!("         → served HTTP/1.0 200 OK, closing (FIN)");
+                                    println!("         → response sent, closing (FIN)");
+                                }
+                                http_bufs.remove(&quad);
+                            }
+                            // Day 19 — half-close: the peer closed its half (CLOSE_WAIT). An echo
+                            // server has nothing more to send once its buffer is drained, so it
+                            // closes its own half too — our FIN, advancing to LAST_ACK.
+                            if conn.state() == tcp::State::CloseWait && conn.send_buffer_empty() {
+                                if let Some(fin) = conn.close(now_ms) {
+                                    iface.send(&fin)?;
+                                    println!("         → peer closed; sent our FIN (LAST_ACK)");
                                 }
                             }
                             let state = conn.state();
@@ -234,23 +291,63 @@ fn main() -> std::io::Result<()> {
                             // Once fully closed, forget the connection.
                             if state == tcp::State::Closed {
                                 connections.remove(&quad);
+                                http_bufs.remove(&quad);
                                 println!("         · connection closed, removed from table");
                             }
                         }
-                        // New 4-tuple: a SYN opens a connection (passive open).
-                        None => match tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms) {
-                            Some((conn, synack)) => {
-                                iface.send(&synack)?;
-                                connections.insert(quad, conn);
-                                println!("         → sent SYN-ACK (state SynRcvd)");
-                            }
-                            None => {
-                                // Not a SYN to a closed/unknown connection → RST (RFC 9293).
+                        // New 4-tuple (Day 27): a SYN opens a connection. While the half-open
+                        // (SYN_RCVD) backlog has room, do the normal passive open. When it's full —
+                        // a SYN flood — switch to SYN cookies: a stateless SYN-ACK whose ISS encodes
+                        // the handshake, allocating NO TCB until a valid cookie returns in the final
+                        // ACK. A final ACK to no connection is checked as a returning cookie.
+                        None => {
+                            let is_syn = th.flags & tcp::SYN != 0 && th.flags & tcp::ACK == 0;
+                            let is_bare_ack = th.flags & tcp::ACK != 0
+                                && th.flags & (tcp::SYN | tcp::RST) == 0;
+                            let local = (hdr.dst, th.dst_port);
+                            let remote = (hdr.src, th.src_port);
+                            if is_syn
+                                && connections.values().filter(|c| c.state() == tcp::State::SynRcvd).count()
+                                    < SYN_BACKLOG
+                            {
+                                if let Some((conn, synack)) =
+                                    tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms)
+                                {
+                                    iface.send(&synack)?;
+                                    connections.insert(quad, conn);
+                                    println!("         → sent SYN-ACK (state SynRcvd)");
+                                }
+                            } else if is_syn {
+                                // Backlog full → stateless SYN cookie (no TCB).
+                                let cookie = tcp::syn_cookie(
+                                    syn_secret, local, remote, th.seq, opts.mss.unwrap_or(536), now_ms,
+                                );
+                                iface.send(&tcp::build_syn_cookie_synack(hdr.src, hdr.dst, &th, cookie))?;
+                                println!("         → SYN backlog full; sent SYN cookie (no TCB)");
+                            } else if is_bare_ack {
+                                // A final ACK to no connection: validate it as a returning cookie.
+                                let cookie = th.ack.wrapping_sub(1);
+                                let peer_isn = th.seq.wrapping_sub(1);
+                                if let Some(mss) =
+                                    tcp::check_syn_cookie(syn_secret, local, remote, peer_isn, cookie, now_ms)
+                                {
+                                    let conn = tcp::Connection::from_syn_cookie(
+                                        local, remote, peer_isn, cookie, mss, now_ms,
+                                    );
+                                    connections.insert(quad, conn);
+                                    println!("         → SYN cookie validated (state Established)");
+                                } else {
+                                    let rst = tcp::build_rst(hdr.src, hdr.dst, &th, payload.len());
+                                    iface.send(&rst)?;
+                                    println!("         → stray ACK / bad cookie → sent RST");
+                                }
+                            } else {
+                                // Anything else to a closed/unknown connection → RST (RFC 9293).
                                 let rst = tcp::build_rst(hdr.src, hdr.dst, &th, payload.len());
                                 iface.send(&rst)?;
                                 println!("         → sent RST (no connection)");
                             }
-                        },
+                        }
                     }
                 }
             }

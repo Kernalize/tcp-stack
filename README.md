@@ -7,10 +7,11 @@ the protocol work — and implements enough of TCP (RFC 9293 + 6298 + 5681) that
 retransmission, flow control, out-of-order reassembly, congestion control, and clean teardown.
 
 It is also a **teaching project**: every feature ships with a heavily-commented reference module
-and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day11-book.md`).
+and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
-> Status: the full TCP **connection lifecycle** is implemented and unit-tested (61 tests, offline).
-> What's *not* done is breadth/robustness hardening and live conformance/throughput testing — see
+> Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
+> 5961/1337 robustness are implemented and unit-tested (137 tests, offline). What's *not* done is
+> live conformance/throughput testing and breadth (BBR) — see
 > [Limitations](#limitations).
 
 ## What works
@@ -28,6 +29,22 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day11-book.m
 | 9 | Out-of-order **reassembly** (buffer + deliver contiguous) | 9293 | day9 |
 | 10 | **Congestion control**: slow start, AIMD, fast retransmit/recovery | 5681 | day10 |
 | 11 | Socket-style read/write API + send buffer + tiny **HTTP/1.0** server | 9293 | day11 |
+| 12 | Retransmit control segments (SYN, SYN-ACK, FIN) + exponential RTO backoff | 9293 / 6298 | day12 |
+| 13 | **Nagle's algorithm** + the `TCP_NODELAY` escape hatch | 896 / 9293 | day13 |
+| 14 | **Zero-window probes** (the persist timer) | 9293 | day14 |
+| 15 | **TCP options** framework + **MSS** negotiation | 9293 | day15 |
+| 16 | **Timestamps**: per-ACK RTT measurement + PAWS | 7323 | day16 |
+| 17 | **Window scaling** (SND.WND widened to 32 bits) | 7323 | day17 |
+| 18 | **SACK**: selective-ACK blocks + hole-only retransmission | 2018 | day18 |
+| 19 | **Finish the state machine**: half-close via a distinct **CLOSE_WAIT**, data+FIN, **RFC 5961** RST/SYN challenge ACKs + RFC 1337 | 9293 / 5961 / 1337 | day19 |
+| 20 | **NewReno**: recover from *multiple* losses per window via partial-ACK handling (no RTO stall) | 6582 | day20 |
+| 21 | **SACK loss recovery**: `pipe` estimator + `IsLost`, retransmit every hole and refill in one RTT | 6675 | day21 |
+| 22 | **Socket API**: blocking `TcpListener`/`TcpStream` (loopback-tested), active half-close, keep-alive HTTP/1.1 | 9293 / 9112 | day22 |
+| 23 | **Robustness**: RFC 5961 §5 blind-data ACK check + randomized challenge-ACK throttle (CVE-2016-5696) + reaper timeouts | 5961 | day23 |
+| 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | day24 |
+| 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | day25 |
+| 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
+| 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | day27 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -47,12 +64,15 @@ src/
   seq.rs         32-bit wrapping sequence-number arithmetic (RFC 1982 serial numbers)
   rtt.rs         RTT estimator + adaptive RTO (RFC 6298)
   reassembly.rs  out-of-order receive buffer
-  congestion.rs  congestion control state machine (RFC 5681)
+  congestion.rs  congestion control: slow start, fast recovery, NewReno + CUBIC (5681/6582/8312)
+  http.rs        HTTP/1.x request parsing + keep-alive responder (used by main's server)
+  socket.rs      blocking TcpListener/TcpStream façade over a PacketIo trait (embeddable; loopback-tested)
   utils.rs       the shared Internet checksum
 ```
 
-The "socket API" is `Connection::{write, take_received, poll_transmit}` + the event loop; a
-blocking `TcpListener`/`TcpStream` veneer is left as an exercise (see `docs/day11-book.md` §11).
+The low-level "socket API" is `Connection::{write, take_received, poll_transmit}` + the event loop;
+`socket.rs` wraps it in a blocking, `std::net`-shaped `TcpListener`/`TcpStream` over a `PacketIo`
+transport trait — single-connection and loopback-tested offline (see `docs/day22-book.md`).
 
 ## Build & test
 
@@ -61,8 +81,9 @@ artifacts go to a native-fs target dir (see `.cargo/config.toml`) so `setcap` wo
 
 ```bash
 # Verify correctness offline — no sudo, no TUN, no network:
-cargo test          # 61 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
-                    # reassembly, retransmission, and a differential check against `etherparse`
+cargo test          # 137 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
+                    # reassembly, retransmission, options (MSS/timestamps/wscale/SACK), and a
+                    # differential check against `etherparse`
 cargo clippy        # clean
 ```
 
@@ -92,17 +113,19 @@ sudo tc qdisc del dev tun0 root
 This is a correct, tested *core*, not a production stack. Not yet implemented (all are genuine
 TCP features, several are exercises in the day-books):
 
-- **Hardening:** SYN/FIN retransmission (only data is queued today), zero-window probes, window
-  scaling + timestamps (RFC 7323), SACK (RFC 2018), RFC 5961 RST validation, distinct CLOSE_WAIT,
-  half-close, MSS option negotiation, NewReno/CUBIC.
-- **A blocking `TcpListener`/`TcpStream`** facade and multi-request/keep-alive HTTP.
+- **Hardening:** **CUBIC** congestion control (Day 25) over NewReno + RFC 6675 SACK recovery
+  (Days 20–21) with **RACK-TLP** time-based loss detection (Day 24); RFC 5961 RST/SYN/data challenge
+  ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaped (Day 23), and
+  `SO_KEEPALIVE` for idle ESTABLISHED connections (Day 26), and **SYN cookies** for SYN-flood
+  survival (Day 27). Still missing: **BBR** congestion control.
+- **A multi-connection socket facade.** We ship a single-connection blocking `TcpListener`/`TcpStream`
+  over a `PacketIo` trait (Day 22, loopback-tested) and keep-alive HTTP/1.1, but the façade demuxes
+  one connection at a time and isn't wired into `main` (which keeps its own multi-protocol loop).
 - **Live conformance + load testing:** `packetdrill` against the kernel, `iperf3` throughput under
   `tc netem`, profiling/flamegraphs (needs sudo/TUN and live runs).
-- Outgoing data is not yet segmented below one delivered run; the HTTP responder matches the
-  request line rather than buffering full headers.
 
 ## Learning OS
 
-This repo follows a "from scratch" learning discipline (see `.claude/skills/`): the cores are meant
+This repo follows a "from scratch" learning discipline: the cores are meant
 to be hand-typed, with the `docs/*-book.md` chapters as the guide. Each book ends with a
 blank-file rebuild checklist and exercises.
