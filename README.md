@@ -128,20 +128,18 @@ sudo tc qdisc del dev tun0 root
 This is a correct, tested *core*, not a production stack. The congestion-control family is now
 complete — both the loss-based **CUBIC** (Doc 25) over NewReno + RFC 6675 SACK recovery (Docs 20–21)
 with **RACK-TLP** time-based loss detection (Doc 24), and the model-based **BBR** (`src/bbr.rs`:
-BtlBw/RTprop filters + STARTUP→DRAIN→PROBE_BW→PROBE_RTT, which the live server now runs) — alongside
-RFC 5961 RST/SYN/data challenge ACKs (Docs 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2
-reaping (Doc 23), `SO_KEEPALIVE` (Doc 26), and **SYN cookies** for SYN-flood survival (Doc 27). The
-socket façade (`src/socket.rs`) ships both the single-connection blocking `TcpListener`/`TcpStream`
-(Doc 22) and a **multi-connection `TcpServer`** that demuxes a connection table over one transport.
+BtlBw/RTprop filters + STARTUP→DRAIN→PROBE_BW→PROBE_RTT, which the live server now runs, **pacing**
+new data to the modelled rate) — alongside RFC 5961 RST/SYN/data challenge ACKs (Docs 19, 23)
+throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaping (Doc 23), `SO_KEEPALIVE` (Doc 26), and
+**SYN cookies** for SYN-flood survival (Doc 27). The socket façade (`src/socket.rs`) ships both the
+single-connection blocking `TcpListener`/`TcpStream` (Doc 22) and a **multi-connection `TcpServer`**
+that demuxes a connection table over one transport.
 
-What remains is not algorithm work but live exercise, which needs sudo/TUN and a real network rather
-than offline unit tests:
+What remains is not algorithm or feature work — it's *live* exercise that needs sudo/TUN and a real
+network rather than the offline unit tests this project is built on:
 
 - **Live conformance + load testing:** `packetdrill` against the kernel, `iperf3` throughput under
-  `tc netem`, profiling/flamegraphs.
-- **Rate-paced transmission:** BBR computes a pacing rate (`pacing_rate_bps`, surfaced by the live
-  server), but the sender is still window-limited — actually pacing sends to that rate is the natural
-  next step and only matters under bulk transfer, which the echo server never drives.
+  `tc netem`, profiling/flamegraphs. (These are the one thing no offline test can stand in for.)
 
 ## Built from scratch
 

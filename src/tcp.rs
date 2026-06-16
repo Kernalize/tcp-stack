@@ -394,6 +394,10 @@ pub struct Connection {
     keepalive_enabled: bool,
     /// Doc 26 — keepalive probes sent since the last activity; reset by any arriving segment.
     keepalive_probes_sent: u32,
+    /// Doc 28 — BBR **pacing** clock: the earliest time (ms) the next new-data segment may leave, so
+    /// data is spread at the modelled `pacing_rate` instead of bursting. `0` = unconstrained. Only the
+    /// model-based controller paces (CUBIC reports a `0` pacing rate, leaving this a no-op).
+    next_send_ms: u64,
 }
 
 impl Connection {
@@ -506,6 +510,7 @@ impl Connection {
             tlp_sent: false,
             keepalive_enabled: false,  // Doc 26: SO_KEEPALIVE off by default
             keepalive_probes_sent: 0,
+            next_send_ms: 0,
         };
 
         // SYN-ACK: our seq = ISS, ack = what we next expect from them (their seq + 1). It carries
@@ -590,6 +595,7 @@ impl Connection {
             tlp_sent: false,
             keepalive_enabled: false,  // Doc 26: SO_KEEPALIVE off by default
             keepalive_probes_sent: 0,
+            next_send_ms: 0,
         };
         // SYN: seq = ISS, no ACK (we don't know the peer's seq yet). Carries OUR MSS option, a
         // Window Scale option (Doc 17), and a Timestamps option offering RTTM/PAWS (TSecr = 0 — we
@@ -653,6 +659,7 @@ impl Connection {
             tlp_sent: false,
             keepalive_enabled: false,
             keepalive_probes_sent: 0,
+            next_send_ms: 0,
         }
     }
 
@@ -1315,6 +1322,9 @@ impl Connection {
         }
 
         let mss = self.send_mss as usize; // Doc 15: the negotiated send MSS, not a fixed constant
+        // Doc 28 — BBR pacing rate (bytes/sec). Non-zero only under the model-based controller; CUBIC
+        // reports 0, so the pacing gate below is skipped and the sender stays purely window-clocked.
+        let pacing_bps = self.cong.pacing_rate_bps();
         while !self.send_buf.is_empty() {
             let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
             if n == 0 {
@@ -1324,6 +1334,17 @@ impl Connection {
             // (A full segment, or any segment when nothing is in flight, passes through.)
             if self.nagle && n < mss && self.flight_size() > 0 {
                 break;
+            }
+            // Doc 28 — BBR pacing: release new data at the modelled `pacing_rate` rather than bursting
+            // the whole window. Hold this segment until `next_send_ms`; once it goes, schedule the next
+            // one `n / pacing_rate` later (≥1 ms). This is what keeps in-flight ≈ BDP with no standing
+            // queue. The window (`usable_window`) is still the hard cap; pacing only smooths *within* it.
+            if pacing_bps > 0.0 {
+                if now_ms < self.next_send_ms {
+                    break;
+                }
+                let gap_ms = (n as f64 * 1000.0 / pacing_bps).ceil() as u64;
+                self.next_send_ms = now_ms.saturating_add(gap_ms.max(1));
             }
             let payload: Vec<u8> = self.send_buf.drain(..n).collect();
             let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
@@ -3584,5 +3605,45 @@ mod tests {
         let ack = conn.on_packet(&data, b"hi").expect("an ACK");
         assert_eq!(parse(&ack[20..]).unwrap().ack, peer_isn + 3);
         assert_eq!(conn.take_received(), b"hi");
+    }
+
+    #[test]
+    fn bbr_paces_new_data_by_the_modelled_rate() {
+        // Establish a BBR connection, teach it a bottleneck bandwidth via timed ACKs, then show that
+        // transmission is spread by the *clock* (the pacing rate), not just gated by the window.
+        let cookie = 0x5000_0000u32;
+        let peer_isn = 100u32;
+        let mut conn = Connection::from_syn_cookie((ME, 80), (PEER, 0x1234), peer_isn, cookie, 1460, 0);
+        conn.use_bbr();
+        let mk_ack = |ack: u32| TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: peer_isn + 1, ack,
+            data_offset: 20, flags: ACK, window: 0xffff,
+        };
+        conn.write(&vec![0u8; 60 * 1460]); // plenty of data so the buffer never empties
+
+        // Pump send/ACK rounds, advancing the clock, so BBR's delivery-rate filter learns a BtlBw and
+        // its pacing rate becomes positive (each ACK opens the window and feeds a delivery sample).
+        let mut t = 0u64;
+        for _ in 0..10 {
+            t += 10;
+            conn.poll_transmit(t);
+            let nxt = conn.snd_nxt();
+            // on_segment (not the fixed-clock on_packet helper) so each ACK carries the advancing
+            // time — that's what gives BBR a non-zero delivery interval to estimate bandwidth from.
+            conn.on_segment(&mk_ack(nxt), &[], &TcpOptions::default(), t);
+        }
+        assert!(conn.pacing_rate_bps() > 0.0, "BBR learned a pacing rate from the delivery samples");
+
+        // Two polls at the SAME instant: the first releases a segment and arms the pacing clock; the
+        // second is held back — even though the window and the send buffer both still allow more.
+        t += 50;
+        let first = conn.poll_transmit(t).len();
+        let second = conn.poll_transmit(t).len();
+        assert!(first >= 1, "a paced segment is released when the clock allows");
+        assert_eq!(second, 0, "the next segment is held until the pacing clock advances");
+        assert!(!conn.send_buffer_empty(), "data remains — so it's pacing, not an empty buffer/window");
+
+        // Advancing the clock past the pacing deadline releases more data.
+        assert!(!conn.poll_transmit(t + 100_000).is_empty(), "advancing the clock lets paced data flow");
     }
 }

@@ -306,10 +306,12 @@ a *safety cap*, not the primary throttle. Pacing is what lets BBR sit at `BDP` w
 queue — a windowed burst of `BDP` bytes would transiently overflow a shallow buffer even though the
 average is right.
 
-Our connection (`src/tcp.rs`) is still window-limited — it does not yet pace individual segments — so
-BBR here drives the `cwnd` cap (via `window()`) and *computes* the pacing rate (`pacing_rate_bps`,
-which the live server logs) without enforcing it. Actually pacing the sender is the natural next step
-(§17) and only matters under bulk transfer, which the echo server never generates.
+Our connection (`src/tcp.rs`) now **paces** new data: `poll_transmit` releases a segment only once the
+clock reaches `next_send_ms`, then schedules the following one `segment_len / pacing_rate` later, so
+data leaves at ~`pacing_gain · BtlBw` instead of bursting the whole window (the `cwnd` cap, via
+`window()`, still bounds it). CUBIC reports a `0` pacing rate, so it stays purely window-clocked. The
+effect only *shows* under bulk transfer, which our echo server never drives — but the mechanism is
+real and tested (§13).
 
 ## 10. The Rust: the filter, the state machine, the enum dispatch
 
@@ -484,8 +486,10 @@ clippy `-D warnings` clean.
   so each ACK yields a rate over the *correct* interval and can flag **app-limited** samples (when the
   app, not the network, capped the rate) to exclude them from the max-filter. We take a per-ACK delta
   and don't detect app-limited intervals.
-- **Real pacing.** Production paces every segment via a timer/qdisc (`fq`); we compute the rate but the
-  sender is still window-limited.
+- **Per-segment, hardware-grade pacing.** Production paces *every* segment (retransmits included) via
+  an `fq` qdisc or NIC offload at sub-microsecond granularity. Ours paces *new* data in `poll_transmit`
+  at millisecond granularity — one segment per `len/rate` interval, floored at 1 ms — which caps paced
+  throughput near 1 segment/ms; fine for teaching, coarse for a 10 Gbit/s link.
 - **Exact DRAIN / PROBE_RTT exits.** Production exits DRAIN when *inflight ≤ BDP* and holds PROBE_RTT
   until inflight drains to 4 packets *and* one round elapses; we use round-boundary / fixed-duration
   approximations (the connection doesn't hand inflight to the controller on every ACK).
@@ -506,8 +510,10 @@ Checklist (blank `src/bbr.rs`):
 6. Make `CongestionControl` an enum; thread the RTT sample through `on_ack`; add `Connection::use_bbr`.
 
 Exercises:
-- **(a)** Implement real pacing: have `poll_transmit` release a segment only when
-  `now ≥ last_send + segment_len / pacing_rate`. Prove with a test that bytes leave at `BtlBw`.
+- **(a)** Pacing of new data is implemented (`poll_transmit` releases a segment only at
+  `now ≥ next_send_ms`, then schedules the next `segment_len / pacing_rate` later). Extend it: add a
+  burst budget so a high `BtlBw` can release several segments per tick, and pace retransmits too;
+  prove with a test that sustained throughput tracks `BtlBw` across a range of rates.
 - **(b)** Add app-limited detection: mark a round app-limited when the send buffer emptied, and skip its
   rate sample. Show the BtlBw estimate stops sagging on a bursty sender.
 - **(c)** Two BBR flows sharing a bottleneck (extend the loopback `TcpServer`): watch them converge —
@@ -518,9 +524,9 @@ Exercises:
 ## 17. What comes after
 
 BBR completes the **congestion-control family**: the stack now ships both a loss-based controller
-(CUBIC over NewReno + RFC 6675) and a model-based one (BBR), selectable per connection. The natural
-follow-ons are *rate-paced transmission* (exercise (a) — the missing half of BBR, only meaningful under
-bulk transfer), BBRv2/v3's ECN and loss response (§E), and the multi-connection server (Doc 29) that
+(CUBIC over NewReno + RFC 6675) and a model-based one (BBR), selectable per connection — and the
+sender now paces new data to BBR's modelled rate. The natural follow-ons are BBRv2/v3's ECN and loss
+response (§E), finer-grained / burst pacing (exercise (a)), and the multi-connection server (Doc 29) that
 lets several BBR flows run at once so you can watch them interact.
 
 ---
