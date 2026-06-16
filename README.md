@@ -100,6 +100,10 @@ cargo clippy        # clean
 
 ## Run it live
 
+Needs Linux with `/dev/net/tun` (run via WSL2 on Windows). Step-by-step environment setup:
+[`docs/setup-windows.md`](docs/setup-windows.md) · [`docs/setup-kali.md`](docs/setup-kali.md). An
+optional Docker workflow lives in [`scripts/`](scripts/) (`dev.sh` / `new_terminal.sh`).
+
 ```bash
 # Terminal 1 — run the stack (the target dir is set to native fs in .cargo/config.toml so
 # setcap works — /mnt/c can't hold Linux xattrs):
