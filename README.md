@@ -45,10 +45,10 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 | 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | day25 |
 | 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
 | 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | day27 |
+| 28 | **BBR**: model-based congestion control — BtlBw/RTprop filters + STARTUP/DRAIN/PROBE_BW/PROBE_RTT; the live server's controller | (BBR draft) | day28 |
+| 29 | **Multi-connection `TcpServer`**: demux a 4-tuple connection table over one transport — many connections at once | 9293 | day29 |
 
-Plus: **BBR** model-based congestion control (`src/bbr.rs`, the live server's controller), a
-**multi-connection `TcpServer`** (`src/socket.rs`), UDP echo, and `RST` for segments to
-unknown/closed connections.
+Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
 ## Architecture
 
