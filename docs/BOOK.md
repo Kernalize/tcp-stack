@@ -1,7 +1,7 @@
 <!--
-  COMPILED BOOK — assembled by concatenating the per-chapter sources docs/day1-book.md … day29-book.md
+  COMPILED BOOK — assembled by concatenating the per-chapter sources docs/doc1-book.md … doc29-book.md
   with this front matter and the back-matter appendices (Parts I–VI in chapter order). Prefer editing
-  the dayN-book.md chapters and re-concatenating over hand-editing this file.
+  the docN-book.md chapters and re-concatenating over hand-editing this file.
 -->
 
 # TCP/IP From Scratch in Rust
@@ -16,7 +16,7 @@ every state transition, every algorithm, derived and implemented from the RFCs.*
 ---
 
 > **What this is.** One book that contains everything needed to build this stack from nothing. It is
-> the consolidation of the day-by-day chapters (`docs/day1-book.md` … `docs/day29-book.md`) into a
+> the consolidation of the step-by-step chapters (`docs/doc1-book.md` … `docs/doc29-book.md`) into a
 > single, navigable volume. Each chapter teaches one feature from first principles — the *mental
 > model*, the *mechanism*, the *header/protocol field by field*, the *relevant Rust*, the *bit math
 > and endianness*, *verification*, the *code walked end to end*, a *"why this, not that"* table, an
@@ -118,12 +118,12 @@ The stack is built in 29 increments. Each row is one chapter of this book and on
 
 Grouped into six parts:
 
-- **Part I — Foundations: The Wire, IP, ICMP, UDP** (Chapters 1–2)
-- **Part II — Opening a Connection: Handshake and Data** (Chapters 3–5)
-- **Part III — Reliability and Teardown** (Chapters 6–9)
-- **Part IV — Congestion Control, the Socket Core, and Retransmission** (Chapters 10–12)
-- **Part V — Sender Behavior and TCP Options** (Chapters 13–18)
-- **Part VI — Completing the Stack: Lifecycle, Modern Recovery, the Socket API, Robustness, Flood Survival, BBR, and Scale** (Chapters 19–29)
+- **Part I — Foundations: The Wire, IP, ICMP, UDP** (Docs 1–2)
+- **Part II — Opening a Connection: Handshake and Data** (Docs 3–5)
+- **Part III — Reliability and Teardown** (Docs 6–9)
+- **Part IV — Congestion Control, the Socket Core, and Retransmission** (Docs 10–12)
+- **Part V — Sender Behavior and TCP Options** (Docs 13–18)
+- **Part VI — Completing the Stack: Lifecycle, Modern Recovery, the Socket API, Robustness, Flood Survival, BBR, and Scale** (Docs 19–29)
 
 ## The code: how the modules fit
 
@@ -133,23 +133,23 @@ Protocol logic lives in focused modules — each chapter adds to one:
 ```text
 src/
   main.rs        event loop: TUN I/O, timers, connection table, the echo/HTTP application
-  ip.rs          IPv4 parse + header checksum                                 (Ch. 1–2)
-  icmp.rs        ICMP parse + echo reply                                      (Ch. 1–2)
+  ip.rs          IPv4 parse + header checksum                                 (Doc 1–2)
+  icmp.rs        ICMP parse + echo reply                                      (Doc 1–2)
   udp.rs         UDP parse + pseudo-header checksum + echo
-  seq.rs         32-bit wrapping sequence-number arithmetic (RFC 1982)        (Ch. 3)
+  seq.rs         32-bit wrapping sequence-number arithmetic (RFC 1982)        (Doc 3)
   tcp.rs         the heart: TcpHeader, the Connection state machine, the
                  retransmission queue, send/receive buffers, options, SACK,
-                 NewReno/6675 recovery, RFC 5961, SYN cookies, RACK-TLP       (Ch. 3–27)
-  rtt.rs         RTT estimator + adaptive RTO (RFC 6298)                      (Ch. 6)
-  reassembly.rs  out-of-order receive buffer                                  (Ch. 9)
+                 NewReno/6675 recovery, RFC 5961, SYN cookies, RACK-TLP       (Doc 3–27)
+  rtt.rs         RTT estimator + adaptive RTO (RFC 6298)                      (Doc 6)
+  reassembly.rs  out-of-order receive buffer                                  (Doc 9)
   congestion.rs  loss-based control: slow start, AIMD, NewReno, CUBIC;
-                 CongestionControl dispatches CUBIC or BBR                    (Ch. 10, 20, 25, 28)
+                 CongestionControl dispatches CUBIC or BBR                    (Doc 10, 20, 25, 28)
   bbr.rs         model-based control: BtlBw/RTprop filters + the BBR
-                 state machine (STARTUP/DRAIN/PROBE_BW/PROBE_RTT)             (Ch. 28)
-  http.rs        HTTP/1.x request parsing + keep-alive responder             (Ch. 22)
+                 state machine (STARTUP/DRAIN/PROBE_BW/PROBE_RTT)             (Doc 28)
+  http.rs        HTTP/1.x request parsing + keep-alive responder             (Doc 22)
   socket.rs      TcpListener/TcpStream façade + multi-connection TcpServer
-                 over a PacketIo trait                                        (Ch. 22, 29)
-  utils.rs       the shared Internet checksum                                 (Ch. 2)
+                 over a PacketIo trait                                        (Doc 22, 29)
+  utils.rs       the shared Internet checksum                                 (Doc 2)
 ```
 
 The recurring design rules you'll see throughout: **time is passed in** (`now_ms`), never read from a
@@ -163,27 +163,27 @@ This book derives the protocol from its specifications; the chapters cite them i
 mapped to where each first appears:
 
 ```text
-   RFC 791   Internet Protocol (IPv4)                  Ch. 1
-   RFC 792   ICMP                                       Ch. 1
-   RFC 1071  Computing the Internet checksum            Ch. 2
-   RFC 1982  Serial number arithmetic                   Ch. 3
-   RFC 6528  Defending against sequence-number attacks  Ch. 3
-   RFC 9293  TCP (obsoletes 793)                         Ch. 3 onward
-   RFC 6298  Computing TCP's retransmission timer        Ch. 6
-   RFC 5681  TCP congestion control                      Ch. 10
-   RFC 896   Nagle's algorithm                           Ch. 13
-   RFC 7323  TCP extensions (timestamps, window scale)   Ch. 16–17
-   RFC 2018  TCP Selective Acknowledgment (SACK)         Ch. 18
-   RFC 6582  The NewReno modification to fast recovery   Ch. 20
-   RFC 6675  SACK-based loss recovery                     Ch. 21
-   RFC 9112  HTTP/1.1 (message framing, persistence)      Ch. 22
-   RFC 5961  Robustness to blind in-window attacks        Ch. 19, 23
-   RFC 1337  TIME-WAIT assassination hazards              Ch. 19, 23
-   RFC 8985  RACK-TLP (time-based loss detection)         Ch. 24
-   RFC 8312/9438  CUBIC congestion control                Ch. 25
-   RFC 9293 §3.8.4  TCP keepalive                          Ch. 26
-   RFC 4987  TCP SYN-flood mitigations (SYN cookies)      Ch. 27
-   BBR draft  Bottleneck Bandwidth & RTT (model-based)    Ch. 28
+   RFC 791   Internet Protocol (IPv4)                  Doc 1
+   RFC 792   ICMP                                       Doc 1
+   RFC 1071  Computing the Internet checksum            Doc 2
+   RFC 1982  Serial number arithmetic                   Doc 3
+   RFC 6528  Defending against sequence-number attacks  Doc 3
+   RFC 9293  TCP (obsoletes 793)                         Doc 3 onward
+   RFC 6298  Computing TCP's retransmission timer        Doc 6
+   RFC 5681  TCP congestion control                      Doc 10
+   RFC 896   Nagle's algorithm                           Doc 13
+   RFC 7323  TCP extensions (timestamps, window scale)   Doc 16–17
+   RFC 2018  TCP Selective Acknowledgment (SACK)         Doc 18
+   RFC 6582  The NewReno modification to fast recovery   Doc 20
+   RFC 6675  SACK-based loss recovery                     Doc 21
+   RFC 9112  HTTP/1.1 (message framing, persistence)      Doc 22
+   RFC 5961  Robustness to blind in-window attacks        Doc 19, 23
+   RFC 1337  TIME-WAIT assassination hazards              Doc 19, 23
+   RFC 8985  RACK-TLP (time-based loss detection)         Doc 24
+   RFC 8312/9438  CUBIC congestion control                Doc 25
+   RFC 9293 §3.8.4  TCP keepalive                          Doc 26
+   RFC 4987  TCP SYN-flood mitigations (SYN cookies)      Doc 27
+   BBR draft  Bottleneck Bandwidth & RTT (model-based)    Doc 28
 ```
 
 Read the spec section a chapter cites *after* the chapter — the chapter gives you the model the spec
@@ -202,14 +202,14 @@ checklist and exercises that turn reading into the ability to rebuild.*
 
 
 
-# Day 1 — From Zero to Reading Real Packets
+# Doc 1 — From Zero to Reading Real Packets
 
 > A from-scratch teaching text for `src/main.rs`. The goal: after reading this with the
 > file closed, you can re-type the whole thing and explain every line, every byte, and
 > every design choice — including the ones I rejected and why.
 >
-> Scope of Day 1: open a TUN device, receive raw packets, and **decode** the IPv4 header
-> (plus peek at ICMP and TCP). We do not *reply* yet — that is Day 2 (and it needs
+> Scope of Doc 1: open a TUN device, receive raw packets, and **decode** the IPv4 header
+> (plus peek at ICMP and TCP). We do not *reply* yet — that is Doc 2 (and it needs
 > checksums, which get their own chapter). 100% ping loss today is the correct result.
 
 **Contents**
@@ -227,7 +227,7 @@ checklist and exercises that turn reading into the ability to rebuild.*
 12. The code, walked end to end
 13. Design choices and alternatives (the "why this, not that" table)
 14. Rebuild it yourself — blank-file checklist + exercises
-15. What Day 2 adds
+15. What Doc 2 adds
 - Appendix A — Troubleshooting (symptom → cause)
 - Appendix B — Glossary
 
@@ -246,21 +246,21 @@ interface where, instead of bytes going out a physical NIC, they get handed to *
 process* as plain reads and writes on a file descriptor.
 
 ```
-   Normal path                          Our path (Day 1)
+   Normal path                          Our path (Doc 1)
    ───────────                          ────────────────
    ping ──► kernel TCP/IP ──► NIC       ping ──► kernel routing ──► tun0 ──► OUR process
                                                                             (we read bytes)
 ```
 
 So the entire project is: *a program that reads byte buffers, interprets them as network
-protocols, and writes byte buffers back.* Day 1 is only the **read + interpret** half.
+protocols, and writes byte buffers back.* Doc 1 is only the **read + interpret** half.
 
 Layers, bottom to top, and where we sit:
 
 | Layer | Example | Who handles it in this project |
 |---|---|---|
 | L2 Link | Ethernet, MAC, ARP | **Skipped** — TUN is L3, so no Ethernet header exists |
-| L3 Network | **IPv4**, ICMP | **Us, Day 1** (parse) → Day 2 (reply) |
+| L3 Network | **IPv4**, ICMP | **Us, Doc 1** (parse) → Doc 2 (reply) |
 | L4 Transport | **TCP**, UDP | Us, Weeks 5–10 |
 | L7 Application | HTTP, DNS | The test tools (`ping`, `nc`, `curl`) |
 
@@ -324,7 +324,7 @@ The `tun-tap` crate just wraps those syscalls so you don't write the `ioctl` by 
 
 ## 3. The 4-byte gotcha that breaks the manual (`IFF_NO_PI`)
 
-This is the single most important thing in Day 1, and the project's own `day1.md` gets it
+This is the single most important thing in Doc 1, and the project's own `doc1.md` gets it
 wrong, so internalize it.
 
 The `tun-tap` crate has two constructors:
@@ -390,7 +390,7 @@ Three things worth understanding:
 - **`recv` blocks.** The thread parks in the kernel until a packet is ready; it consumes no
   CPU while waiting. The program "hanging" after startup is correct — it's waiting. (Later,
   for handling many connections, you'd switch to non-blocking + `epoll`; the crate exposes
-  `set_non_blocking()`. Day 1 doesn't need it.)
+  `set_non_blocking()`. Doc 1 doesn't need it.)
 - **`n` is the real length.** `buf` is always 1504 bytes; only `buf[..n]` is this packet.
   Slicing to `&buf[..n]` once and parsing the slice prevents the classic bug of reading
   stale bytes from a previous, longer packet.
@@ -425,13 +425,13 @@ Byte-offset table — this is what `parse_ipv4` walks:
 |---|---|---|
 | `[0]` hi nibble | **Version** | `>> 4`. Always 4 here. |
 | `[0]` lo nibble | **IHL** | `& 0x0f`. Header length in 32-bit words; ×4 = bytes. |
-| `[1]` | DSCP + ECN | QoS / congestion marking. Ignored Day 1. |
+| `[1]` | DSCP + ECN | QoS / congestion marking. Ignored Doc 1. |
 | `[2..4]` | **Total Length** | `u16` BE. Whole datagram (header+payload) in bytes. |
 | `[4..6]` | Identification | Fragment group id (reassembly, later). |
 | `[6..8]` | Flags + Frag Offset | top 3 bits flags (DF/MF), low 13 bits offset. |
 | `[8]` | **TTL** | Hops remaining; each router decrements; 0 ⇒ dropped. |
 | `[9]` | **Protocol** | 1=ICMP, 6=TCP, 17=UDP. Tells us how to read the payload. |
-| `[10..12]` | Header Checksum | One's-complement over the header (see Day 2). |
+| `[10..12]` | Header Checksum | One's-complement over the header (see Doc 2). |
 | `[12..16]` | **Source IP** | 4 octets. |
 | `[16..20]` | **Destination IP** | 4 octets. |
 
@@ -614,8 +614,8 @@ The fixed 8-byte head (sits right after the IP header):
 ```
 
 Why today's ping reports **100% loss**: we *receive* the Echo Requests but never send Echo
-Replies. `ping` waits, hears nothing, reports loss. That's success for Day 1 — it proves
-packets reach our code. Day 2 is: read the request, build a reply (swap src/dst, set type
+Replies. `ping` waits, hears nothing, reports loss. That's success for Doc 1 — it proves
+packets reach our code. Doc 2 is: read the request, build a reply (swap src/dst, set type
 0, **recompute the checksum**), and `iface.send()` it. The checksum is the new concept and
 why reply waits a day.
 
@@ -710,7 +710,7 @@ Close this book. From an empty `main.rs`, you should be able to:
 If any step needs a peek, that step is your weak spot — drill it (and make an Anki card from
 it, per your Learning OS).
 
-**Exercises (do at least 1–2 before Day 2):**
+**Exercises (do at least 1–2 before Doc 2):**
 - **E1.** Print the IP header **checksum** field and the **identification** field. (You read
   the bytes; you don't validate yet.)
 - **E2.** Add UDP (protocol 17): print source/dest ports (first 4 bytes of its payload).
@@ -724,7 +724,7 @@ it, per your Learning OS).
 
 ---
 
-## 15. What Day 2 adds
+## 15. What Doc 2 adds
 
 - **ICMP Echo Reply** so `ping` finally succeeds (0% loss). Build the reply: copy the
   request, swap source/dest IPs, set ICMP type 0, **recompute both checksums**, `send()`.
@@ -751,7 +751,7 @@ it, per your Learning OS).
 | `Error: ... ResourceBusy` creating tun0 | a `tun0` already exists | `sudo ip link delete tun0`, retry |
 | `Error: ... NotFound` opening tun | `/dev/net/tun` missing | `sudo modprobe tun` |
 | program prints nothing and "hangs" | normal — `recv` is blocking, waiting for a packet | ping it from terminal 2 |
-| `ping` says 100% packet loss | we receive but don't reply yet | expected until Day 2 (ICMP echo reply) |
+| `ping` says 100% packet loss | we receive but don't reply yet | expected until Doc 2 (ICMP echo reply) |
 | multi-byte field is a wild/huge number | used `from_ne_bytes` instead of `from_be_bytes` (§7) | always `from_be_bytes` for wire data |
 | L4 fields look shifted/garbage | hardcoded payload start at byte 20 instead of `ihl*4` (§8) | slice `&packet[header_len..]` |
 | `⚠ MISMATCH vs etherparse` printed | your hand parser disagrees with the oracle | a real bug — check byte indices / endianness |
@@ -776,7 +776,7 @@ it, per your Learning OS).
 - **TTL** — Time To Live; per-hop counter; 0 ⇒ drop + ICMP Time Exceeded (how traceroute works).
 - **ICMP** — IP's control/diagnostic protocol (RFC 792); ping = Echo Request/Reply.
 - **Internet checksum** — the one's-complement 16-bit sum (RFC 1071) used by IP/ICMP/TCP/UDP;
-  built on Day 2.
+  built on Doc 2.
 - **differential testing** — running two independent implementations on the same input and
   comparing; divergence localizes a bug. Here: our parser vs `etherparse`.
 - **zero-copy / slice** — a `&[u8]` is a borrowed `(pointer, length)` view; parsing in place
@@ -793,7 +793,7 @@ it, per your Learning OS).
 
 > Volume I above is the *narrative* that gets you to working code. Volume II is the *reference*
 > that makes you not need the narrative again: every bit, every field value, every Rust
-> mechanism, every debugging technique, exhaustively, so you can re-derive the whole of Day 1
+> mechanism, every debugging technique, exhaustively, so you can re-derive the whole of Doc 1
 > from first principles. Read it once slowly; return to it as a lookup.
 
 ## Contents of Volume II
@@ -985,7 +985,7 @@ bitwise NOT (`!`) and any signed arithmetic obey it.
 
 One's complement is an *older* representation where negation is **just invert all bits** (no
 "+1"). Its key arithmetic feature is **end-around carry**: when an addition overflows the top
-bit, the carry is added back at the bottom. The Internet checksum (Day 2) is defined in terms
+bit, the carry is added back at the bottom. The Internet checksum (Doc 2) is defined in terms
 of one's-complement *addition* precisely because end-around carry gives it the endianness-
 independence property. So:
 
@@ -993,14 +993,14 @@ independence property. So:
 - **One's complement** → the arithmetic of the Internet checksum (invert; carries wrap around).
 
 Rust's `!x` operator computes the bitwise NOT, which *is* the one's complement of the bit
-pattern — that is exactly the final step of `utils::checksum` on Day 2.
+pattern — that is exactly the final step of `utils::checksum` on Doc 2.
 
 ### B.4 — Why packet fields are unsigned
 
 A TTL of 64, a port of 443, a window of 65535, a sequence number — none of these are ever
 negative. Representing them as unsigned (a) doubles the positive range for the same bits
 (0–255 instead of −128–127 for a byte), and (b) makes wrap-around well-defined and meaningful
-(TCP sequence numbers *rely* on `u32` wrap-around — Day 3). Using a signed type for a packet
+(TCP sequence numbers *rely* on `u32` wrap-around — Doc 3). Using a signed type for a packet
 field is a latent bug: a "large" value would read as negative.
 
 ---
@@ -1047,7 +1047,7 @@ a b | a|b
 ```
 
 Use: **set** bits / **combine** flags. TCP flags are individual bits; `SYN | ACK` =
-`0x02 | 0x10` = `0x12` builds the combined flag byte for a SYN-ACK (Day 3). Building a value
+`0x02 | 0x10` = `0x12` builds the combined flag byte for a SYN-ACK (Doc 3). Building a value
 out of named bits is OR; that is why our flag constants are powers of two.
 
 ### C.3 — XOR ( `^` ) — toggling / difference
@@ -1126,7 +1126,7 @@ Reading is shift+mask; writing is shift+OR. They are inverses.
 
 ## D. Endianness, completely
 
-Endianness caused the silent bug that would have broken Day 1 if we'd used the wrong
+Endianness caused the silent bug that would have broken Doc 1 if we'd used the wrong
 conversion. Here is the whole topic.
 
 ### D.1 — The problem statement
@@ -1264,7 +1264,7 @@ Redefined by RFC 2474/3168 into:
   *without dropping* a packet: `00` not-ECT, `01`/`10` ECT(1)/ECT(0) (endpoints support ECN),
   `11` CE (congestion experienced). TCP then echoes this back to slow down.
 
-We ignore byte 1 on Day 1 (it doesn't affect parsing), but you should know it is *not*
+We ignore byte 1 on Doc 1 (it doesn't affect parsing), but you should know it is *not*
 reserved — it carries QoS and congestion signaling that real networks act on.
 
 ### E.5 — Field 4: Total Length (16 bits, bytes 2–3, big-endian)
@@ -1280,7 +1280,7 @@ MTU: links cap the *physical* frame (1500 on Ethernet), so a 65,535-byte IP data
 
 A unique-ish id the sender stamps on a datagram so that, if it is fragmented, the receiver can
 group the fragments that belong together (all fragments of one datagram share the
-Identification). We don't reassemble on Day 1, but you'll need this field when you implement
+Identification). We don't reassemble on Doc 1, but you'll need this field when you implement
 fragmentation. Historically also (ab)used for other purposes; modern stacks often set it to 0
 for DF packets.
 
@@ -1312,7 +1312,7 @@ packets from looping forever in a routing loop. Common initial values: 64 (Linux
 (Windows), 255 (some routers). Two consequences you can observe: (1) the TTL in a reply hints
 at the sender's OS and distance; (2) **traceroute** sends packets with TTL = 1, 2, 3, … and
 collects the Time-Exceeded replies to map every router on the path. We set TTL = 64 on packets
-we generate (Day 2+).
+we generate (Doc 2+).
 
 ### E.10 — Field 9: Protocol (8 bits, byte 9)
 
@@ -1335,7 +1335,7 @@ is the demultiplexing key from L3 to L4.
 
 The Internet checksum (RFC 1071) computed over **the header only** (not the payload — TCP/UDP
 checksum their own data). A router that decrements TTL must recompute (or incrementally update)
-this. We *parse* it on Day 1 and *compute/validate* it on Day 2. Note IPv6 dropped the header
+this. We *parse* it on Doc 1 and *compute/validate* it on Doc 2. Note IPv6 dropped the header
 checksum entirely (relying on L2 and L4 checks) to save router work — a deliberate design
 reversal worth knowing.
 
@@ -1494,7 +1494,7 @@ When `IFF_NO_PI` is *not* set (i.e. `Iface::new`), every `read` is prefixed with
 
 Two ways to live with it: set `IFF_NO_PI` (our choice — the prefix vanishes, `buf[0]` is the IP
 version), or keep it and parse from `buf[4..]` after checking the EtherType. The whole
-Day-1-breaking bug (version reads as 0) is this prefix shifting every offset by 4 — see Volume
+Doc-1-breaking bug (version reads as 0) is this prefix shifting every offset by 4 — see Volume
 I §3. The docs literally tell you to size your buffer "MTU + 4" because of these bytes.
 
 ### F.7 — Capabilities and isolation, deeper
@@ -1516,7 +1516,7 @@ into your buffer and wakes you. This is fine for a single-connection toy. A real
 many connections plus timers can't block on one fd, so it switches to **non-blocking** mode
 (`set_non_blocking`, which sets `O_NONBLOCK`): now `read` returns `EWOULDBLOCK` immediately if
 nothing is ready, and you use `epoll`/`poll` to wait on the fd *and* timers simultaneously.
-That event-loop change is exactly the prerequisite for retransmission (see day5-book.md §10).
+That event-loop change is exactly the prerequisite for retransmission (see doc5-book.md §10).
 
 ### F.9 — TUN vs the other ways to touch packets
 
@@ -1603,7 +1603,7 @@ At any moment, for a given value, you may have **either**:
 never both. This "shared XOR mutable" rule, enforced at compile time, is what statically
 eliminates data races and iterator-invalidation bugs. It's why you sometimes restructure code
 to satisfy it (e.g. compute `state = conn.state()` *before* `connections.remove(&quad)` in
-Day 5 — the `&mut conn` borrow must end before we touch the map again). The checker is not
+Doc 5 — the `&mut conn` borrow must end before we touch the map again). The checker is not
 being difficult; it's proving the absence of a class of bugs.
 
 ### G.5 — Slices (`&[u8]`) — the parser's core type
@@ -1703,7 +1703,7 @@ introduce a borrowed header type with a lifetime tying it to the packet.
 
 ### G.14 — Iterators (`chunks_exact`) and why they're zero-cost
 
-The checksum (Day 2) uses `data.chunks_exact(2)` to walk 16-bit words, plus `.remainder()` for
+The checksum (Doc 2) uses `data.chunks_exact(2)` to walk 16-bit words, plus `.remainder()` for
 a trailing odd byte. Rust iterators are **zero-cost abstractions**: they compile to the same
 machine code as a hand-written loop, but read declaratively and avoid off-by-one bugs.
 `for w in chunks.by_ref()` consumes the even pairs; `chunks.remainder()` then yields the leftover.
@@ -1792,7 +1792,7 @@ The diagnostic everyone knows. Layout of the 8-byte echo header + data:
 ```
 
 - **Echo Request = type 8, code 0.** Sent by `ping`.
-- **Echo Reply = type 0, code 0.** The required answer (what we build on Day 2).
+- **Echo Reply = type 0, code 0.** The required answer (what we build on Doc 2).
 - **Identifier** — lets the sending process match replies to itself (often the PID on Linux, or
   a fixed value). Multiple pings on one host are told apart by id.
 - **Sequence** — increments each request (1, 2, 3…), so `ping` can compute per-packet loss and
@@ -1905,7 +1905,7 @@ This section makes you fluent in both, focused on `tun0`.
 
 Your stack's `println!` shows *what your code thinks happened*. A sniffer shows *what was
 actually on the wire*, decoded by a mature, correct implementation. The gap between the two is
-exactly your bug. The Day-1 `IFF_NO_PI` trap is the perfect example: your code prints nothing
+exactly your bug. The Doc-1 `IFF_NO_PI` trap is the perfect example: your code prints nothing
 (it skipped everything), but `tcpdump -i tun0` clearly shows the ICMP requests arriving — so the
 problem is in your parse, not the network. That triangulation is the core debugging loop.
 
@@ -1942,7 +1942,7 @@ sudo tcpdump -i tun0 -n -vv -X
 - `seq 1` — Sequence number.
 - `length 64` — ICMP payload length (64 = 8-byte header is *not* counted here; tcpdump shows the
   ICMP data length differently per version — verify against your `total_len`).
-After Day 2 you should see a *second* line, `ICMP echo reply`, from .2 > .1 — proof your reply
+After Doc 2 you should see a *second* line, `ICMP echo reply`, from .2 > .1 — proof your reply
 went out.
 
 ### I.4 — Reading a tcpdump TCP line
@@ -1961,7 +1961,7 @@ went out.
   `-S` (`--absolute-tcp-sequence-numbers`) to see the raw 32-bit values your code actually puts
   on the wire.
 
-This is your Day-3/4/5 verification: the three handshake lines, then `[P.]` data + your echo,
+This is your Doc-3/4/5 verification: the three handshake lines, then `[P.]` data + your echo,
 then the `[F.]` exchanges, with seq/ack numbers matching your TCB math.
 
 ### I.5 — BPF capture filters
@@ -1998,7 +1998,7 @@ The habit that makes you fast: for each packet, line up three views — your sta
 tcpdump's decoded line, and the `-X` hex dump — and confirm they agree byte for byte. When the
 `agrees_with_etherparse` test passes but the live link misbehaves, it's almost always a
 *generated* packet (checksum, length, or a field you set wrong); Wireshark's field tree + bad-
-checksum flag finds it in seconds. Reading your own packets is a skill; by Day 5 it should be
+checksum flag finds it in seconds. Reading your own packets is a skill; by Doc 5 it should be
 reflexive.
 
 ### I.8 — A field-mapping cheat sheet (your code ↔ the tools)
@@ -2020,7 +2020,7 @@ reflexive.
 ## J. Extended exercises with full worked solutions
 
 Work each one on paper or in code *before* reading the solution. These are graded from
-warm-up to genuinely tricky; together they re-derive all of Day 1.
+warm-up to genuinely tricky; together they re-derive all of Doc 1.
 
 ### J.1 — Decode a header cold
 
@@ -2147,7 +2147,7 @@ if utils::checksum(&packet[..header_len]) != 0 {
 ```
 (add `BadChecksum` to the enum). Recall the verify-trick: a valid header *including* its
 checksum field sums to 0. Test: take a known-good header → expect Ok; flip one byte → expect
-`BadChecksum`. (Needs the Day-2 `utils::checksum`.)
+`BadChecksum`. (Needs the Doc-2 `utils::checksum`.)
 
 ### J.12 — Count protocols seen (code, design)
 
@@ -2155,14 +2155,14 @@ checksum field sums to 0. Test: take a known-good header → expect Ok; flip one
 
 **Solution.** A `HashMap<u8, u64>` or three counters incremented in the dispatch; print every N
 packets. The point: per-connection/aggregate *state* is what turns a parser into a stack — a
-warm-up for the TCP connection table (Day 3).
+warm-up for the TCP connection table (Doc 3).
 
-### J.13 — Why does ping show 100% loss on Day 1 but 0% on Day 2?
+### J.13 — Why does ping show 100% loss on Doc 1 but 0% on Doc 2?
 
-**Solution.** Day 1 only *parses*; it never calls `iface.send`, so no Echo Reply is produced —
-`ping` waits and times out → 100% loss. Day 2 builds an Echo Reply (type 0, swapped addresses,
+**Solution.** Doc 1 only *parses*; it never calls `iface.send`, so no Echo Reply is produced —
+`ping` waits and times out → 100% loss. Doc 2 builds an Echo Reply (type 0, swapped addresses,
 recomputed checksums) and sends it → `ping` matches it by id/seq → 0% loss. The visible behavior
-is identical to "a reply with a bad checksum," which is why Day 2 tests the checksum offline.
+is identical to "a reply with a bad checksum," which is why Doc 2 tests the checksum offline.
 
 ### J.14 — The hardest one: hand-compute an IP header checksum
 
@@ -2176,18 +2176,18 @@ zeroed), compute the checksum.
 Add step by step (hex): 4500+0028=4528; +4000=8528; +4006=C52E; +0A00=CF2E; +0001=CF2F;
 +0A00=D92F; +0002=D931. (The 0000 words add nothing.) Sum = 0xD931, no carry above 16 bits, so
 no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` in place:
-`0xD931 + 0x26CE = 0xFFFF` → `~0xFFFF = 0`. ✓ (This is the Day-2 algorithm done by hand.)
+`0xD931 + 0x26CE = 0xFFFF` → `~0xFFFF = 0`. ✓ (This is the Doc-2 algorithm done by hand.)
 
 ---
 
 ## K. Extended glossary and the RFC reading list
 
-### K.1 — Extended glossary (Day 1 scope, exhaustive)
+### K.1 — Extended glossary (Doc 1 scope, exhaustive)
 
 - **ARPANET** — the 1969 packet-switched research network that evolved into the internet; origin
   of TCP/IP.
 - **ACK (acknowledgement)** — confirmation that data was received; a TCP flag and a 32-bit field
-  (Day 3+).
+  (Doc 3+).
 - **bit** — a binary digit, 0 or 1; the atom of all data.
 - **big-endian** — most-significant byte first; **network byte order**; all IP/TCP/UDP fields.
 - **BPF (Berkeley Packet Filter)** — kernel bytecode for matching packets; powers tcpdump
@@ -2196,7 +2196,7 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **CAP_NET_ADMIN** — Linux capability for network-interface/route administration; needed to
   create `tun0`.
 - **CIDR** — Classless Inter-Domain Routing; the `a.b.c.d/n` notation; `n` = network-prefix bits.
-- **checksum (Internet)** — RFC 1071 one's-complement 16-bit sum for error detection (Day 2).
+- **checksum (Internet)** — RFC 1071 one's-complement 16-bit sum for error detection (Doc 2).
 - **character device** — a file you read/write as a byte stream; `/dev/net/tun` is one.
 - **datagram** — a self-contained packet (IP datagram, UDP datagram); routed independently.
 - **DF (Don't Fragment)** — IP flag forbidding fragmentation; drives Path MTU Discovery.
@@ -2213,7 +2213,7 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **Identifier (ICMP)** — field matching echo replies to the sending process.
 - **IFF_NO_PI** — TUN flag disabling the 4-byte packet-information prefix.
 - **ioctl** — the "I/O control" syscall for device-specific operations; `TUNSETIFF` creates a TUN.
-- **ISN/ISS/IRS** — Initial Sequence Number (and send/recv variants); TCP (Day 3).
+- **ISN/ISS/IRS** — Initial Sequence Number (and send/recv variants); TCP (Doc 3).
 - **little-endian** — least-significant byte first; x86/ARM internal order.
 - **loopback** — 127.0.0.0/8; traffic to oneself.
 - **MTU** — Maximum Transmission Unit; largest L3 packet a link carries unfragmented (1500 Ethernet).
@@ -2240,17 +2240,17 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **wrapping arithmetic** — modular `wrapping_add` etc.; defined overflow (TCP seq numbers wrap at 2³²).
 - **zero-copy** — processing data in place via borrows instead of copying.
 
-### K.2 — The RFC reading list (Day 1 relevant, in reading order)
+### K.2 — The RFC reading list (Doc 1 relevant, in reading order)
 
 RFCs are the primary sources. Read the *introduction* and the *header-format* sections first;
 the prose is dense but precise, and learning to read it is a skill in itself (look for the
 ASCII header diagrams and the MUST/SHOULD/MAY keywords from RFC 2119).
 
-| RFC | Title | Why for Day 1 |
+| RFC | Title | Why for Doc 1 |
 |-----|-------|---------------|
 | 791 | Internet Protocol | the IPv4 header you parse — read §3.1 (header format) |
 | 792 | Internet Control Message Protocol | ICMP echo + errors |
-| 1071 | Computing the Internet Checksum | the Day-2 algorithm, with worked examples |
+| 1071 | Computing the Internet Checksum | the Doc-2 algorithm, with worked examples |
 | 1122 | Requirements for Internet Hosts — Communication Layers | what a host MUST do; the "host rules" |
 | 2474 | Definition of the DiffServ Field (DSCP) | what IP byte 1 became |
 | 3168 | The Addition of ECN to IP | the low 2 bits of byte 1 |
@@ -2265,9 +2265,9 @@ Beej's *Guide to Network Programming* (the sockets side you're reimplementing).
 
 ---
 
-## L. Complete annotated hex dumps of every Day-1 packet type
+## L. Complete annotated hex dumps of every Doc-1 packet type
 
-Memorizing these three dumps means you can read any Day-1 packet instantly. Offsets are decimal
+Memorizing these three dumps means you can read any Doc-1 packet instantly. Offsets are decimal
 byte indices from the start of the IP packet (TUN, no PI prefix).
 
 ### L.1 — ICMP Echo Request (a ping), 98 bytes shown as 84 (IP) — the canonical Linux ping
@@ -2298,7 +2298,7 @@ Read it: "DF TCP-less ICMP echo, id 0x1234 seq 1, 192.168.0.1→.2, 64 hops left
 takes bytes 0/9/12-19 (IP) and 20-27 (ICMP); the reply flips byte 20 to 0x00 and fixes the two
 checksums.
 
-### L.2 — ICMP Echo Reply (our Day-2 output) — what changed from L.1
+### L.2 — ICMP Echo Reply (our Doc-2 output) — what changed from L.1
 
 ```
  same 84 bytes as L.1, with these edits:
@@ -2493,7 +2493,7 @@ and a polished socket API — all without a heap. It will show you idiomatic Rus
 | Address families | IPv4 only | IPv4 + IPv6 + dual stack |
 
 This table is also a study plan: each row is a thing you can add to *this* stack (the roadmap in
-day5-book.md §10) and then go read how `smoltcp`/lwIP/Linux do it properly.
+doc5-book.md §10) and then go read how `smoltcp`/lwIP/Linux do it properly.
 
 ### N.6 — Why build a toy at all
 
@@ -2508,7 +2508,7 @@ transfer — from your toy to real systems — is the entire point.
 ## O. Line-by-line walkthrough — `utils.rs` and `ip.rs`
 
 This section reads the foundational files one construct at a time, so you can account for every
-character. (`icmp.rs`, `main.rs`, and `tcp.rs` get the same treatment in their day-books.)
+character. (`icmp.rs`, `main.rs`, and `tcp.rs` get the same treatment in their doc-books.)
 
 ### O.1 — `utils.rs`, line by line
 
@@ -2737,7 +2737,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Diagnosis:** the panic message gives the exact index and length.
 - **Fix:** the up-front length guards (`< 20`, `< header_len`); after them, indices are safe.
 
-### P.8 — ping stays at 100% loss after you "added" the reply (Day 2)
+### P.8 — ping stays at 100% loss after you "added" the reply (Doc 2)
 
 - **Symptom:** you build and send an Echo Reply, but `ping` still reports loss; tcpdump shows the
   reply going out.
@@ -2749,7 +2749,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Fix:** zero the field, checksum the correct range, write `to_be_bytes`. (Our
   `reply_is_well_formed` test asserts both regions verify to 0.)
 
-### P.9 — handshake never completes (Day 3)
+### P.9 — handshake never completes (Doc 3)
 
 - **Symptom:** SYN-ACK goes out, but the connection never reaches ESTABLISHED; client retransmits
   SYN or RSTs.
@@ -2760,7 +2760,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Fix:** `ack = recv.nxt = client_seq + 1`; checksum over pseudo-header + segment; data offset
   `5 << 4`.
 
-### P.10 — echo works once, then stalls (Day 4)
+### P.10 — echo works once, then stalls (Doc 4)
 
 - **Symptom:** the first data segment echoes, later ones are ignored.
 - **Cause:** sequence-number bookkeeping drift — not advancing `RCV.NXT`/`SND.NXT` by the payload
@@ -2783,9 +2783,9 @@ looking before theorizing.
 
 ---
 
-## Q. From-absolute-scratch reconstruction — build Day 1 from an empty directory
+## Q. From-absolute-scratch reconstruction — build Doc 1 from an empty directory
 
-If you can do this from a blank folder without copying, you own Day 1. Commands assume WSL Ubuntu.
+If you can do this from a blank folder without copying, you own Doc 1. Commands assume WSL Ubuntu.
 
 ### Q.1 — Toolchain
 
@@ -2846,7 +2846,7 @@ sudo setcap cap_net_admin=eip "$(echo $HOME)/.tcp-stack-target/debug/tcp-stack" 
 ```bash
 # terminal 2
 sudo ip addr add 192.168.0.1/24 dev tun0 && sudo ip link set tun0 up
-ping -c3 192.168.0.2          # Day 1: 100% loss is correct
+ping -c3 192.168.0.2          # Doc 1: 100% loss is correct
 sudo tcpdump -i tun0 -n -v    # terminal 3: see the requests
 ```
 
@@ -2860,7 +2860,7 @@ means. If any step needed a peek, that step is your weak spot — drill it and m
 
 ## R. The mathematics of the Internet checksum
 
-This is the "why it works" behind Day 2's code. None of it is needed to *use* the checksum, but
+This is the "why it works" behind Doc 2's code. None of it is needed to *use* the checksum, but
 understanding it is the difference between memorizing an algorithm and owning it.
 
 ### R.1 — One's-complement integers as a number system
@@ -2979,13 +2979,13 @@ needs.
 
 None of these change correctness; all trade simplicity for throughput. The single change that's
 not just performance but *capability* is blocking→event-loop, because retransmission timers need
-it — which is why it heads the day5-book.md §10 roadmap.
+it — which is why it heads the doc5-book.md §10 roadmap.
 
 ### S.4 — Big-O of the data structures
 
 - IPv4/ICMP/TCP parse: **O(1)** (fixed offsets).
 - Checksum: **O(n)** in packet length (unavoidable; one pass).
-- Connection lookup (Day 3+): **O(1)** average via `HashMap<Quad, _>`.
+- Connection lookup (Doc 3+): **O(1)** average via `HashMap<Quad, _>`.
 - Echo/reply build: **O(payload)** for the copy + checksum.
 Nothing in the design is worse than linear in the packet size, which is the floor — you must at
 least look at each byte you checksum.
@@ -3013,7 +3013,7 @@ Bigger-than-needed is harmless; too small truncates.
 **6. Why does `recv` block?** `read()` on the fd sleeps the thread until a packet arrives — 0% CPU
 while waiting. The apparent "hang" at startup is correct.
 
-**7. Why is ping 100% loss on Day 1?** We receive but never send an Echo Reply. Day 2 fixes it.
+**7. Why is ping 100% loss on Doc 1?** We receive but never send an Echo Reply. Doc 2 fixes it.
 
 **8. Why must I re-run `setcap` after every build?** A new binary is a new inode; file
 capabilities live in the inode's xattrs and don't carry over.
@@ -3114,7 +3114,7 @@ anyway.
 **39. Could a malicious packet crash my stack?** Only if you index without guarding — which is the
 whole reason for the up-front length checks. A short/garbage packet must be rejected, not panic.
 
-**40. What's the single most important habit from Day 1?** Compare three views (your output,
+**40. What's the single most important habit from Doc 1?** Compare three views (your output,
 tcpdump, the hex) before theorizing. The bytes never lie.
 
 ---
@@ -3122,7 +3122,7 @@ tcpdump, the hex) before theorizing. The bytes never lie.
 ## U. This project and the security track — every parser is an attack surface
 
 You're building toward offensive/defensive security research; a packet parser is exactly where
-those worlds meet. This section maps Day-1 concepts to the security mindset.
+those worlds meet. This section maps Doc-1 concepts to the security mindset.
 
 ### U.1 — A parser is a trust boundary
 
@@ -3144,7 +3144,7 @@ same class of check that would have prevented it. Internalize: *the parser is th
 - **ICMP tunneling / covert channels** — arbitrary data in echo payloads to exfiltrate past
   firewalls. Relevant to both red (build it) and blue (detect anomalous echo sizes/rates).
 - **IP spoofing** — forging the source address. IP has no authentication; this is why TCP's
-  random ISN (Day 3) and sequence checks matter, and why ingress filtering (BCP 38) exists.
+  random ISN (Doc 3) and sequence checks matter, and why ingress filtering (BCP 38) exists.
 - **TTL games** — low TTL to map networks (traceroute), or to evade IDS that reassemble differently
   than the target (insertion/evasion attacks, Ptacek & Newsham 1998). Parsing TTL is step one.
 
@@ -3207,7 +3207,7 @@ rand = "0.8"
 - `tracing` / `tracing-subscriber` — structured logging (better than `println!` for real use);
   `features = ["env-filter"]` enables `RUST_LOG`-style filtering. We mostly use `println!` for
   teaching clarity, but the deps are present for when you switch.
-- `rand = "0.8"` — for ISN randomization (the secure version of Day 3's ISS); use `OsRng`, not
+- `rand = "0.8"` — for ISN randomization (the secure version of Doc 3's ISS); use `OsRng`, not
   `thread_rng`, for anything security-relevant.
 
 ```toml
@@ -3249,8 +3249,8 @@ src/
   tcp.rs     — TCP parse + connection state   (uses ip, utils)
   ethernet.rs, arp.rs — placeholders (TAP-only path; not `mod`-declared)
 docs/
-  Manual.md, day1.md      — the original 12-week plan + day-1 walkthrough
-  day1-book.md … day5-book.md — these teaching books
+  Manual.md, doc1.md      — the original 12-week plan + doc-1 walkthrough
+  doc1-book.md … doc5-book.md — these teaching books
 ```
 Dependency direction is strictly upward: `utils` depends on nothing; `ip` on `utils`; `icmp`/`tcp`
 on `ip`+`utils`; `main` on all. No cycles — a clean layering that mirrors the protocol stack
@@ -3258,7 +3258,7 @@ itself.
 
 ---
 
-## W. Anki starter deck — Day 1 (drawn from this chapter)
+## W. Anki starter deck — Doc 1 (drawn from this chapter)
 
 Per your Learning OS, make cards from *your own* slips first; this deck seeds the rest. Format is
 Q → A. Keep cards atomic.
@@ -3315,8 +3315,8 @@ A: Avoid a panic/over-read on hostile input (the Heartbleed class of bug).
 Q: TCP checksum covers what beyond the segment?
 A: A 12-byte pseudo-header (src/dst IP, proto=6, TCP length) — ties it to the addresses.
 
-Q: Why is ping 100% loss on Day 1 but 0% on Day 2?
-A: Day 1 only parses (no reply sent); Day 2 builds+sends the Echo Reply.
+Q: Why is ping 100% loss on Doc 1 but 0% on Doc 2?
+A: Doc 1 only parses (no reply sent); Doc 2 builds+sends the Echo Reply.
 
 Q: Data offset nibble for a 20-byte TCP header, as a byte value?
 A: 5 words → 5 << 4 = 0x50.
@@ -3329,28 +3329,28 @@ Add ~10 more from whatever *you* got wrong while reading — those stick best.
 
 ---
 
-## X. Closing synthesis — the one-page mental model of Day 1
+## X. Closing synthesis — the one-page mental model of Doc 1
 
 If you forget everything else, keep this:
 
 > A network stack is **a program that reads a byte buffer, interprets it as nested protocol
 > headers, and writes a byte buffer back.** A **TUN** device makes that possible from userspace:
 > the kernel routes IP packets to `tun0`, and `read(fd)` hands them to us; `write(fd)` injects our
-> replies. Day 1 is the *read + interpret* half.
+> replies. Doc 1 is the *read + interpret* half.
 
 The interpret step, in one breath: the first byte's nibbles give **version** and **IHL**; multi-
 byte fields are **big-endian** (`from_be_bytes`); the **protocol** byte says how to read the
 payload, which starts at **IHL × 4**; you **guard lengths before indexing** so hostile input can't
 crash you. **ICMP** is the control plane (ping = type 8 → 0). The **Internet checksum**
-(one's-complement sum, Day 2) is how integrity is checked, and a valid header sums to 0.
+(one's-complement sum, Doc 2) is how integrity is checked, and a valid header sums to 0.
 
 The discipline, in one line: **guard, then parse; convert endianness explicitly; verify against an
 oracle and tcpdump; never panic on input.**
 
-Everything in days 2–5 (checksums, the handshake, data, teardown) is the *write* half and the
+Everything in docs 2–5 (checksums, the handshake, data, teardown) is the *write* half and the
 addition of *state* — but it all rests on this: bytes in, bytes out, with the headers understood.
 
-You now have the complete Day-1 picture, narrative (Volume I) and reference (Volume II). Re-type
+You now have the complete Doc-1 picture, narrative (Volume I) and reference (Volume II). Re-type
 the code with the books closed; you own it when you can.
 
 ---
@@ -3365,7 +3365,7 @@ Cover the right column, decode from the hex, then check. By packet ten this is a
 
 ### Y.2 — ICMP echo reply (pong)
 `45 00 00 54 00 00 40 00 40 01 b8 6a c0 a8 00 02 c0 a8 00 01 | 00 00 ...`
-→ same but addresses **swapped** and ICMP **type 0** (reply). This is what our Day-2 code emits.
+→ same but addresses **swapped** and ICMP **type 0** (reply). This is what our Doc-2 code emits.
 
 ### Y.3 — ICMP destination port unreachable
 `45 00 00 38 ... 40 01 .. .. <router> <you> | 03 03 ...`
@@ -3382,7 +3382,7 @@ probe. Traceroute prints that source as a hop.
 → proto **6 TCP**; TCP flags byte `0x02` = **SYN**; ack 0; data offset `0xA0`→40-byte header (options:
 MSS/SACK/wscale). Connection start.
 
-### Y.6 — TCP SYN-ACK (our Day-3 reply)
+### Y.6 — TCP SYN-ACK (our Doc-3 reply)
 `45 00 00 28 ... 40 06 .. .. <server> <client> | <dp> <sp> <ISS=0> <ack=clientseq+1> 50 12 0400 ...`
 → flags `0x12` = **SYN+ACK**; data offset `0x50`→20-byte header (no options); window 0x0400=1024.
 
@@ -3413,40 +3413,40 @@ no seq, no ack, no state. The simplicity contrast that makes TCP's machinery leg
 
 ---
 
-## Z. Cross-reference index — concept → RFC, code, and day-book
+## Z. Cross-reference index — concept → RFC, code, and doc-book
 
-A lookup table tying every Day-1 concept to its authoritative source, where it lives in the code,
+A lookup table tying every Doc-1 concept to its authoritative source, where it lives in the code,
 and the chapter that develops it.
 
 | Concept | RFC / source | Code location | Developed in |
 |---|---|---|---|
-| IPv4 header format | RFC 791 §3.1 | `ip::parse` | day1 V1 §5, V2 §E |
-| Version / IHL nibbles | RFC 791 | `ip::parse` (byte 0) | day1 §5.5, §C.8, §O.2 |
-| Total length | RFC 791 | `ip::Ipv4Header.total_len` | day1 §E.5 |
-| Fragmentation (flags/offset) | RFC 791, 1191 | (parsed, not used) | day1 §E.7–E.8 |
-| TTL | RFC 791, 1122 | `ip::Ipv4Header.ttl` | day1 §E.9, §H.5 |
-| Protocol numbers | IANA registry | dispatch `match` | day1 §E.10 |
-| IP header checksum | RFC 791, 1071 | `ip::write_header_checksum`, `utils::checksum` | day1 §E.11, day2, day1 §R |
-| Addresses / CIDR | RFC 791, 4632 | `Ipv4Addr` fields | day1 §E.12 |
-| Endianness | RFC 1700 (assigned numbers), Cohen 1980 | `from_be_bytes` everywhere | day1 §D, §7 |
-| Internet checksum algorithm | RFC 1071, 1624 | `utils::checksum` | day2, day1 §R |
-| ICMP message format | RFC 792 | `icmp::parse` | day1 §10, §H.2 |
-| Echo request/reply | RFC 792 | `icmp::build_echo_reply` | day2, day1 §H.3 |
-| Dest Unreachable / Time Exceeded | RFC 792 | (recognized) | day1 §H.4–H.5 |
-| TUN device | Linux `tuntap.txt` | `Iface::without_packet_info` | day1 §2, §F |
-| IFF_NO_PI / PI header | Linux tun driver | `without_packet_info` | day1 §3, §F.6 |
-| CAP_NET_ADMIN / setcap | `capabilities(7)` | run instructions | day1 §2, §F.7 |
-| Bounds-checking / safety | (Rust) | length guards in `parse` | day1 §9, §G.6, §U |
-| Result/Option/enums | (Rust) | `ParseError`, `parse` | day1 §9, §G.7–G.9 |
-| Slices / zero-copy | (Rust) | `&packet[..]` | day1 §9, §G.5 |
-| Differential testing | (testing practice) | `agrees_with_etherparse` | day1 §11, §I |
-| TCP header / handshake | RFC 9293 | `tcp::parse`, `Connection::accept` | day3 |
-| TCP checksum + pseudo-header | RFC 9293 §3.1 | `tcp::tcp_checksum` | day3 §8 |
-| Sequence numbers | RFC 9293 §3.3 | `SendSequence`/`RecvSequence` | day3 §3–4 |
-| Data transfer / ACK | RFC 9293 | `Connection::on_packet` | day4 |
-| Teardown / FIN / states | RFC 9293 §3.5–3.6 | `State`, `on_packet` | day5 |
-| Retransmission / RTO | RFC 6298 | (roadmap) | day5 §10 |
-| Congestion control | RFC 5681, 8312, 9438 | (roadmap) | day5 §10 |
+| IPv4 header format | RFC 791 §3.1 | `ip::parse` | doc1 V1 §5, V2 §E |
+| Version / IHL nibbles | RFC 791 | `ip::parse` (byte 0) | doc1 §5.5, §C.8, §O.2 |
+| Total length | RFC 791 | `ip::Ipv4Header.total_len` | doc1 §E.5 |
+| Fragmentation (flags/offset) | RFC 791, 1191 | (parsed, not used) | doc1 §E.7–E.8 |
+| TTL | RFC 791, 1122 | `ip::Ipv4Header.ttl` | doc1 §E.9, §H.5 |
+| Protocol numbers | IANA registry | dispatch `match` | doc1 §E.10 |
+| IP header checksum | RFC 791, 1071 | `ip::write_header_checksum`, `utils::checksum` | doc1 §E.11, doc2, doc1 §R |
+| Addresses / CIDR | RFC 791, 4632 | `Ipv4Addr` fields | doc1 §E.12 |
+| Endianness | RFC 1700 (assigned numbers), Cohen 1980 | `from_be_bytes` everywhere | doc1 §D, §7 |
+| Internet checksum algorithm | RFC 1071, 1624 | `utils::checksum` | doc2, doc1 §R |
+| ICMP message format | RFC 792 | `icmp::parse` | doc1 §10, §H.2 |
+| Echo request/reply | RFC 792 | `icmp::build_echo_reply` | doc2, doc1 §H.3 |
+| Dest Unreachable / Time Exceeded | RFC 792 | (recognized) | doc1 §H.4–H.5 |
+| TUN device | Linux `tuntap.txt` | `Iface::without_packet_info` | doc1 §2, §F |
+| IFF_NO_PI / PI header | Linux tun driver | `without_packet_info` | doc1 §3, §F.6 |
+| CAP_NET_ADMIN / setcap | `capabilities(7)` | run instructions | doc1 §2, §F.7 |
+| Bounds-checking / safety | (Rust) | length guards in `parse` | doc1 §9, §G.6, §U |
+| Result/Option/enums | (Rust) | `ParseError`, `parse` | doc1 §9, §G.7–G.9 |
+| Slices / zero-copy | (Rust) | `&packet[..]` | doc1 §9, §G.5 |
+| Differential testing | (testing practice) | `agrees_with_etherparse` | doc1 §11, §I |
+| TCP header / handshake | RFC 9293 | `tcp::parse`, `Connection::accept` | doc3 |
+| TCP checksum + pseudo-header | RFC 9293 §3.1 | `tcp::tcp_checksum` | doc3 §8 |
+| Sequence numbers | RFC 9293 §3.3 | `SendSequence`/`RecvSequence` | doc3 §3–4 |
+| Data transfer / ACK | RFC 9293 | `Connection::on_packet` | doc4 |
+| Teardown / FIN / states | RFC 9293 §3.5–3.6 | `State`, `on_packet` | doc5 |
+| Retransmission / RTO | RFC 6298 | (roadmap) | doc5 §10 |
+| Congestion control | RFC 5681, 8312, 9438 | (roadmap) | doc5 §10 |
 
 ---
 
@@ -3553,7 +3553,7 @@ the call yet — `main` is the implicit socket layer.
 
 `bind(fd, addr, port)` claims a local address/port. A server binds to e.g. `0.0.0.0:8080`. In our
 stack, "bound port 8080" is the `local` port we accept SYNs for. We currently accept on *any* port
-(no real `bind`); a listening-socket abstraction (day3 exercise E3) is where `bind` would live.
+(no real `bind`); a listening-socket abstraction (doc3 exercise E3) is where `bind` would live.
 
 ### AB.3 — `listen()`
 
@@ -3592,7 +3592,7 @@ core of this; the missing parts (a send buffer, retransmission) are exactly the 
 ### AB.8 — `close()` / `shutdown()`
 
 `close(fd)` initiates teardown (send FIN, walk the closing states) and releases the socket;
-`shutdown(fd, how)` can half-close one direction. Our Day-5 FIN handling is the *passive* close
+`shutdown(fd, how)` can half-close one direction. Our Doc-5 FIN handling is the *passive* close
 (responding to the peer's `close()`); an app-initiated `close()` (active close, with TIME_WAIT) is
 the counterpart we noted as future work.
 
@@ -3612,7 +3612,7 @@ knobs a mature version of our stack would expose (Nagle, window sizes). We hardc
 | `connect` | active open | roadmap (SYN_SENT path) |
 | `read` | consume rx bytes | data accepted in `on_packet` |
 | `write` | queue tx bytes | `build_packet` + `SND.NXT` |
-| `close` | teardown | Day-5 FIN handling (passive) |
+| `close` | teardown | Doc-5 FIN handling (passive) |
 
 Building a real `listen/accept/read/write` layer on top of our packet engine is the capstone that
 turns this from "a stack that echoes" into "a stack apps can use." It's the final roadmap item.
@@ -3625,7 +3625,7 @@ The curated sources behind this book, grouped by purpose. Start with the bold on
 
 ### AC.1 — Books
 - **W. Richard Stevens, *TCP/IP Illustrated, Volume 1: The Protocols*** — the canonical reference;
-  read ch. 1 (intro/layering), 3 (IP), 6 (ICMP) for Day 1. Vol. 2 annotates the BSD source line by
+  read ch. 1 (intro/layering), 3 (IP), 6 (ICMP) for Doc 1. Vol. 2 annotates the BSD source line by
   line (the "real stack" reading).
 - **Kurose & Ross, *Computer Networking: A Top-Down Approach*** — the best textbook; ch. 4
   (network layer) maps onto everything here. Top-down (apps→wire) complements our bottom-up build.
@@ -3665,7 +3665,7 @@ classify the very packets you can now build). Each reuses this foundation.
 
 ## AD. Self-test exam — fifty questions (no answers)
 
-If you can answer all fifty cold, you own Day 1 (and previews of 2–5). No peeking; check yourself
+If you can answer all fifty cold, you own Doc 1 (and previews of 2–5). No peeking; check yourself
 against the code, the RFCs, and earlier sections.
 
 1. Decode `0x45` into its two fields.
@@ -3693,7 +3693,7 @@ against the code, the RFCs, and earlier sections.
 23. ICMP types for echo request and reply.
 24. What are the ICMP id and sequence fields for?
 25. Which ICMP type/code drives Path MTU Discovery?
-26. Why does Day-1 ping show 100% loss?
+26. Why does Doc-1 ping show 100% loss?
 27. List the four edits that turn an Echo Request into an Echo Reply.
 28. Why does the data payload echo back "for free"?
 29. Why must `setcap` target a binary on native fs, not /mnt/c?
@@ -3733,7 +3733,7 @@ Honesty about what this book/stack glosses, so you know the edges of your knowle
 - **TUN/L3 only** — no Ethernet/ARP (TAP path unimplemented).
 - **Static addressing** — no DHCP; you assign `192.168.0.1/24` by hand.
 
-### AE.2 — TCP simplifications (developed in days 3–5)
+### AE.2 — TCP simplifications (developed in docs 3–5)
 - **ISN fixed at 0** — real stacks randomize (RFC 6528); ours is debuggable, not secure.
 - **In-order data only** — no out-of-order buffering/reassembly.
 - **`SND.UNA = seg.ack` unconditionally** — no modular validation of the ack window.
@@ -3819,7 +3819,7 @@ connection and the data offset, and hand the inner bytes (HTTP) to the applicati
 We are the **server's L3+L4** for a TUN-delivered packet: steps 5's IP and TCP handling. We parse
 the IP header (`ip::parse`), confirm it's TCP (`protocol == 6`), parse the TCP header
 (`tcp::parse`), match the connection (`Quad`), and — once we implement `read()` — would hand the
-HTTP bytes to an application. Everything in days 1–5 is building exactly the L3/L4 envelope
+HTTP bytes to an application. Everything in docs 1–5 is building exactly the L3/L4 envelope
 handling this picture requires. The HTTP layer is out of scope (it's "just data" to us), which is
 the whole point of layering: we made TCP work without knowing or caring it carried HTTP.
 
@@ -3844,7 +3844,7 @@ Context turns arbitrary-seeming details into the residue of real decisions.
 - **1983** — DNS designed (RFC 882/883; later 1034/1035) — names instead of memorized addresses.
 - **1984** — Saltzer, Reed, Clark formalize the **end-to-end argument**.
 - **1986** — Congestion collapse on the early internet; **1988** Van Jacobson's congestion control
-  (slow start, AIMD) saves it — the algorithms in our day-5 roadmap.
+  (slow start, AIMD) saves it — the algorithms in our doc-5 roadmap.
 - **1989–91** — Tim Berners-Lee invents the Web (HTTP/HTML/URLs) on top of TCP/IP.
 - **1990s** — Classful → **CIDR** (RFC 1519/4632, 1993) to slow routing-table growth and address
   exhaustion; **NAT** (RFC 1631, 1994) papers over IPv4 scarcity.
@@ -3906,13 +3906,13 @@ working), not the network.
 - **window (TCP)** — advertised receive capacity; basis of flow control; scaled via an option.
 - **window scaling** — TCP option extending the 16-bit window beyond 65535.
 
-(For Day-1-specific terms — bit, byte, endianness, nibble, checksum, TTL, TUN, etc. — see §K.1.)
+(For Doc-1-specific terms — bit, byte, endianness, nibble, checksum, TTL, TUN, etc. — see §K.1.)
 
 ---
 
 ## AI. Designing the event loop — the change that unblocks retransmission
 
-The single most important future change (named in day5 §10) is moving from a blocking `recv` loop
+The single most important future change (named in doc5 §10) is moving from a blocking `recv` loop
 to a non-blocking, event-driven one. This section is a concrete design so it's not just a TODO.
 
 ### AI.1 — Why the blocking loop can't do retransmission
@@ -4025,40 +4025,40 @@ For quick reference while reading the code (complements §G).
 
 ### AK.1 — How the five books fit together
 
-- **day1-book.md** (this one) — the foundation: packets, TUN, IPv4, ICMP, endianness, Rust
+- **doc1-book.md** (this one) — the foundation: packets, TUN, IPv4, ICMP, endianness, Rust
   parsing, the toolchain, plus this Volume-II reference. Read first, in full.
-- **day2-book.md** — the Internet checksum (with §R here as the deep math) and the first write
-  (ICMP echo reply). Read after Day-1 Volume I.
-- **day3-book.md** — TCP, part 1: the handshake, TCB, sequence numbers, the pseudo-header checksum.
-- **day4-book.md** — TCP, part 2: data transfer, cumulative ACK, the echo server.
-- **day5-book.md** — TCP, part 3: teardown, the full lifecycle, and the production roadmap (§10),
+- **doc2-book.md** — the Internet checksum (with §R here as the deep math) and the first write
+  (ICMP echo reply). Read after Doc-1 Volume I.
+- **doc3-book.md** — TCP, part 1: the handshake, TCB, sequence numbers, the pseudo-header checksum.
+- **doc4-book.md** — TCP, part 2: data transfer, cumulative ACK, the echo server.
+- **doc5-book.md** — TCP, part 3: teardown, the full lifecycle, and the production roadmap (§10),
   expanded by §AI here (the event-loop design).
 
 ### AK.2 — Suggested reading paths
 
-- **First pass (build intuition):** day1 Volume I → day2 §1–6 → day3 §1–6 → day4 → day5 §1–7. Skip
+- **First pass (build intuition):** doc1 Volume I → doc2 §1–6 → doc3 §1–6 → doc4 → doc5 §1–7. Skip
   the deep dives; get the working mental model and run the code.
-- **Mastery pass (own it):** day1 Volume II A–S → re-type each file closed-book → day2 §R math →
-  day3–5 in full → the §AD exam → fix every miss with an Anki card.
-- **Security-track pass:** day1 §U → §AI/§AE (the gaps are attack surface) → write the `cargo fuzz`
+- **Mastery pass (own it):** doc1 Volume II A–S → re-type each file closed-book → doc2 §R math →
+  doc3–5 in full → the §AD exam → fix every miss with an Anki card.
+- **Security-track pass:** doc1 §U → §AI/§AE (the gaps are attack surface) → write the `cargo fuzz`
   target → read Snort/Suricata as the blue-team mirror.
-- **Systems pass:** day1 §F (kernel datapath) → §S (performance) → §AI (event loop) → read
+- **Systems pass:** doc1 §F (kernel datapath) → §S (performance) → §AI (event loop) → read
   `smoltcp` as the production comparison.
 
 ### AK.3 — The concept index (where to look)
 
-- **Bits/hex/endianness:** day1 §A–§D.
-- **IPv4 every field:** day1 §E. **ICMP every type:** day1 §H. **TCP:** day3–5.
-- **Checksum (code → math):** day2 → day1 §R.
-- **Rust mechanisms:** day1 §G, §AJ. **Code line-by-line:** day1 §O (foundational files).
-- **Tooling (tcpdump/Wireshark):** day1 §I.
-- **Debugging:** day1 §P. **Exercises+solutions:** day1 §J. **Self-test:** day1 §AD.
-- **Roadmap/event loop:** day5 §10 + day1 §AI. **Sockets API:** day1 §AB.
-- **Security:** day1 §U. **Performance:** day1 §S. **History:** day1 §M, §AG.
+- **Bits/hex/endianness:** doc1 §A–§D.
+- **IPv4 every field:** doc1 §E. **ICMP every type:** doc1 §H. **TCP:** doc3–5.
+- **Checksum (code → math):** doc2 → doc1 §R.
+- **Rust mechanisms:** doc1 §G, §AJ. **Code line-by-line:** doc1 §O (foundational files).
+- **Tooling (tcpdump/Wireshark):** doc1 §I.
+- **Debugging:** doc1 §P. **Exercises+solutions:** doc1 §J. **Self-test:** doc1 §AD.
+- **Roadmap/event loop:** doc5 §10 + doc1 §AI. **Sockets API:** doc1 §AB.
+- **Security:** doc1 §U. **Performance:** doc1 §S. **History:** doc1 §M, §AG.
 
 ### AK.4 — The finish line, restated
 
-You have finished Day 1 when you can, book closed: re-type `utils.rs`/`ip.rs`/`icmp.rs`, explain
+You have finished Doc 1 when you can, book closed: re-type `utils.rs`/`ip.rs`/`icmp.rs`, explain
 every byte of an IPv4+ICMP packet, compute a checksum by hand, and answer the §AD fifty. You have
 finished the *project* when `ping` and `nc` work live, all tests are green, and you can teach the
 whole lifecycle (open→data→close) at a whiteboard. The books are the answer key; the keyboard and
@@ -4113,7 +4113,7 @@ times block size) gives the network. This turns subnetting into one division.
 ## AM. Flow control vs congestion control — preparing for the roadmap
 
 Two TCP mechanisms students constantly conflate. Both limit the sender, for *different reasons*.
-You'll implement these in the post-day-5 roadmap; here's the conceptual groundwork.
+You'll implement these in the post-doc-5 roadmap; here's the conceptual groundwork.
 
 ### AM.1 — Flow control: don't overrun the *receiver*
 
@@ -4149,7 +4149,7 @@ Modern algorithms: **CUBIC** (default; window grows as a cubic function of time 
 | Sender limit | `SND.WND` | `cwnd` |
 | Sender sends ≤ | `SND.WND` | `min(SND.WND, cwnd)` |
 | In our stack | hardcoded, ignored | absent |
-Both are in the day-5 roadmap; both need the event loop (§AI) because they're driven by ACK arrival
+Both are in the doc-5 roadmap; both need the event loop (§AI) because they're driven by ACK arrival
 and timers. Knowing the distinction now means the roadmap reads as "add these two limiters," not as
 mystery.
 
@@ -4214,7 +4214,7 @@ That's it. Four 16-bit fields:
 
 No connection, no handshake, no sequence numbers, no acknowledgements, no retransmission, no
 ordering, no flow control, no congestion control, no teardown. A UDP "datagram" is fire-and-forget:
-it may be lost, duplicated, or reordered, and UDP won't tell you. **All** the machinery of days 3–5
+it may be lost, duplicated, or reordered, and UDP won't tell you. **All** the machinery of docs 3–5
 is precisely what TCP adds on top of this. Seeing UDP's 8 bytes next to TCP's 20+ bytes and stateful
 machine is the clearest way to grasp "what reliability costs."
 
@@ -4231,14 +4231,14 @@ machine is the clearest way to grasp "what reliability costs."
 
 Protocol 17 → parse the 8-byte header, read ports/length. There's no state to keep (no TCB), so no
 connection table — you'd just deliver the datagram (or, for our echo theme, send it straight back
-with ports swapped and a fresh checksum). It's the day-1 exercise J.10 plus a checksum. The ease of
+with ports swapped and a fresh checksum). It's the doc-1 exercise J.10 plus a checksum. The ease of
 UDP versus the difficulty of TCP *is* the lesson about what transport reliability requires.
 
 ---
 
 ## AP. A complete annotated TCP connection trace
 
-The whole lifecycle (days 3–5) as one packet-by-packet trace with the TCB after each step. Numbers:
+The whole lifecycle (docs 3–5) as one packet-by-packet trace with the TCB after each step. Numbers:
 client ISN 100, our ISS 0, client sends "hi" (2 bytes).
 
 ```
@@ -4257,7 +4257,7 @@ client ISN 100, our ISS 0, client sends "hi" (2 bytes).
 9  C→U  [ACK]        seq=104 ack=4   len=0    → ack==SND.NXT(4) ⇒ state=CLOSED (TCB removed)
 ```
 
-Things to notice, each a concept from the day-books:
+Things to notice, each a concept from the doc-books:
 - **The two `+1`s** (packets 1→2 ack, 7→8 ack) are SYN and FIN each consuming a sequence number.
 - **Cumulative ACK:** packet 6's `ack=3` says "I have your bytes up to seq 2, send 3 next."
 - **Piggybacking:** packet 5 is one segment doing two jobs (send "hi" *and* ack the client's "hi").
@@ -4267,7 +4267,7 @@ Things to notice, each a concept from the day-books:
   CLOSED. This trace is literally what `passive_close_via_fin` + `established_echoes_data` verify.
 
 If you can produce this table from a blank page — every seq, ack, flag, and state — you understand
-TCP's core. It is the single most important diagram in days 3–5.
+TCP's core. It is the single most important diagram in docs 3–5.
 
 ---
 
@@ -4301,9 +4301,9 @@ Putting §AA, §AF, §AO, and this together — what happens when you load `http
 2. **DNS**: resolve `example.com` → `93.184.216.34` (UDP 53).
 3. **Routing** (§AA): `93.184.216.34` isn't on our subnet → send to the default gateway; (ARP to
    find the gateway's MAC on a real LAN).
-4. **TCP handshake** (days 3): SYN/SYN-ACK/ACK to `93.184.216.34:80`.
+4. **TCP handshake** (docs 3): SYN/SYN-ACK/ACK to `93.184.216.34:80`.
 5. **HTTP** (§AF): `GET / HTTP/1.1` as TCP payload; server replies with the page.
-6. **TCP teardown** (day 5): FINs close the connection.
+6. **TCP teardown** (doc 5): FINs close the connection.
 Every single step is something this project either implements (3–6, the IP/TCP parts) or explains
 (1–2). You now hold the complete chain from "typed a URL" to "bytes on the wire" — which is the real
 goal of building a stack from scratch.
@@ -4410,7 +4410,7 @@ plain `usize`, owning nothing). Then the shared borrow at (2) begins and lasts o
 `packet` alive *and* call `recv(&mut buf)` again, the checker would reject it (you'd be reading and
 writing `buf` at once) — which is exactly the bug it's preventing (parsing stale/overwritten bytes).
 
-### AS.2 — Why the Day-5 close needs a specific order
+### AS.2 — Why the Doc-5 close needs a specific order
 
 ```rust
 Some(conn) => {                       // conn: &mut Connection (exclusive borrow of the map entry)
@@ -4449,7 +4449,7 @@ its errors as "what conflict did I create?" turns frustration into a fast feedba
 
 ## AT. Cross-topic synthesis — how every piece connects
 
-Day 1 looks like many small topics; they are one system. This section draws the lines.
+Doc 1 looks like many small topics; they are one system. This section draws the lines.
 
 ### AT.1 — From a `ping` keystroke to a printed line (the whole chain)
 
@@ -4457,7 +4457,7 @@ Day 1 looks like many small topics; they are one system. This section draws the 
 builds an ICMP echo (§H) inside an IP packet (§E) and "transmits" it on `tun0`, i.e. `write`s it to
 the TUN fd (§F) → our `iface.recv` (§4) returns those bytes → `ip::parse` reads the header using
 bit ops (§C) and big-endian conversion (§D), guarding lengths first (§G.6) → protocol byte says
-ICMP → `icmp::parse` reads it → we print, and (Day 2) build a reply, recomputing the checksum (§R)
+ICMP → `icmp::parse` reads it → we print, and (Doc 2) build a reply, recomputing the checksum (§R)
 and `write`ing it back. Eleven sections, one packet. Every concept earns its place in this path.
 
 ### AT.2 — The recurring shape: read header → decide → maybe write
@@ -4474,11 +4474,11 @@ are its offsets, what's its key field, what response does it need?"
    safety invariant — it's why hostile input can't crash us.
 2. **Big-endian at the boundary** (§D): convert every multi-byte field with `from_be_bytes`/
    `to_be_bytes`. This is the correctness invariant — it's why our values match the wire.
-Almost every Day-1 bug violates one of these two.
+Almost every Doc-1 bug violates one of these two.
 
 ### AT.4 — State is what separates a parser from a stack
 
-Days 1–2 are stateless (parse, reply, forget). Day 3 introduces the **TCB** and the connection
+Docs 1–2 are stateless (parse, reply, forget). Doc 3 introduces the **TCB** and the connection
 table — *memory across packets* — and that single addition is what turns "a program that decodes
 packets" into "a TCP stack." Everything hard about TCP (handshake, reliability, ordering, teardown)
 is the management of that state over time. The progression of the five books *is* the progression
@@ -4680,7 +4680,7 @@ Originating a packet (vs replying) is the active half of every protocol: it's ho
 ping client, a port scanner, or the client side of TCP (`connect`). The discipline is identical —
 lay out bytes big-endian, checksum last with the field zeroed. Once you can craft an echo request
 *and* parse the reply, you've built a working `ping` from scratch — a satisfying capstone exercise
-that uses every Day-1/Day-2 skill.
+that uses every Doc-1/Doc-2 skill.
 
 ### AX.5 — Verifying a crafted packet
 Send it (`iface.send`), watch `tcpdump -i tun0` show your echo request, and — if the target is a
@@ -4729,7 +4729,7 @@ get separate networking.
 
 ## AZ. Closing note — the one habit to carry forward
 
-You have, in Day 1, gone from "a packet is an opaque wall of numbers" to "I can read any IPv4/ICMP
+You have, in Doc 1, gone from "a packet is an opaque wall of numbers" to "I can read any IPv4/ICMP
 header on sight, decode it by hand, write the parser that does it safely, compute its checksum, and
 explain where every field came from and why." Volume I gave you the working narrative; Volume II
 made you not need it.
@@ -4744,10 +4744,10 @@ the actual bytes* instead of theorizing. That single reflex — paired with "gua
 
 Now do the thing that converts reading into knowing: **re-type `utils.rs`, `ip.rs`, and `icmp.rs`
 from memory with this book closed, run `cargo test`, and make an Anki card from every line you had
-to peek at.** Then turn to day2-book.md, where the bytes start flowing the other way — and you write
+to peek at.** Then turn to doc2-book.md, where the bytes start flowing the other way — and you write
 your first packet onto the wire.
 
-— End of Day 1 (Volume I + Volume II). On to Day 2.
+— End of Doc 1 (Volume I + Volume II). On to Doc 2.
 
 ---
 ---
@@ -5001,10 +5001,10 @@ patterns plus the two high bits.
 | 768 | User Datagram Protocol | §AO |
 | 791 | Internet Protocol (IPv4) | §E, §5 |
 | 792 | Internet Control Message Protocol | §H, §10 |
-| 793 | Transmission Control Protocol (obsoleted by 9293) | §M.5, day3 |
+| 793 | Transmission Control Protocol (obsoleted by 9293) | §M.5, doc3 |
 | 826 | Address Resolution Protocol | arp.rs note |
 | 1034/1035 | Domain Names (DNS) | §AQ.1 |
-| 1071 | Computing the Internet Checksum | §R, day2 |
+| 1071 | Computing the Internet Checksum | §R, doc2 |
 | 1122 | Requirements for Internet Hosts | §K.2 |
 | 1191 | Path MTU Discovery | §E.7, §AC |
 | 1518/1519 | CIDR (obsoleted by 4632) | §AG |
@@ -5023,12 +5023,12 @@ patterns plus the two high bits.
 | 5681 | TCP Congestion Control | §AM.2 |
 | 5961 | Improving TCP's Robustness to Blind Attacks | §AR.13 |
 | 6298 | Computing TCP's Retransmission Timer | §AI.4 |
-| 6528 | Defending against Sequence Number Attacks (ISN) | §11, day3 |
+| 6528 | Defending against Sequence Number Attacks (ISN) | §11, doc3 |
 | 6633 | Deprecation of ICMP Source Quench | §H.6 |
 | 8200 | Internet Protocol, Version 6 | §M.6 |
 | 8312 | CUBIC | §AM.2 |
 | 9000 | QUIC | §AG |
-| 9293 | Transmission Control Protocol (current) | day3–5 |
+| 9293 | Transmission Control Protocol (current) | doc3–5 |
 | 9438 | CUBIC (updated) | §Z |
 
 ---
@@ -5061,7 +5061,7 @@ sysctl net.ipv4.ip_forward          # is forwarding on?
 cat /proc/net/dev                   # per-interface counters
 ```
 
-## RT.13 — Day 1 in 100 facts (rapid review)
+## RT.13 — Doc 1 in 100 facts (rapid review)
 
 1. A packet is just bytes; a stack reads bytes, interprets headers, writes bytes.
 2. TUN is an L3 virtual interface delivering IP packets to a userspace fd.
@@ -5119,7 +5119,7 @@ cat /proc/net/dev                   # per-interface counters
 54. ICMP id matches replies to the sending process; seq increments.
 55. ICMP checksum covers the whole message; no pseudo-header.
 56. Ping = send Echo Request, time the matching Echo Reply.
-57. Day 1 ping = 100% loss (we parse, don't reply).
+57. Doc 1 ping = 100% loss (we parse, don't reply).
 58. Dest Unreachable = type 3; Port Unreachable = code 3.
 59. Time Exceeded = type 11 (traceroute).
 60. ICMP errors carry the offending IP header + 8 bytes.
@@ -5176,7 +5176,7 @@ cat /proc/net/dev                   # per-interface counters
 - [ ] Compute an IP header checksum by hand and verify to 0.
 - [ ] Decode any ICMP type/code; explain ping and traceroute.
 - [ ] Re-type `icmp::build_echo_reply` (the four edits + two checksums).
-- [ ] Explain why Day-1 ping is 100% loss and Day-2 is 0%.
+- [ ] Explain why Doc-1 ping is 100% loss and Doc-2 is 0%.
 - [ ] Walk the three-way handshake's seq/ack numbers (the two +1s).
 - [ ] Explain the TCP pseudo-header and why it includes the IPs.
 - [ ] Produce the full §AP connection trace from a blank page.
@@ -5184,51 +5184,51 @@ cat /proc/net/dev                   # per-interface counters
 - [ ] Read a live capture in tcpdump and identify every packet.
 - [ ] State the two invariants: guard-then-parse; big-endian at the boundary.
 
-When every box is checked, Day 1 is yours — not read, *owned*.
+When every box is checked, Doc 1 is yours — not read, *owned*.
 
 ---
 
-## RT.15 — Bridge to Day 2
+## RT.15 — Bridge to Doc 2
 
-Day 1 was the **read + interpret** half of "bytes in, bytes out": you can now receive a packet and
-understand every field. Day 2 begins the **write** half and introduces the one piece of arithmetic
+Doc 1 was the **read + interpret** half of "bytes in, bytes out": you can now receive a packet and
+understand every field. Doc 2 begins the **write** half and introduces the one piece of arithmetic
 shared by every layer.
 
 What carries forward directly:
 - **The checksum** (here previewed in §R as math, and in `utils` as code) becomes the centerpiece of
-  Day 2 — first computed, then used to make a *valid* reply the kernel won't drop.
+  Doc 2 — first computed, then used to make a *valid* reply the kernel won't drop.
 - **`build_echo_reply`'s four edits** (§5, §L.2) are your first packet construction; the technique
   (lay out bytes, fix checksums last with the field zeroed, big-endian throughout) is reused for
-  every packet in days 3–5.
+  every packet in docs 3–5.
 - **The two invariants** (guard-then-parse; big-endian at the boundary) apply unchanged.
 - **The toolchain and habits** (cargo test offline, tcpdump for truth, re-type to retain) are the
   same every day.
 
-What's new in Day 2:
+What's new in Doc 2:
 - The **Internet checksum** algorithm in full, with its own worked proofs (you have a head start
   from §R here).
 - Your **first `iface.send`** — writing to the wire — and the satisfaction of `ping` finally
   replying with **0% loss**.
 - The **modular refactor** (utils/ip/icmp) that the growing code now justifies.
 
-Open `day2-book.md` and continue. The bytes start flowing both ways.
+Open `doc2-book.md` and continue. The bytes start flowing both ways.
 
 ---
 
-*That completes Day 1 in full — Volume I (narrative), Volume II (exhaustive reference, §A–§AZ),
+*That completes Doc 1 in full — Volume I (narrative), Volume II (exhaustive reference, §A–§AZ),
 Volume III (reference tables + rapid review, §RT). The deepest of the five books by design: it
-carries the foundations the others build on. Days 2–5 now receive the same Volume II/III expansion.
-— Day 1 complete (5,000+ lines).*
+carries the foundations the others build on. Docs 2–5 now receive the same Volume II/III expansion.
+— Doc 1 complete (5,000+ lines).*
 
 
 
-# Day 2 — Replying to Pings: the Internet Checksum and the First Write
+# Doc 2 — Replying to Pings: the Internet Checksum and the First Write
 
 > Goal: make `ping 192.168.0.2` actually succeed (0% loss). To do that we must, for the
 > first time, **build a packet and write it to the wire** — and that forces us to learn the
 > **Internet Checksum** (RFC 1071), the one piece of arithmetic shared by IP, ICMP, TCP and
 > UDP. After this you can compute and verify the checksum by hand and know exactly why
-> `ping` was silent on Day 1.
+> `ping` was silent on Doc 1.
 
 **Contents**
 1. Recap and the plan
@@ -5246,19 +5246,19 @@ carries the foundations the others build on. Days 2–5 now receive the same Vol
 
 ## 1. Recap and the plan
 
-Day 1 we could *read* a ping (ICMP Echo Request, type 8) but never answered, so `ping`
+Doc 1 we could *read* a ping (ICMP Echo Request, type 8) but never answered, so `ping`
 reported 100% loss. An Echo *Reply* (type 0) carrying the same payload is what makes the
 round trip complete. Building that reply means writing correct bytes back — including a
-correct checksum, or the kernel/peer silently drops our packet. So Day 2 is two things:
+correct checksum, or the kernel/peer silently drops our packet. So Doc 2 is two things:
 **the checksum** (the hard concept) and **the reply** (the first write).
 
 ---
 
 ## 2. The modular refactor — why now, what moved
 
-Day 1 lived entirely in `main.rs` — correct, because there was one caller of the IP parser.
+Doc 1 lived entirely in `main.rs` — correct, because there was one caller of the IP parser.
 Now ICMP-reply also needs IP logic (to rewrite addresses and the header checksum), so there
-are 2+ callers and the "split when there are 2+ callers" rule (day1-book.md §13) kicks in:
+are 2+ callers and the "split when there are 2+ callers" rule (doc1-book.md §13) kicks in:
 
 | Module | Holds | Public API used elsewhere |
 |---|---|---|
@@ -5399,14 +5399,14 @@ contract.
 ## 6. Writing to the wire — `iface.send` and why ping now works
 
 `iface.send(&reply)` is `write(fd, reply)` on the TUN device (the mirror of the `recv`/`read`
-from day1-book.md §2-under-the-hood). To the kernel it looks as if a packet `192.168.0.2 →
+from doc1-book.md §2-under-the-hood). To the kernel it looks as if a packet `192.168.0.2 →
 192.168.0.1` *arrived from* `tun0`. The kernel routes it to the `ping` process, which sees
 its Echo Reply, matches it by id/seq, and prints `64 bytes from 192.168.0.2: icmp_seq=1
 ttl=64 time=0.2 ms`. Loss drops to 0%. You have built a host that answers pings using a
 network stack you wrote.
 
 If a checksum were wrong, the kernel would drop the reply before `ping` ever saw it — which
-is exactly why Day 1 (no reply at all) and "a reply with a bad checksum" look identical from
+is exactly why Doc 1 (no reply at all) and "a reply with a bad checksum" look identical from
 the outside, and why we test the checksums offline rather than trusting the live run.
 
 ---
@@ -5422,7 +5422,7 @@ the outside, and why we test the checksums offline rather than trusting the live
 - `icmp::reply_is_well_formed` — the reply has type 0, swapped addresses, **both checksums
   valid (each region sums to 0)**, and the data payload unchanged.
 - `icmp::ignores_non_echo_request` — we don't reply to non-requests.
-- (plus the Day-1 parse tests, now living in `ip`/`icmp`).
+- (plus the Doc-1 parse tests, now living in `ip`/`icmp`).
 
 Live test (your hands): run the stack, `ping -c3 192.168.0.2` from terminal 2 — expect
 replies and **0% loss**. `sudo tcpdump -i tun0 -n -v` should now show *both* the request and
@@ -5456,7 +5456,7 @@ From memory you should be able to:
 4. Explain why a wrong checksum makes the reply vanish silently.
 
 **Exercises:**
-- **E1.** Hand-compute the checksum of the Day-1 ping IP header (zero the field first); then
+- **E1.** Hand-compute the checksum of the Doc-1 ping IP header (zero the field first); then
   confirm your number with a one-line test.
 - **E2.** **Validate incoming** IP checksums: in `ip::parse` (or the loop), reject a packet
   whose header doesn't verify to 0. Add a `ParseError::BadChecksum` and a test.
@@ -5483,18 +5483,18 @@ that state machine is the heart of the project.
 ---
 ---
 
-# VOLUME II — The Exhaustive Reference (Day 2)
+# VOLUME II — The Exhaustive Reference (Doc 2)
 
 > Volume I above is the narrative that gets ping replying. Volume II makes you own the checksum and
 > packet construction completely: every checksum variant, the math with proofs, the build technique,
-> the code line-by-line, and the testing — so you can re-derive Day 2 from first principles.
+> the code line-by-line, and the testing — so you can re-derive Doc 2 from first principles.
 
-## Contents of Volume II (Day 2)
+## Contents of Volume II (Doc 2)
 - A. Error detection in general — why checksums, and the alternatives
 - B. One's-complement arithmetic, completely (with proofs)
 - C. The Internet checksum algorithm — variants and optimizations
 - D. Packet construction — the general technique (mutate vs build)
-- E. `utils.rs` and `icmp.rs` line-by-line (Day-2 additions)
+- E. `utils.rs` and `icmp.rs` line-by-line (Doc-2 additions)
 - F. Writing to the wire — `iface.send` internals
 - (continues: debugging, exercises, FAQ, glossary, tables)
 
@@ -5550,7 +5550,7 @@ guarantee the property; intermediate checks are optimizations, not guarantees.
 
 ## B. One's-complement arithmetic, completely
 
-Day 1 §R sketched this; here it is in full, because the checksum *is* this arithmetic.
+Doc 1 §R sketched this; here it is in full, because the checksum *is* this arithmetic.
 
 ### B.1 — Representations recap
 
@@ -5599,7 +5599,7 @@ fact.
 | In our code | `!sum` in `checksum` | `i32`/`i8` (we don't use these for fields) |
 
 Rust's `!` gives the one's complement of the bit pattern (what the checksum needs); Rust's signed
-integer *arithmetic* is two's complement (what your CPU does). Day 2 uses the former, never the
+integer *arithmetic* is two's complement (what your CPU does). Doc 2 uses the former, never the
 latter.
 
 ---
@@ -5658,19 +5658,19 @@ NIC (e.g. on the loopback or with certain capture points) may show a "bad" check
 fine — Wireshark even warns "checksum offload?" for exactly this. On our TUN path there's no NIC, so
 we compute in software (our `utils::checksum`).
 
-### C.7 — The pseudo-header detail (TCP/UDP, preview of Day 3)
+### C.7 — The pseudo-header detail (TCP/UDP, preview of Doc 3)
 
 IP checksums only its header. TCP and UDP checksum a **pseudo-header** (src/dst IP, protocol,
 transport length) **plus** the transport header and data. The pseudo-header is never transmitted — it
 binds the checksum to the addresses so a misdelivered segment is detected. Same `utils::checksum`
 function, different byte range (you prepend the 12-byte pseudo-header). UDP may send checksum 0 to
-mean "not computed" (IPv4 only); TCP must always compute it. Full treatment in day3-book.md §8.
+mean "not computed" (IPv4 only); TCP must always compute it. Full treatment in doc3-book.md §8.
 
 ---
 
 ## D. Packet construction — the general technique
 
-Day 1 only read packets; Day 2 writes the first one. There are two ways to produce an outgoing
+Doc 1 only read packets; Doc 2 writes the first one. There are two ways to produce an outgoing
 packet, and knowing when to use each is a real skill.
 
 ### D.1 — Mutate-in-place vs build-from-scratch
@@ -5679,12 +5679,12 @@ packet, and knowing when to use each is a real skill.
   fields that differ, recompute the affected checksums. Cheapest and least error-prone when the
   response *resembles* the request (echo reply ≈ echo request with swapped addresses + flipped type).
   Bonus: any field/payload you don't touch is automatically correct (the data echoes for free).
-- **Build from scratch** (what `tcp::build_packet` does, Day 3): allocate a zeroed buffer and write
+- **Build from scratch** (what `tcp::build_packet` does, Doc 3): allocate a zeroed buffer and write
   every field. Necessary when the response has *no* corresponding request to mutate (a SYN-ACK, a
   fresh data segment, a generated ICMP error). More code, more places to get a field wrong.
 
-The rule: mutate when the response is a near-copy; build when it's genuinely new. Day 2 is mutate;
-Day 3 introduces build.
+The rule: mutate when the response is a near-copy; build when it's genuinely new. Doc 2 is mutate;
+Doc 3 introduces build.
 
 ### D.2 — The invariant order of operations
 
@@ -5700,7 +5700,7 @@ most common packet-construction bug.
 The IP checksum covers **only the IP header** (`reply[..header_len]`); the ICMP checksum covers **the
 whole ICMP message** (`reply[header_len..]`). They are independent computations over disjoint ranges
 with the same `utils::checksum`. Getting the ranges wrong (e.g. checksumming the whole packet for the
-IP field) silently produces an invalid packet. (TCP/UDP add the pseudo-header twist — Day 3.)
+IP field) silently produces an invalid packet. (TCP/UDP add the pseudo-header twist — Doc 3.)
 
 ### D.4 — Zero-the-field-first, always
 
@@ -5724,15 +5724,15 @@ and the IP Total Length field must match — a mismatch confuses receivers and s
 
 ---
 
-## E. `utils.rs` and `icmp.rs` line-by-line (Day-2 additions)
+## E. `utils.rs` and `icmp.rs` line-by-line (Doc-2 additions)
 
-(Day-1 §O covered `ip.rs`/`utils.rs` parse side; here are the Day-2 additions in full.)
+(Doc-1 §O covered `ip.rs`/`utils.rs` parse side; here are the Doc-2 additions in full.)
 
-### E.1 — `utils::checksum` — see Day 1 §O.1 for the full line-by-line
+### E.1 — `utils::checksum` — see Doc 1 §O.1 for the full line-by-line
 
-The function is unchanged from where Day 1 introduced it; its complete walkthrough (the `u32`
+The function is unchanged from where Doc 1 introduced it; its complete walkthrough (the `u32`
 accumulator, `chunks_exact(2)` + `by_ref()`, the odd-byte `<<8`, the end-around `while` fold, the
-final `!`) lives in **day1-book.md §O.1**, with the math in §R there. Day 2 is where it's first
+final `!`) lives in **doc1-book.md §O.1**, with the math in §R there. Doc 2 is where it's first
 *used* for real (computing, not just the concept).
 
 ### E.2 — `ip::write_header_checksum`, line by line
@@ -5783,7 +5783,7 @@ pub fn build_echo_reply(request: &[u8], header_len: usize) -> Option<Vec<u8>> {
 ```
 - Swap source/destination via temporaries. The temporaries avoid an overlapping
   borrow-of-self (you can't `copy_from_slice` one part of `reply` from another part simultaneously —
-  see day1 §AR.12). After this, the reply is addressed back to the pinger.
+  see doc1 §AR.12). After this, the reply is addressed back to the pinger.
 
 ```rust
     reply[8] = 64;
@@ -5821,7 +5821,7 @@ executable checks — if you violate the order or forget to zero a field, a test
 
 `iface.send(&reply)` is `write(tun_fd, reply)` — it hands the bytes to the TUN driver, which presents
 them to the kernel's IP layer as if the packet **arrived from** `tun0` (the mirror of `recv`/`read`,
-day1 §F.4). The kernel then routes/delivers it normally: for our echo reply addressed to
+doc1 §F.4). The kernel then routes/delivers it normally: for our echo reply addressed to
 `192.168.0.1`, the kernel hands it to the waiting `ping` process.
 
 ### F.2 — Why a bad checksum vanishes here
@@ -5829,7 +5829,7 @@ day1 §F.4). The kernel then routes/delivers it normally: for our echo reply add
 After `write`, the kernel (or, for a real peer, the receiving host) validates the IP and ICMP
 checksums. If either fails, the packet is **silently discarded** — no error returns to us, `send`
 still reports success. That's why "I sent a reply but ping still shows loss" almost always means a
-checksum bug (day1 §P.8), and why we verify checksums in *offline tests* rather than trusting the
+checksum bug (doc1 §P.8), and why we verify checksums in *offline tests* rather than trusting the
 live result.
 
 ### F.3 — Partial writes and return value
@@ -5842,7 +5842,7 @@ returned count — a robustness nit, not a correctness bug for our sizes.
 ### F.4 — Blocking and ordering
 
 Like `recv`, `send` on the blocking fd may block if the device queue is full (rare for our volume).
-Packets we write are delivered in order. Under the future event loop (day1 §AI), `send` on a
+Packets we write are delivered in order. Under the future event loop (doc1 §AI), `send` on a
 non-blocking fd could return `WouldBlock`, and you'd queue the packet to retry on writability — part
 of the same refactor that enables retransmission.
 
@@ -5851,13 +5851,13 @@ of the same refactor that enables retransmission.
 `ping` → kernel routes to tun0 → our `recv` → parse → `build_echo_reply` (valid checksums) → our
 `send` → kernel sees a packet "from tun0" to 192.168.0.1 → delivers to `ping` → `ping` matches it by
 id/seq → prints `64 bytes from 192.168.0.2 ... time=0.2 ms`, loss 0%. Every arrow is something this
-project now implements or drives. That round trip is the Day-2 milestone made concrete.
+project now implements or drives. That round trip is the Doc-2 milestone made concrete.
 
 ---
 
 ## G. Debugging the checksum and the reply
 
-Day-2 bugs are almost all "the packet went out but vanished." Here's how to find each.
+Doc-2 bugs are almost all "the packet went out but vanished." Here's how to find each.
 
 ### G.1 — Symptom: ping still 100% loss after adding the reply
 
@@ -5909,7 +5909,7 @@ session.
 
 ---
 
-## H. Day 2 exercises with full worked solutions
+## H. Doc 2 exercises with full worked solutions
 
 ### H.1 — Compute a checksum by hand
 **Q.** Header `45 00 00 28 00 01 00 00 40 06 00 00 0a 00 00 01 0a 00 00 02` (field zeroed). Checksum?
@@ -5967,7 +5967,7 @@ checksum without re-summing.
 
 ---
 
-## I. Day 2 FAQ
+## I. Doc 2 FAQ
 
 **1. Why does the checksum use a `u32` accumulator?** To hold carries from summing many 16-bit words
 before folding (§C.2).
@@ -5985,7 +5985,7 @@ discard by the kernel/peer (§F.2). Verify checksums offline.
 separate checksum fields (§D.3).
 
 **6. Can I reuse `utils::checksum` for TCP later?** Yes — same function, you just prepend the 12-byte
-pseudo-header to the TCP segment (§C.7, day3).
+pseudo-header to the TCP segment (§C.7, doc3).
 
 **7. Why mutate the request instead of building a reply?** Less code, fewer bugs, and the payload
 echoes for free (§D.1). Build-from-scratch is for responses with no matching request.
@@ -6008,7 +6008,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 
 ---
 
-## J. Day-2 glossary
+## J. Doc-2 glossary
 
 - **Adler-32** — a fast checksum (zlib); stronger than the Internet checksum, weaker than CRC.
 - **checksum** — redundancy computed from data to *detect* (not correct) corruption.
@@ -6031,7 +6031,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 - **two's complement** — signed-integer representation (invert+1); CPU/Rust arithmetic.
 - **verify-to-zero** — a valid Internet checksum, re-summed including its field, yields 0.
 
-## K. Day-2 reference tables
+## K. Doc-2 reference tables
 
 ### K.1 — The checksum algorithm as a step table
 
@@ -6060,7 +6060,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 |----------|--------|----------------|----------------|
 | IPv4 header | the IP header only (IHL×4 bytes) | no | IP bytes 10–11 |
 | ICMP | the whole ICMP message | no | ICMP bytes 2–3 |
-| TCP (day3) | pseudo-header + TCP header + data | **yes** | TCP bytes 16–17 |
+| TCP (doc3) | pseudo-header + TCP header + data | **yes** | TCP bytes 16–17 |
 | UDP | pseudo-header + UDP header + data | yes (optional in v4) | UDP bytes 6–7 |
 
 ### K.4 — Error-detection strength comparison
@@ -6084,7 +6084,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 
 ## L. The modular refactor — line-by-line and the module graph
 
-Day 2 split `main.rs` into modules. Here's the structure and why each `use`/`mod` line exists.
+Doc 2 split `main.rs` into modules. Here's the structure and why each `use`/`mod` line exists.
 
 ### L.1 — The `mod` declarations in `main.rs`
 
@@ -6137,11 +6137,11 @@ Each module carries `#[cfg(test)] mod tests`. Tests are child modules, so they c
 of their parent — you can test internals without making them `pub`. They compile only under
 `cargo test`. This is why splitting into modules didn't scatter the tests: each file owns its own.
 
-### L.6 — Why split now and not Day 1
+### L.6 — Why split now and not Doc 1
 
-Day 1 had one caller of IP logic → one file was right (no premature structure). Day 2's ICMP reply
-created a *second* caller of IP/checksum logic → the "2+ callers" threshold (day1 §13) → split. The
-refactor is behavior-preserving (all Day-1 tests still pass, now living in `ip`/`icmp`), which is the
+Doc 1 had one caller of IP logic → one file was right (no premature structure). Doc 2's ICMP reply
+created a *second* caller of IP/checksum logic → the "2+ callers" threshold (doc1 §13) → split. The
+refactor is behavior-preserving (all Doc-1 tests still pass, now living in `ip`/`icmp`), which is the
 safe way to refactor: move code, keep tests green.
 
 ## M. The checksum across the stack — one function, four protocols
@@ -6149,22 +6149,22 @@ safe way to refactor: move code, keep tests green.
 `utils::checksum` is reused by every layer; the only differences are the byte range and whether a
 pseudo-header is prepended. Seeing them together cements the "reuse physically" rule.
 
-- **IPv4 header:** `checksum(&packet[..ihl*4])`. Header only. No pseudo-header. (Day 2.)
-- **ICMP:** `checksum(&icmp_message)`. Whole message. No pseudo-header. (Day 2.)
+- **IPv4 header:** `checksum(&packet[..ihl*4])`. Header only. No pseudo-header. (Doc 2.)
+- **ICMP:** `checksum(&icmp_message)`. Whole message. No pseudo-header. (Doc 2.)
 - **UDP:** `checksum(pseudo_header ++ udp_header ++ data)`. Optional in IPv4 (0 = none). (UDP exercise.)
-- **TCP:** `checksum(pseudo_header ++ tcp_header ++ data)`. Mandatory. (Day 3.)
+- **TCP:** `checksum(pseudo_header ++ tcp_header ++ data)`. Mandatory. (Doc 3.)
 
 The pseudo-header (for TCP/UDP) is 12 bytes: src IP, dst IP, zero, protocol, transport length. It's
 *input only* — never sent. The reason it exists (binding the checksum to the addresses, to catch
 misdelivery) is the one conceptual addition over IP/ICMP. Everything else is the same one's-complement
-sum you wrote once. When you reach Day 3, the TCP checksum will feel familiar precisely because it's
+sum you wrote once. When you reach Doc 3, the TCP checksum will feel familiar precisely because it's
 this function with a 12-byte prefix — the payoff of putting it in `utils`.
 
 ---
 
 ## N. A full byte-level trace: echo request → echo reply
 
-The whole Day-2 transformation, byte for byte. Request in, reply out.
+The whole Doc-2 transformation, byte for byte. Request in, reply out.
 
 ### N.1 — The request (84 bytes), annotated
 
@@ -6258,11 +6258,11 @@ listed in the §AE/AE-style simplifications.
 
 Premature optimization would obscure the learning. The naive checksum maps 1:1 to RFC 1071 and to the
 math in §B/§R; a SIMD version would be faster but unreadable. The right time to optimize is when a
-benchmark says so (day1 §S), not before. Knowing the *fast* forms exist (§C) is enough for now.
+benchmark says so (doc1 §S), not before. Knowing the *fast* forms exist (§C) is enough for now.
 
 ---
 
-## P. Security notes — ICMP attacks Day 2 enables and defends
+## P. Security notes — ICMP attacks Doc 2 enables and defends
 
 Building an ICMP responder is your first taste of being a network *endpoint* an attacker can poke.
 
@@ -6279,12 +6279,12 @@ Our stack does neither yet — a deliberate simplification and a good exercise.
 Echo *data* is arbitrary and echoed verbatim — so it's a covert channel: tools like `icmptunnel`
 smuggle TCP/SSH inside ping payloads to bypass firewalls that allow ICMP. As the *responder*, you'd
 faithfully echo whatever you're sent. Blue-team detection: anomalous echo payload sizes/entropy/rates.
-This connects Day 2 directly to your security track (you can now both build and recognize it).
+This connects Doc 2 directly to your security track (you can now both build and recognize it).
 
 ### P.3 — Ping of Death / malformed input
 
 Historically, oversized or overlapping-fragment ICMP crashed reassembly buffers. Our defense is the
-same length discipline as Day 1: `build_echo_reply` guards `request.len() >= header_len + 8` before
+same length discipline as Doc 1: `build_echo_reply` guards `request.len() >= header_len + 8` before
 indexing, so a runt request returns `None` instead of panicking. A reply builder that indexed blindly
 would be crashable by a crafted short packet.
 
@@ -6293,7 +6293,7 @@ would be crashable by a crafted short packet.
 TTL in your replies hints at your OS; echoing data confirms reachability and timing. ICMP error
 messages (if you generated them) quote the offending packet's header + 8 bytes, leaking ports/seq.
 Security-sensitive hosts rate-limit and sometimes suppress ICMP for this reason — a tradeoff against
-the PMTUD breakage that blocking ICMP causes (day1 §H.9).
+the PMTUD breakage that blocking ICMP causes (doc1 §H.9).
 
 ### P.5 — The defensive checklist (carry forward)
 
@@ -6305,7 +6305,7 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 
 ---
 
-## Q. Day-2 self-test and the bridge to Day 3
+## Q. Doc-2 self-test and the bridge to Doc 3
 
 ### Q.1 — Self-test (answer cold)
 
@@ -6320,7 +6320,7 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 9. Why does a reply with a bad checksum produce the *same* symptom as no reply at all?
 10. What does the TCP checksum add over IP/ICMP, and why?
 11. When do you mutate-in-place vs build-from-scratch?
-12. Why did Day 2 justify splitting into modules?
+12. Why did Doc 2 justify splitting into modules?
 
 ### Q.2 — Mastery checklist
 
@@ -6329,18 +6329,18 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 - [ ] Compute and verify an IP checksum by hand.
 - [ ] Produce the §N request→reply byte trace from a blank page.
 - [ ] Make `ping` reply with 0% loss live, and confirm both packets in tcpdump.
-- [ ] Explain the pseudo-header you'll need on Day 3 without looking.
+- [ ] Explain the pseudo-header you'll need on Doc 3 without looking.
 
-### Q.3 — Bridge to Day 3
+### Q.3 — Bridge to Doc 3
 
-Day 1 read packets; Day 2 wrote one (a near-copy of a request). **Day 3 writes packets from
+Doc 1 read packets; Doc 2 wrote one (a near-copy of a request). **Doc 3 writes packets from
 scratch** and, for the first time, keeps **state across packets**: the TCP three-way handshake. The
 checksum you mastered here returns immediately — TCP's checksum is this exact function with a 12-byte
 pseudo-header (§C.7, §M). The build technique (lay out bytes, checksum last, big-endian) scales from
 the echo reply to a synthesized SYN-ACK. And the modular structure you refactored into is where
-`tcp.rs` slots in. Everything Day 2 taught is load-bearing for Day 3.
+`tcp.rs` slots in. Everything Doc 2 taught is load-bearing for Doc 3.
 
-Open `day3-book.md`. The stack grows a memory.
+Open `doc3-book.md`. The stack grows a memory.
 
 ---
 
@@ -6369,7 +6369,7 @@ touch bytes 2–3. (If you *changed* the data length, you'd have to update Total
 checksum.)
 
 ### R.5 — Build an ICMP echo *request* (originate)
-**A.** See day1 §AX: 20-byte IP header (proto 1, your src/dst) + 8-byte ICMP (type 8, id, seq),
+**A.** See doc1 §AX: 20-byte IP header (proto 1, your src/dst) + 8-byte ICMP (type 8, id, seq),
 IP checksum then ICMP checksum, both with field zeroed first. Sending it makes you a ping *client*.
 
 ### R.6 — What if you forget to swap addresses?
@@ -6395,7 +6395,7 @@ Anything shorter → `None`.
 
 ### R.10 — Why `Option`, not `Result`, for `build_echo_reply`?
 **A.** The only failure is "not a well-formed echo request" — one reason. `Option`/`None` matches the
-shape; a `Result` with a single error variant would add noise (day1 §G.7–G.8).
+shape; a `Result` with a single error variant would add noise (doc1 §G.7–G.8).
 
 ## S. The history of ping and ICMP
 
@@ -6404,7 +6404,7 @@ shape; a `Result` with a single error variant would add noise (day1 §G.7–G.8)
 - **`ping`** was written by **Mike Muuss in 1983** in a single evening, named after sonar (send a
   pulse, listen for the echo). It's one of the most-used network tools ever, and its source is a
   classic. The "64 bytes from…" output format is Muuss's.
-- **`traceroute`** (Van Jacobson, 1987) layered the TTL trick (§day1 H.5) on top of ICMP Time
+- **`traceroute`** (Van Jacobson, 1987) layered the TTL trick (§doc1 H.5) on top of ICMP Time
   Exceeded — using an *error* mechanism as a *measurement* tool, an enduringly clever idea.
 - ICMP's role *grew* in IPv6 (RFC 4443 + Neighbor Discovery), absorbing ARP's job — so "block all
   ICMP" went from bad IPv4 advice to network-breaking on IPv6.
@@ -6433,7 +6433,7 @@ buffer reuse, hardware offload, rate limiting, and policy knobs. Our version is 
 optimizations wrap. Reading Linux's `net/ipv4/icmp.c` (`icmp_echo` / `icmp_reply`) after this is
 illuminating: you'll recognize the structure immediately.
 
-## U. Final Day-2 reference tables
+## U. Final Doc-2 reference tables
 
 ### U.1 — Checksum facts at a glance
 | Question | Answer |
@@ -6459,7 +6459,7 @@ zero reply[ihl*4+2 .. ihl*4+4]; that = checksum(reply[ihl*4..]) # ICMP cksum
 send(reply)
 ```
 
-### U.3 — Symptom → cause (Day 2)
+### U.3 — Symptom → cause (Doc 2)
 | Symptom | Cause |
 |---|---|
 | ping still 100% loss, reply seen in tcpdump | bad checksum |
@@ -6507,14 +6507,14 @@ icmp_seq=1 ttl=64 time=0.2 ms`. Loss for that seq → 0%.
 Every field we set or preserved has a consumer on the other side. That's why each one matters and why
 getting any wrong makes the reply useless even if "sent."
 
-### V.6 — The mirror with day1 §F
-Day-1 §F traced packet *in* (kernel → our recv). This is packet *out* (our send → kernel → ping).
+### V.6 — The mirror with doc1 §F
+Doc-1 §F traced packet *in* (kernel → our recv). This is packet *out* (our send → kernel → ping).
 Together they're the full duplex of "bytes in, bytes out" — the definition of a stack from Volume I
 §1, now realized in both directions.
 
-## W. Day 2 in 80 facts (rapid review)
+## W. Doc 2 in 80 facts (rapid review)
 
-1. Day 2 = the write half of "bytes in, bytes out."
+1. Doc 2 = the write half of "bytes in, bytes out."
 2. The Internet checksum (RFC 1071) is the centerpiece.
 3. It detects corruption; it does not correct it.
 4. It's deliberately weak and fast (end-to-end principle).
@@ -6548,11 +6548,11 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 32. On TUN there's no offload → software checksum.
 33. Wireshark may flag offloaded outgoing checksums as "bad" (red herring on real NICs).
 34. On TUN a red checksum is a real bug.
-35. Day 2's milestone: ping replies, 0% loss.
+35. Doc 2's milestone: ping replies, 0% loss.
 36. Echo Reply = ICMP type 0; Echo Request = type 8.
 37. We build the reply by mutating a copy of the request.
 38. Mutate-in-place: cheap, fewer bugs, data echoes for free.
-39. Build-from-scratch: for responses with no matching request (Day 3 SYN-ACK).
+39. Build-from-scratch: for responses with no matching request (Doc 3 SYN-ACK).
 40. The four edits: swap addrs, TTL, IP checksum, type+ICMP checksum.
 41. Edit order: change fields first, checksum last (per region).
 42. A checksum computed before a later edit is stale → drop.
@@ -6570,14 +6570,14 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 54. `iface.send` = `write(tun_fd, bytes)`.
 55. The kernel treats it as a packet arriving on tun0.
 56. The kernel verifies IP + ICMP checksums on ingress.
-57. Day 2 split main.rs into utils/ip/icmp modules.
+57. Doc 2 split main.rs into utils/ip/icmp modules.
 58. `mod X;` compiles src/X.rs; undeclared files aren't compiled.
 59. `use crate::utils` etc. are the dependency edges.
 60. Dependency graph: utils ← ip ← icmp; main on top; acyclic.
 61. The graph mirrors the protocol stack.
 62. `pub` marks the cross-module API surface.
 63. Tests live in each module (`#[cfg(test)]`), can see privates.
-64. Refactor was behavior-preserving (Day-1 tests still green).
+64. Refactor was behavior-preserving (Doc-1 tests still green).
 65. Split happened at the "2+ callers" threshold.
 66. `utils::checksum` is reused by ip, icmp (and later tcp).
 67. "Reuse physically" = import one function, don't copy-paste.
@@ -6593,9 +6593,9 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 77. Hardening: rate-limit replies, ignore broadcast echo.
 78. ICMP data is arbitrary → covert channels (icmptunnel).
 79. Length guards prevent Ping-of-Death-style crashes.
-80. Day 2's checksum + build technique carry directly into Day 3's TCP.
+80. Doc 2's checksum + build technique carry directly into Doc 3's TCP.
 
-## X. Day-2 mastery checklist
+## X. Doc-2 mastery checklist
 
 - [ ] Re-type `utils::checksum`; explain u32, fold, odd-byte, NOT.
 - [ ] State and use the verify-to-zero property.
@@ -6610,14 +6610,14 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 - [ ] Explain the silent-drop symptom of a bad checksum.
 - [ ] Reproduce the module dependency graph from memory.
 
-When every box is checked, Day 2 is owned.
+When every box is checked, Doc 2 is owned.
 
 ---
 
 ## Y. Detection vs recovery — where the checksum sits in reliability
 
 The checksum is half of a story the rest of the project completes. Understanding the split clarifies
-what Day 2 does and doesn't give you.
+what Doc 2 does and doesn't give you.
 
 ### Y.1 — Detection ≠ recovery
 The checksum **detects** corruption and the receiver **drops** the bad packet. That's it. Nothing
@@ -6628,7 +6628,7 @@ necessary but not sufficient for reliability.
 - **ICMP/UDP: nobody.** A dropped echo reply just means `ping` records a loss for that sequence; a
   dropped UDP datagram is gone unless the application resends. There is no automatic recovery.
 - **TCP: retransmission.** TCP detects the loss (a missing ACK / duplicate ACKs) and **resends** the
-  data. This is the reliability machinery of the day-5 roadmap, and it's *built on top of* detection:
+  data. This is the reliability machinery of the doc-5 roadmap, and it's *built on top of* detection:
   the checksum drops corrupt segments; the ACK/timer logic notices they didn't arrive and resends.
 
 ### Y.3 — The layered division of labor
@@ -6636,18 +6636,18 @@ necessary but not sufficient for reliability.
 - **IP checksum:** detects header corruption end-to-end; drops the packet.
 - **TCP/UDP checksum:** detects transport+data corruption end-to-end; drops the segment.
 - **TCP retransmission:** *recovers* from any drop (corruption-caused or congestion-caused).
-Each layer detects; only TCP recovers. Day 2 gave you detection (the checksum). Days 3–5 + the
+Each layer detects; only TCP recovers. Doc 2 gave you detection (the checksum). Docs 3–5 + the
 roadmap give you recovery (sequence numbers, ACKs, timers). Seeing this now means the retransmission
 work later reads as "the recovery half of what the checksum started."
 
 ### Y.4 — Why detection must come first
 You can't recover from a loss you didn't notice, and you can't trust data you didn't verify. So the
 checksum (and the drop-on-mismatch) is the foundation; reliability is layered on top. That ordering —
-verify, then recover — is why this project does checksums (Day 2) before reliable delivery (later).
+verify, then recover — is why this project does checksums (Doc 2) before reliable delivery (later).
 
 ## Z. Worked ICMP checksum for our echo reply
 
-The IP checksum was worked in §H.1/§4 of day2 and day1 §R; here's the ICMP side, which people skip.
+The IP checksum was worked in §H.1/§4 of doc2 and doc1 §R; here's the ICMP side, which people skip.
 
 ### Z.1 — The ICMP message to checksum
 A minimal 8-byte echo reply ICMP (no data): `00 00 00 00 12 34 00 01` — type 0, code 0, checksum 0
@@ -6674,7 +6674,7 @@ Echo request has type byte 0x08 (word `0x0800` with code), reply has 0x00 (word 
 corresponding amount. This is exactly why flipping the type *requires* recomputing the ICMP checksum
 (edit 4) — change the input, change the output.
 
-## AA. Common Day-2 mistakes gallery
+## AA. Common Doc-2 mistakes gallery
 
 Ten real mistakes, each with the giveaway symptom.
 
@@ -6698,9 +6698,9 @@ Ten real mistakes, each with the giveaway symptom.
 Each maps to a §G triage step. The meta-lesson (again): build the offline test that asserts type,
 addresses, and both checksums — it catches 1–6 and 9 instantly, before you ever touch the wire.
 
-## AB. Day-2 RFC index and acronyms
+## AB. Doc-2 RFC index and acronyms
 
-### AB.1 — RFCs for Day 2
+### AB.1 — RFCs for Doc 2
 | RFC | Title | Relevance |
 |-----|-------|-----------|
 | 1071 | Computing the Internet Checksum | the algorithm + worked examples |
@@ -6710,7 +6710,7 @@ addresses, and both checksums — it catches 1–6 and 9 instantly, before you e
 | 9293 | TCP | the pseudo-header checksum (preview) |
 | 1141 | Incremental checksum (obsoleted by 1624) | historical |
 
-### AB.2 — Day-2 acronyms
+### AB.2 — Doc-2 acronyms
 - **CRC** Cyclic Redundancy Check · **ECC/FEC** Error-Correcting Code / Forward Error Correction ·
   **ICMP** Internet Control Message Protocol · **RTT** Round-Trip Time · **TLV** Type-Length-Value ·
   **NIC** Network Interface Card · **GSO/TSO** Generic/TCP Segmentation Offload · **PI** Packet
@@ -6762,7 +6762,7 @@ corruption*, and it's optimal for exactly that niche.
 The Internet checksum trades reorder-safety for the endianness-independence and incremental-update
 properties only one's-complement gives — a conscious 1981 design choice.
 
-## AD. The Day-2 reference card (one screen)
+## AD. The Doc-2 reference card (one screen)
 
 ```
 INTERNET CHECKSUM (RFC 1071)
@@ -6791,7 +6791,7 @@ MODULES
 
 ## AE. Clean-architecture principles this refactor demonstrates
 
-The Day-2 module split is a small but real lesson in structuring code.
+The Doc-2 module split is a small but real lesson in structuring code.
 
 ### AE.1 — Single responsibility
 Each module does one thing: `utils` = the checksum primitive; `ip` = IPv4 header concerns; `icmp` =
@@ -6809,12 +6809,12 @@ shouldn't, so you can refactor a module's guts without breaking others. The comp
 boundary.
 
 ### AE.4 — Tests as a safety net for refactoring
-Because every module ships tests, the Day-1→Day-2 refactor (moving parse code into modules) was
+Because every module ships tests, the Doc-1→Doc-2 refactor (moving parse code into modules) was
 provably behavior-preserving: move code, run `cargo test`, green = safe. Refactoring without tests is
 guessing; with them it's mechanical.
 
 ### AE.5 — Refactor at the right time
-Day 1 had one caller → one file (no premature structure). Day 2's second caller crossed the threshold
+Doc 1 had one caller → one file (no premature structure). Doc 2's second caller crossed the threshold
 → split. "Refactor when duplication/▽callers appear, not before" avoids both copy-paste rot and
 speculative over-engineering. The codebase's structure tracks its actual needs.
 
@@ -6834,7 +6834,7 @@ It doesn't prove the *kernel/peer accepts* it (delivery), or that timing/orderin
 you handle weird inputs (a fragmented ping, a ping with options, a huge ping). Those need integration
 and property/fuzz testing.
 
-### AF.3 — Property tests for Day 2
+### AF.3 — Property tests for Doc 2
 - *Reply preserves payload:* for any echo request, `build_echo_reply` returns a packet whose data
   region equals the request's.
 - *Reply checksums valid:* for any echo request, both regions of the reply verify to 0.
@@ -6844,7 +6844,7 @@ and property/fuzz testing.
 ### AF.4 — Fuzzing `build_echo_reply`
 Feed random byte strings as "requests"; assert it never panics and never returns a packet with an
 invalid checksum. The length guard is what makes it pass on short/garbage input. This is the same
-hardening step as the parser (day1 §U.3), applied to the builder.
+hardening step as the parser (doc1 §U.3), applied to the builder.
 
 ### AF.5 — Live conformance with packetdrill
 Script: inject an echo request, expect an echo reply with swapped addresses, type 0, valid checksums.
@@ -6852,7 +6852,7 @@ packetdrill asserts the exact response bytes — RFC-conformance for your reply 
 
 ---
 
-## AG. Day 2 and the security track, in depth
+## AG. Doc 2 and the security track, in depth
 
 Building an ICMP responder puts you on both sides of several real techniques.
 
@@ -6883,7 +6883,7 @@ the difference is scale and a rule language on top.
 - Reading: Snort's ICMP preprocessor; the Smurf/Ping-of-Death CVE writeups.
 
 ### AG.5 — The mindset transfer
-Day 1 taught "a parser is a trust boundary." Day 2 adds "a *responder* is an attack surface": every
+Doc 1 taught "a parser is a trust boundary." Doc 2 adds "a *responder* is an attack surface": every
 packet you emit can be observed, abused (amplification), or fingerprinted. Designing responders that
 are correct *and* hard to abuse (validate, rate-limit, fail closed) is the security-engineering
 discipline this project is quietly teaching. Both red and blue start from the byte-level fluency you
@@ -6920,7 +6920,7 @@ words.)
 These five exercise: options-length headers, the −0 case, a single max word, carry folding, and
 verification. If all five are easy, the checksum is genuinely yours.
 
-## AI. Mini-project — build your own `ping` (uses all of Day 1 + Day 2)
+## AI. Mini-project — build your own `ping` (uses all of Doc 1 + Doc 2)
 
 A satisfying capstone that proves you can both *originate* and *parse*. Outline (you write the core).
 
@@ -6930,10 +6930,10 @@ your own `ping`. (Target a real host on a real interface for replies, or have a 
 your stack reply.)
 
 ### AI.2 — The pieces you already have
-- **Build an echo request** (day1 §AX, day2 §R.5): IP header (proto 1, your src, target dst) + ICMP
+- **Build an echo request** (doc1 §AX, doc2 §R.5): IP header (proto 1, your src, target dst) + ICMP
   (type 8, id = your pid, seq = counter, a timestamp in the data), both checksums.
 - **Send** it via `iface.send`.
-- **Parse** the reply (day1 §E, §10): IP header → protocol 1 → ICMP → type 0, matching id/seq.
+- **Parse** the reply (doc1 §E, §10): IP header → protocol 1 → ICMP → type 0, matching id/seq.
 - **Checksum** (`utils::checksum`) to build and to validate.
 
 ### AI.3 — The new glue
@@ -6941,11 +6941,11 @@ your stack reply.)
   reply, read it back and compute RTT = now − that.
 - A **sequence counter** incremented per request.
 - A **loop** sending one request per second, printing each reply (or "timeout" if none in 1s — which
-  needs the non-blocking/timeout pattern, a nice motivation for the event loop, day1 §AI).
+  needs the non-blocking/timeout pattern, a nice motivation for the event loop, doc1 §AI).
 
 ### AI.4 — Why it's the right exercise here
-It uses *every* Day-1/Day-2 skill at once — parse, build, checksum (both directions), send, recv — and
-nothing from Day 3+. Completing it means the foundation is solid before TCP's complexity. It's also
+It uses *every* Doc-1/Doc-2 skill at once — parse, build, checksum (both directions), send, recv — and
+nothing from Doc 3+. Completing it means the foundation is solid before TCP's complexity. It's also
 genuinely useful and a great portfolio artifact ("I wrote ping from scratch over a userspace stack").
 
 ### AI.5 — Stretch goals
@@ -6957,7 +6957,7 @@ genuinely useful and a great portfolio artifact ("I wrote ping from scratch over
 
 ---
 
-## AJ. Day-2 FAQ II (deeper questions)
+## AJ. Doc-2 FAQ II (deeper questions)
 
 **1. Could I compute the checksum left-to-right or right-to-left — does order matter?** No — addition
 is commutative/associative (§B.4), so any order/grouping gives the same result. That's also why
@@ -7023,13 +7023,13 @@ total_length consistent with the actual bytes.
 an ICMP socket; the kernel demultiplexes by ICMP id to the right socket. We're just the peer that
 produced the reply.
 
-**19. Could I implement Day 2 without modules?** Yes, but with two callers of IP/checksum logic the
+**19. Could I implement Doc 2 without modules?** Yes, but with two callers of IP/checksum logic the
 single file would duplicate or tangle; modules keep it clean (§AE).
 
-**20. What's the very next new concept in Day 3?** State across packets (the TCB) and building a
+**20. What's the very next new concept in Doc 3?** State across packets (the TCB) and building a
 packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this checksum + a pseudo-header.
 
-## AK. Day 2 — deeper facts (81–150)
+## AK. Doc 2 — deeper facts (81–150)
 
 81. The checksum's weakness and speed both come from addition being commutative.
 82. CRC-32 catches all burst errors up to 32 bits; the Internet checksum doesn't.
@@ -7054,7 +7054,7 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 101. Echo reply = mutate the request (swap, TTL, two checksums).
 102. The data payload echoes for free because we copy the request.
 103. Build-from-scratch is for responses with no matching request.
-104. A SYN-ACK (Day 3) is build-from-scratch.
+104. A SYN-ACK (Doc 3) is build-from-scratch.
 105. Order: edit a region's fields, then its checksum.
 106. Zero the checksum field before computing.
 107. Write checksum (and all multi-byte fields) big-endian.
@@ -7096,8 +7096,8 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 143. The verify trick turns checking into "sum to 0."
 144. Fletcher/Adler are position-sensitive (catch reorders) but uncommon in IP.
 145. The build technique scales from echo reply to TCP segments.
-146. Day 2 = the write half of "bytes in, bytes out."
-147. Day 1's read + Day 2's write = full duplex over TUN.
+146. Doc 2 = the write half of "bytes in, bytes out."
+147. Doc 1's read + Doc 2's write = full duplex over TUN.
 148. The checksum + pseudo-header reappears unchanged in TCP.
 149. Clean modules now make tcp.rs slot in cleanly later.
 150. Build the offline test before touching the wire — every time.
@@ -7107,7 +7107,7 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 ---
 ---
 
-# VOLUME III — Reference Tables (Day 2)
+# VOLUME III — Reference Tables (Doc 2)
 
 > Checksum and reply lookup material. Memorize the bold rows.
 
@@ -7168,7 +7168,7 @@ Input to the TCP/UDP checksum only; never transmitted.
 | CRC-32 | 32 | strong | yes | table/HW | Ethernet, ZIP |
 | HMAC-SHA256 | 256 | cryptographic | yes | high | TLS |
 
-## RT2.6 — Symptom → cause (Day 2, consolidated)
+## RT2.6 — Symptom → cause (Doc 2, consolidated)
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
@@ -7180,7 +7180,7 @@ Input to the TCP/UDP checksum only; never transmitted.
 | reply storms | replying to non-echo | guard type == 8 |
 | off-by-byteswap checksum | to_ne_bytes used | use to_be_bytes |
 
-## RT2.7 — Day-2 commands
+## RT2.7 — Doc-2 commands
 
 ```bash
 # build + verify offline
@@ -7221,7 +7221,7 @@ fn build_echo_reply(request, header_len):
 
 ---
 
-## RT2.10 — Protocol / ICMP recap (Day-2 relevant)
+## RT2.10 — Protocol / ICMP recap (Doc-2 relevant)
 
 | IP proto | name | checksum'd how |
 |----------|------|----------------|
@@ -7238,9 +7238,9 @@ fn build_echo_reply(request, header_len):
 
 ---
 
-## AM. `main.rs` ICMP dispatch arm — line by line (Day 2)
+## AM. `main.rs` ICMP dispatch arm — line by line (Doc 2)
 
-The Day-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
+The Doc-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
 
 ```rust
 1 => {
@@ -7285,12 +7285,12 @@ The Day-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
 Note what this arm does *not* do: no rate limiting, no broadcast check, no incoming-checksum
 validation. Those are the §AG/§H.7 hardening exercises. The arm is the minimal correct responder.
 
-## AN. Annotated source — `utils.rs` (complete, as of Day 2)
+## AN. Annotated source — `utils.rs` (complete, as of Doc 2)
 
 The whole file, reproduced with inline reference notes (the canonical artifact to read and re-type).
 
 ```rust
-//! Shared helpers. Day 2: the Internet Checksum (RFC 1071), reused by ip/icmp/(tcp).
+//! Shared helpers. Doc 2: the Internet Checksum (RFC 1071), reused by ip/icmp/(tcp).
 
 /// Internet checksum: 16-bit one's-complement of the one's-complement sum of `data`
 /// as 16-bit big-endian words.
@@ -7315,8 +7315,8 @@ pub fn checksum(data: &[u8]) -> u16 {
 Notes per line:
 - `pub` — used by other modules.
 - `sum: u32` — see §C.2; a `u16` would drop carries.
-- `chunks_exact(2)` + `by_ref()` — §G.14 (day1) and §O.1; lets us read the odd remainder after.
-- `from_be_bytes` — wire is big-endian (§D, day1).
+- `chunks_exact(2)` + `by_ref()` — §G.14 (doc1) and §O.1; lets us read the odd remainder after.
+- `from_be_bytes` — wire is big-endian (§D, doc1).
 - `(*last as u32) << 8` — RFC 1071's odd-byte rule (§C.1).
 - `while ... fold` — §B.2/§R.2 end-around carry; `while` because the fold can carry again.
 - `!(sum as u16)` — the final complement; no semicolon → it's the return value.
@@ -7345,19 +7345,19 @@ mod tests {
 
 This is the complete `utils.rs`. If you can reproduce it — function and tests — with this page
 closed, you own the checksum end to end. The same treatment of `ip.rs` and `icmp.rs` is in §E plus
-day1 §O.
+doc1 §O.
 
 ---
 
-## AO. Annotated source — `ip.rs` and `icmp.rs` (complete, as of Day 2)
+## AO. Annotated source — `ip.rs` and `icmp.rs` (complete, as of Doc 2)
 
 The two protocol files in full, with inline notes. Together with §AN (`utils.rs`) this is the whole
-Day-2 codebase to read and re-type.
+Doc-2 codebase to read and re-type.
 
 ### AO.1 — `ip.rs`
 
 ```rust
-//! IPv4 layer (RFC 791). Parse (day1) + header-checksum writer (day2).
+//! IPv4 layer (RFC 791). Parse (doc1) + header-checksum writer (doc2).
 use std::net::Ipv4Addr;     // free Display/eq/.octets() for addresses
 use crate::utils;            // for utils::checksum
 
@@ -7415,7 +7415,7 @@ cover parse fields, both rejections, the etherparse oracle, and the checksum rou
 ### AO.2 — `icmp.rs`
 
 ```rust
-//! ICMP layer (RFC 792). Parse (day1) + echo reply (day2).
+//! ICMP layer (RFC 792). Parse (doc1) + echo reply (doc2).
 use crate::{ip, utils};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -7480,10 +7480,10 @@ addresses, both regions verify to 0, payload preserved) and that non-echo reques
 ### AO.3 — Reading the whole codebase at once
 
 With §AN + §AO you have all three protocol files annotated, and §AM the main-loop dispatch. The
-entire Day-2 stack is ~4 small files: a checksum primitive, an IP parser+checksum-writer, an ICMP
+entire Doc-2 stack is ~4 small files: a checksum primitive, an IP parser+checksum-writer, an ICMP
 parser+reply-builder, and a loop that wires them. That smallness is the point — you can hold the
 whole thing in your head, which is exactly why building the 1% yourself makes the 99% (real stacks)
-readable later (day1 §N.6).
+readable later (doc1 §N.6).
 
 ---
 
@@ -7523,7 +7523,7 @@ live mirror of the `reply_is_well_formed` unit test.
 ### AP.4 — Cross-check with tcpdump
 Run `sudo tcpdump -i tun0 -n -vv` alongside. For each ping you should see the request (in) and the
 reply (out), and with `-vv` tcpdump will say the checksums are correct. Three views agreeing (your
-log, the assertions, tcpdump) = certainty. This is the §AT (day1) "look at the bytes" discipline made
+log, the assertions, tcpdump) = certainty. This is the §AT (doc1) "look at the bytes" discipline made
 into a routine.
 
 ### AP.5 — Removing it
@@ -7533,10 +7533,10 @@ in release and document the invariants.
 
 ## AQ. ICMP reply vs TCP segment construction — a preview
 
-Day 3 builds packets from scratch. Comparing it to the ICMP reply you just wrote shows what's the
+Doc 3 builds packets from scratch. Comparing it to the ICMP reply you just wrote shows what's the
 same and what's new.
 
-| Aspect | ICMP echo reply (Day 2) | TCP segment (Day 3) |
+| Aspect | ICMP echo reply (Doc 2) | TCP segment (Doc 3) |
 |---|---|---|
 | Strategy | mutate a copy of the request | build a zeroed buffer from scratch |
 | IP header | inherited from request (swap addrs) | written field by field |
@@ -7546,9 +7546,9 @@ same and what's new.
 | What varies | type, addresses | ports, seq, ack, flags, window, data |
 | Same skills | zero-field-then-checksum, big-endian, order | identical |
 
-The new things in Day 3 are (1) building rather than mutating, (2) the pseudo-header in the checksum,
+The new things in Doc 3 are (1) building rather than mutating, (2) the pseudo-header in the checksum,
 and (3) *state*. Everything else — the checksum function, the byte-layout discipline, big-endian, the
-"checksum last" order — transfers unchanged. That's why Day 2 is the right rung before Day 3: you've
+"checksum last" order — transfers unchanged. That's why Doc 2 is the right rung before Doc 3: you've
 practiced packet construction on the easy case (mutate, no pseudo-header, no state) before the hard
 one.
 
@@ -7642,7 +7642,7 @@ what would change if you extended toward real conditions (add fragmentation hand
 checksums + reassembly-then-verify; add NAT → incremental dual-checksum updates; add IPv6 → drop the
 IP checksum, keep the pseudo-header transport one).
 
-## AT. Day 2 — deeper facts (151–210)
+## AT. Doc 2 — deeper facts (151–210)
 
 151. Each IP fragment carries its own IP header checksum.
 152. The transport checksum is verified only after reassembly.
@@ -7674,7 +7674,7 @@ IP checksum, keep the pseudo-header transport one).
 178. ICMP id demultiplexes replies to the right ping process.
 179. id is the seed idea of TCP's 4-tuple demultiplexing.
 180. The reply build cost is dwarfed by the send syscall.
-181. Building from scratch (Day 3) replaces mutate-in-place.
+181. Building from scratch (Doc 3) replaces mutate-in-place.
 182. TCP's checksum = our checksum + a 12-byte pseudo-header.
 183. TCP construction needs state (the TCB); ICMP reply doesn't.
 184. The "checksum last per region" rule transfers to TCP.
@@ -7684,7 +7684,7 @@ IP checksum, keep the pseudo-header transport one).
 188. ICMP/UDP have no recovery; TCP does.
 189. A bad checksum is dropped silently — verify offline.
 190. Three-view debugging: your log, asserts, tcpdump.
-191. The whole Day-2 stack is ~4 small files.
+191. The whole Doc-2 stack is ~4 small files.
 192. Smallness is the point: hold it in your head.
 193. Building 1% yourself makes the 99% (real stacks) readable.
 194. utils::checksum is the most-reused function in the codebase.
@@ -7703,11 +7703,11 @@ IP checksum, keep the pseudo-header transport one).
 207. End-around carry makes the sum mod 2¹⁶−1.
 208. Two zeros: 0x0000 and 0xFFFF.
 209. UDP sends a computed-zero checksum as 0xFFFF.
-210. Day 2 = write half; Day 1 = read half; together = full duplex.
+210. Doc 2 = write half; Doc 1 = read half; together = full duplex.
 
 ---
 
-## AU. Full API reference — every public item (as of Day 2)
+## AU. Full API reference — every public item (as of Doc 2)
 
 The complete public surface of the codebase, with signatures and one-line purposes. This is the
 "what can I call" lookup.
@@ -7746,13 +7746,13 @@ The complete public surface of the codebase, with signatures and one-line purpos
 | `Ipv4HeaderSlice` | `etherparse` | the parsing oracle (cross-check) |
 | `Ipv4Addr` | `std::net` | IPv4 addresses with Display/eq/octets |
 
-This table is the contract between modules; everything not listed is private. When Day 3 adds `tcp`,
+This table is the contract between modules; everything not listed is private. When Doc 3 adds `tcp`,
 its public items (`Quad`, `State`, `TcpHeader`, `parse`, `Connection::{accept,on_packet,state}`,
 `flags_str`) join this reference.
 
 ## AV. Lab — reproduce the 0%-loss result, with checkpoints
 
-A guided run that proves Day 2 works, with a verification gate at each step.
+A guided run that proves Doc 2 works, with a verification gate at each step.
 
 ### AV.1 — Build and self-verify
 ```bash
@@ -7780,7 +7780,7 @@ ip addr show tun0
 ```bash
 ping -c3 192.168.0.2
 ```
-**Checkpoint:** **0% packet loss**, three replies with `ttl=64 time=…`. This is the Day-2 milestone.
+**Checkpoint:** **0% packet loss**, three replies with `ttl=64 time=…`. This is the Doc-2 milestone.
 If 100% loss, go to §AW.
 
 ### AV.5 — Observe both packets (terminal 3)
@@ -7877,7 +7877,7 @@ Data A: `00 05 00 05`. Data B: `00 06 00 04` (+1 then −1).
 A: 0x0005+0x0005 = 0x000A. B: 0x0006+0x0004 = 0x000A. **Same sum, same checksum** — undetected. This
 is why the checksum is "weak": structured canceling changes slip through.
 
-## AY. Day 2 — deeper facts (211–260)
+## AY. Doc 2 — deeper facts (211–260)
 
 211. The checksum sums 16-bit words regardless of field boundaries.
 212. Folding can iterate (a fold can produce a new carry).
@@ -7919,22 +7919,22 @@ is why the checksum is "weak": structured canceling changes slip through.
 248. iface.send = write(tun_fd); kernel treats it as arriving on tun0.
 249. The kernel verifies IP+ICMP checksums and matches by id.
 250. RTT = now − the timestamp echoed in the data.
-251. Day 2 split main.rs into utils/ip/icmp modules.
+251. Doc 2 split main.rs into utils/ip/icmp modules.
 252. mod X; compiles src/X.rs; pub defines the API.
 253. The dependency graph is acyclic: utils ← ip ← icmp ← main.
 254. The refactor preserved behavior (tests stayed green).
 255. utils::checksum is reused across all layers.
 256. Detection (checksum) precedes recovery (TCP retransmit).
-257. The whole Day-2 stack is ~4 small, readable files.
-258. The checksum + pseudo-header recur unchanged in TCP (Day 3).
+257. The whole Doc-2 stack is ~4 small, readable files.
+258. The checksum + pseudo-header recur unchanged in TCP (Doc 3).
 259. The build technique (zero, checksum-last, BE) transfers to TCP.
-260. Day 2 milestone: ping replies with 0% loss, verified three ways.
+260. Doc 2 milestone: ping replies with 0% loss, verified three ways.
 
 ---
 
 ## AZ. End-to-end consolidation — every checksum in one ping round trip
 
-Trace a single `ping` and note *every* checksum computed/verified along the way. This ties Day 2's
+Trace a single `ping` and note *every* checksum computed/verified along the way. This ties Doc 2's
 piece into the whole picture.
 
 ### AZ.1 — Outbound request (ping → us)
@@ -7947,7 +7947,7 @@ piece into the whole picture.
 5. We parse the IP header. (We *don't* validate its checksum by default — exercise H.7 adds it.)
 6. We parse the ICMP header, see type 8.
 7. We `build_echo_reply`: recompute the **IP header checksum** (addresses changed) and the **ICMP
-   checksum** (type changed) — the two Day-2 computations.
+   checksum** (type changed) — the two Doc-2 computations.
 
 ### AZ.3 — Inbound reply (us → ping)
 8. We `send` the reply → kernel ingress on tun0.
@@ -7970,7 +7970,7 @@ flips on a real wire, the NIC CRC (per hop) likely catches it first. Layered det
 corruption is caught at the first layer that covers the corrupted bytes. That's the defense-in-depth
 payoff of having multiple checks.
 
-## BA. How to study Day 2 (Learning-OS aligned)
+## BA. How to study Doc 2 (Learning-OS aligned)
 
 Per your Learning OS, here's the most effective way to internalize this chapter.
 
@@ -7985,21 +7985,21 @@ zero the field first?" If you mis-ordered the TTL edit and checksum, card the "c
 Cards from textbook facts you already knew are wasted; cards from your bugs stick.
 
 ### BA.3 — Compute by hand until it's automatic
-Do §AX and §H.1/§H.14 (day1) on paper until summing 16-bit words, folding, and complementing is
+Do §AX and §H.1/§H.14 (doc1) on paper until summing 16-bit words, folding, and complementing is
 reflexive. This is the one bit of arithmetic the whole rest of the project (and TCP) reuses; fluency
 pays off repeatedly.
 
 ### BA.4 — Teach it (the real finish line)
 Per rule #5, the finish line is "can I teach it?" Explain to someone (or rubber-duck): "why does a
 valid header checksum to zero, and why is the checksum recomputed when I swap addresses?" If you can
-teach both cleanly, Day 2 is owned. Use `/tcp-tutor` to have me grade your explanation.
+teach both cleanly, Doc 2 is owned. Use `/tcp-tutor` to have me grade your explanation.
 
 ### BA.5 — Connect to the daily lane
-Your WIP=2 includes a daily habit lane. A good Day-2 habit: one checksum-by-hand per day for a week
+Your WIP=2 includes a daily habit lane. A good Doc-2 habit: one checksum-by-hand per day for a week
 (varied inputs from §AX) until it's muscle memory, plus a LeetCode bit-manipulation problem (shifts/
 masks) to reinforce §C. Small, daily, compounding — the Learning-OS pattern.
 
-## BB. Day 2 — deeper facts (261–300)
+## BB. Doc 2 — deeper facts (261–300)
 
 261. The checksum is computed/verified at every hop and endpoint.
 262. It's the most-executed arithmetic on the internet (hence "must be cheap").
@@ -8036,11 +8036,11 @@ masks) to reinforce §C. Small, daily, compounding — the Learning-OS pattern.
 293. iface.send = write(tun_fd).
 294. The kernel matches the reply to ping by ICMP id.
 295. RTT = now − echoed timestamp.
-296. Day 2 split into utils/ip/icmp modules at the 2+-callers threshold.
+296. Doc 2 split into utils/ip/icmp modules at the 2+-callers threshold.
 297. The module graph is acyclic and mirrors the stack.
 298. The build technique transfers directly to TCP.
 299. Detection precedes recovery; TCP adds recovery later.
-300. Day 2 = the write half; ping replies, 0% loss, verified three ways.
+300. Doc 2 = the write half; ping replies, 0% loss, verified three ways.
 
 ---
 
@@ -8156,16 +8156,16 @@ languages.
 
 ---
 
-## BF. Cross-reference index (Day 2)
+## BF. Cross-reference index (Doc 2)
 
 | Concept | RFC | Code | Section |
 |---------|-----|------|---------|
-| Internet checksum | 1071 | `utils::checksum` | §3–§6 (V1), §B–§C, §R (day1) |
+| Internet checksum | 1071 | `utils::checksum` | §3–§6 (V1), §B–§C, §R (doc1) |
 | Incremental update | 1624 | (routers; not us) | §C.5, §R.7 |
 | One's complement | — | `!` in checksum | §B, §R |
 | IP header checksum | 791 | `ip::write_header_checksum` | §E.2, §AO.1 |
 | ICMP echo reply | 792 | `icmp::build_echo_reply` | §5, §E.3, §AO.2 |
-| Pseudo-header | 9293/768 | (tcp, day3) | §C.7, §M, RT2.3 |
+| Pseudo-header | 9293/768 | (tcp, doc3) | §C.7, §M, RT2.3 |
 | Mutate vs build | — | echo reply / (tcp) | §D.1, §AQ |
 | Module refactor | — | `mod`/`use crate::` | §L, §AE |
 | iface.send | — | `iface.send(&reply)` | §F, §V |
@@ -8203,7 +8203,7 @@ To reply Port Unreachable to an offending packet `orig` (full IP packet):
 
 ### BG.3 — Why this is build-from-scratch
 There's no request to mutate — the offending packet is a *different* protocol (UDP) going the *other*
-way; you synthesize the entire ICMP error. This is exactly the technique Day 3 uses for the SYN-ACK
+way; you synthesize the entire ICMP error. This is exactly the technique Doc 3 uses for the SYN-ACK
 (build, don't mutate). The reused skills: zero-field-then-checksum, big-endian, checksum-last,
 length consistency. The new wrinkle: assembling a packet from multiple parts (new headers + quoted
 bytes).
@@ -8234,7 +8234,7 @@ fn icmp_port_unreachable(orig: &[u8], orig_ihl: usize, me: Ipv4Addr) -> Vec<u8> 
 ### BG.5 — Why it matters
 Generating errors is half of being a real network endpoint (TCP must send RSTs; routers send Time
 Exceeded). Doing it once for ICMP Port Unreachable teaches the build-from-scratch pattern you'll use
-for every generated packet from Day 3 on, and it's a satisfying exercise that exercises the new
+for every generated packet from Doc 3 on, and it's a satisfying exercise that exercises the new
 "assemble from parts + quote the original" skill.
 
 ## BH. Exercises IV (with solutions)
@@ -8271,7 +8271,7 @@ the error is the build-from-scratch case (like TCP).
 
 ## BI. UDP, exhaustively (the checksum's other consumer)
 
-UDP (RFC 768) is the simplest transport and a perfect Day-2 add: it reuses the checksum (with a
+UDP (RFC 768) is the simplest transport and a perfect Doc-2 add: it reuses the checksum (with a
 pseudo-header) and needs no state. Implementing a UDP echo is a smaller cousin of the TCP work ahead.
 
 ### BI.1 — The header (8 bytes)
@@ -8328,7 +8328,7 @@ This contrast is the clearest way to see *what TCP adds* — every TCP feature i
 
 ## BJ. A UDP echo server — implementation walkthrough
 
-Smaller than TCP echo; uses everything from Day 2.
+Smaller than TCP echo; uses everything from Doc 2.
 
 ### BJ.1 — Dispatch
 In the main loop's `17 =>` arm (protocol 17), parse the 8-byte UDP header, then echo.
@@ -8401,7 +8401,7 @@ the line between transport echo and application logic.)
 ## BL. A worked pseudo-header checksum (UDP/TCP preview)
 
 The pseudo-header is the one new thing in transport checksums. Work one fully so it's concrete before
-Day 3.
+Doc 3.
 
 ### BL.1 — The scenario
 A UDP datagram us(192.168.0.2)→peer(192.168.0.1), src port 7, dst port 4660, no data (8-byte UDP).
@@ -8435,11 +8435,11 @@ Re-sum with `0x6C4F` in the field: previous (field=0) folded sum was 0x93B0; add
 
 ### BL.5 — The takeaway
 The *only* difference from the ICMP checksum (§Z) is the 12-byte pseudo-header prepended to the sum.
-Everything else — sum, fold, complement, verify-to-zero — is identical. When Day 3's TCP checksum
+Everything else — sum, fold, complement, verify-to-zero — is identical. When Doc 3's TCP checksum
 appears, it's this exact computation with proto 6 instead of 17 and the TCP header/data instead of
 UDP's. You've now done it by hand once; the code (`tcp::tcp_checksum`) just automates this.
 
-## BM. Pitfalls when extending Day 2 (UDP echo / ICMP errors)
+## BM. Pitfalls when extending Doc 2 (UDP echo / ICMP errors)
 
 The build-from-scratch and pseudo-header additions introduce new failure modes.
 
@@ -8464,7 +8464,7 @@ Each maps to a `debug_assert`/offline test you can add: verify both checksums (w
 L4), assert total_length matches the buffer, assert the quoted bytes equal the original. Build the
 test, then the bug can't survive.
 
-## BN. Day 2 — deeper facts (301–340)
+## BN. Doc 2 — deeper facts (301–340)
 
 301. UDP (RFC 768) is the simplest transport: an 8-byte header, no state.
 302. UDP fields: src port, dst port, length, checksum.
@@ -8505,11 +8505,11 @@ test, then the bug can't survive.
 337. Python checksum is slow but obviously correct (explicit slicing).
 338. RFC 1071 is short, with example code; an ideal first RFC.
 339. RFC 1071's listed properties map to real optimizations.
-340. Day 2 = the write half; ping replies 0% loss; the checksum is the centerpiece.
+340. Doc 2 = the write half; ping replies 0% loss; the checksum is the centerpiece.
 
 ---
 
-## BO. The complete Day-2 data flow (annotated diagram)
+## BO. The complete Doc-2 data flow (annotated diagram)
 
 ```
   ping process                    KERNEL                         our stack (tun0 fd)
@@ -8534,7 +8534,7 @@ test, then the bug can't survive.
        │ RTT = now − ts; 0% loss    │                                   │
 ```
 `*` we don't validate the incoming IP checksum by default (exercise H.7). Every "cksum" label is a
-place the §B/§R arithmetic runs. The two **recompute** steps on our side are the entirety of Day-2's
+place the §B/§R arithmetic runs. The two **recompute** steps on our side are the entirety of Doc-2's
 new code; the two **VERIFY** steps on the kernel side are why a bad checksum vanishes silently.
 
 ## BP. Building the reply for a 1000-byte ping (the length math)
@@ -8570,9 +8570,9 @@ Offline: build the reply for a synthetic 1028-byte request; assert `utils::check
 `reply[28..] == request[28..]` (the 1000-byte payload echoed). Same assertions as the small ping,
 larger data — proving size-agnosticism by test.
 
-## BQ. Day 2 — deeper facts (341–380)
+## BQ. Doc 2 — deeper facts (341–380)
 
-341. The two "recompute" steps (IP + ICMP cksum) are Day-2's entire new code.
+341. The two "recompute" steps (IP + ICMP cksum) are Doc-2's entire new code.
 342. The kernel verifies our reply's checksums on ingress.
 343. A bad checksum is dropped before ping sees it.
 344. We don't validate the incoming IP checksum by default.
@@ -8608,14 +8608,14 @@ larger data — proving size-agnosticism by test.
 374. The checksum is the most-run arithmetic on the internet.
 375. It must be cheap because every packet pays for it.
 376. It's weak by design; strength lives in CRC/TLS where warranted.
-377. Day 2 split into modules at the 2+-callers threshold.
+377. Doc 2 split into modules at the 2+-callers threshold.
 378. Re-type the checksum (a core); re-type build_echo_reply (glue).
 379. Teach it (the finish line): why verify-to-zero, why recompute on swap.
-380. Day 2 milestone: ping 0% loss, verified by tests + tcpdump + by hand.
+380. Doc 2 milestone: ping 0% loss, verified by tests + tcpdump + by hand.
 
 ---
 
-## BR. Byte-layout reference tables (Day 2 messages)
+## BR. Byte-layout reference tables (Doc 2 messages)
 
 ### BR.1 — ICMP Echo (request and reply share this layout)
 | Offset (in ICMP message) | Bytes | Field | Request | Reply |
@@ -8663,7 +8663,7 @@ larger data — proving size-agnosticism by test.
 | 9 | 1 | protocol (17 UDP / 6 TCP) |
 | 10–11 | 2 | transport length |
 
-## BS. Day 2 — deeper facts (381–420)
+## BS. Doc 2 — deeper facts (381–420)
 
 381. ICMP echo request and reply share one layout; only type (and checksum) differ.
 382. The identifier correlates a reply to the sending process.
@@ -8704,9 +8704,9 @@ larger data — proving size-agnosticism by test.
 417. The refactor preserved behavior (tests green).
 418. UDP echo is the stateless warm-up before stateful TCP.
 419. The build technique (zero, checksum-last, BE) is universal.
-420. Day 2 = the write half; the checksum is the centerpiece.
+420. Doc 2 = the write half; the checksum is the centerpiece.
 
-## BT. Rust idioms used in Day 2 (quick reference)
+## BT. Rust idioms used in Doc 2 (quick reference)
 
 - **`&[u8]` / `&mut [u8]`** — shared/exclusive borrowed byte views; the parse/build inputs.
 - **`Vec<u8>` + `to_vec()`** — owned, growable buffer for an outgoing packet (mutate-a-copy).
@@ -8726,9 +8726,9 @@ Rust packet code you read next, e.g. smoltcp) legible at a glance.
 
 ---
 
-## BU. An annotated lab transcript (what a real Day-2 session looks like)
+## BU. An annotated lab transcript (what a real Doc-2 session looks like)
 
-A narrated walkthrough of bringing Day 2 up, with the actual output and what each line means.
+A narrated walkthrough of bringing Doc 2 up, with the actual output and what each line means.
 
 ### BU.1 — Build + test
 ```
@@ -8771,7 +8771,7 @@ PING 192.168.0.2 (192.168.0.2) 56(84) bytes of data.
 --- 192.168.0.2 ping statistics ---
 3 packets transmitted, 3 received, 0% packet loss
 ```
-*Meaning:* **0% loss** — the Day-2 milestone. The `64 bytes` and `ttl=64` confirm our reply's size and
+*Meaning:* **0% loss** — the Doc-2 milestone. The `64 bytes` and `ttl=64` confirm our reply's size and
 TTL; the sub-ms RTT is expected over a local TUN.
 
 ### BU.4 — The stack's log (terminal 1)
@@ -8795,12 +8795,12 @@ IP 192.168.0.2 > 192.168.0.1: ICMP echo reply,   id ..., seq 1, length 64
 `-vv` tcpdump would flag bad ones). Three views (test, log, tcpdump) agree → certainty.
 
 ### BU.6 — What you just proved
-The full Day-2 path works: receive → parse → build a valid reply (two checksums) → send → kernel
+The full Doc-2 path works: receive → parse → build a valid reply (two checksums) → send → kernel
 accepts → ping matches. You built a host that answers pings using a stack you wrote, and verified it
-three independent ways. That triangulated confidence is the habit to carry into Day 3, where the
+three independent ways. That triangulated confidence is the habit to carry into Doc 3, where the
 state machine makes "does it actually work?" a harder question.
 
-## BV. Day 2 — deeper facts (421–460)
+## BV. Doc 2 — deeper facts (421–460)
 
 421. `cargo test` proves the bytes before any network setup.
 422. If `reply_is_well_formed` is green, a live failure is environmental.
@@ -8818,17 +8818,17 @@ state machine makes "does it actually work?" a harder question.
 434. The pinger matches replies by ICMP id.
 435. The sequence number tracks per-packet loss.
 436. ping computes RTT from the echoed timestamp.
-437. 0% loss is the Day-2 milestone.
-438. Day 1 had 100% loss (no reply); Day 2 has 0% (reply sent).
-439. The two checksum recomputes are Day-2's entire new code.
+437. 0% loss is the Doc-2 milestone.
+438. Doc 1 had 100% loss (no reply); Doc 2 has 0% (reply sent).
+439. The two checksum recomputes are Doc-2's entire new code.
 440. The kernel verifies our reply's checksums on ingress.
 441. We don't validate the request's IP checksum by default.
 442. build_echo_reply mutates a copy; the payload echoes.
 443. It's size-agnostic; a 1000-byte ping echoes too.
 444. UDP echo is the stateless pseudo-header warm-up.
 445. ICMP error generation is build-from-scratch (quotes the original).
-446. TCP segments (Day 3) are build-from-scratch with state.
-447. The checksum + pseudo-header recur unchanged in Day 3.
+446. TCP segments (Doc 3) are build-from-scratch with state.
+447. The checksum + pseudo-header recur unchanged in Doc 3.
 448. The module structure makes tcp.rs slot in cleanly.
 449. Detection (checksum) precedes recovery (retransmit).
 450. The checksum is weak, cheap, endianness-independent, updatable.
@@ -8841,11 +8841,11 @@ state machine makes "does it actually work?" a harder question.
 457. Teach it — the real finish line.
 458. Daily habit: a hand-checksum + a bit-manipulation problem.
 459. /tcp-tutor grades your explanation against the code.
-460. Day 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% loss live.
+460. Doc 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% loss live.
 
-## BW. How Day 2 connects to the rest of the curriculum
+## BW. How Doc 2 connects to the rest of the curriculum
 
-- **To Day 3 (TCP):** the checksum + pseudo-header and the build technique are reused directly; the
+- **To Doc 3 (TCP):** the checksum + pseudo-header and the build technique are reused directly; the
   echo-server pattern foreshadows the TCP echo.
 - **To the security track:** packet construction (build-from-scratch) is the red-team primitive;
   responder hardening (rate-limit, validate, fail-closed) is the blue-team discipline; fuzzing the
@@ -8856,15 +8856,15 @@ state machine makes "does it actually work?" a harder question.
 - **To the daily lane:** hand-checksums and bit-manipulation LeetCode reinforce §C/§R; a blog post
   "how ping really works (and how I made it reply)" is the teach-it finish line and portfolio piece.
 - **To later projects:** every protocol you build (DNS, a TCP stack proper, an IDS) reuses the
-  parse/build/checksum trio. Day 2 is where construction (not just parsing) became a skill you own.
+  parse/build/checksum trio. Doc 2 is where construction (not just parsing) became a skill you own.
 
-Day 2 looks small (a checksum and a reply), but it's the hinge from *reading* the network to
+Doc 2 looks small (a checksum and a reply), but it's the hinge from *reading* the network to
 *participating* in it — the prerequisite for everything stateful and everything offensive/defensive
 that follows.
 
 ---
 
-## BX. Day-2 FAQ III
+## BX. Doc-2 FAQ III
 
 **1. Can I checksum a buffer that includes more than the region (e.g. trailing bytes)?** No — the
 checksum must cover exactly the defined region (IP header, or ICMP message, or pseudo-header+segment).
@@ -8892,7 +8892,7 @@ answer to *its* request. Changing it would make ping ignore the reply.
 message. The IP header has its own separate checksum. (TCP/UDP differ — they pull IP fields into the
 pseudo-header.)
 
-**8. Could I implement Day 2 with `etherparse` building the reply?** You could, but you'd learn the
+**8. Could I implement Doc 2 with `etherparse` building the reply?** You could, but you'd learn the
 crate, not the protocol. We use etherparse only as an oracle; building by hand is the point.
 
 **9. Why `debug_assert` and not `assert` for the checksum invariants?** `debug_assert` is compiled out
@@ -8915,8 +8915,8 @@ and that the destination is local before delivering. It treats our `write` like 
 value would need a compensating change to still sum correctly — possible but you'd have made two
 errors. Keep it consistent with the actual bytes.
 
-**15. Is there any state in Day 2?** No — echo is stateless (the `packet_count` is just a log
-counter). State arrives in Day 3 (the TCB). That statelessness is why Day 2 is simpler than Day 3.
+**15. Is there any state in Doc 2?** No — echo is stateless (the `packet_count` is just a log
+counter). State arrives in Doc 3 (the TCB). That statelessness is why Doc 2 is simpler than Doc 3.
 
 **16. Why is UDP's checksum optional but not IP's or TCP's?** UDP is "best effort" and predates some
 hardening; IPv4 let senders skip it for speed. IP's protects routing-critical header fields; TCP's is
@@ -8932,10 +8932,10 @@ you won't see them unless you introduce delay/loss (e.g. `tc netem`).
 **19. Why is the reply's TTL reset to 64 rather than copied?** A reply is a fresh packet originating
 from us; it should start with a full hop budget, not inherit the request's (possibly decremented) TTL.
 
-**20. What single Day-2 skill matters most for Day 3?** Building a valid packet (correct fields,
-checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a pseudo-header and state.
+**20. What single Doc-2 skill matters most for Doc 3?** Building a valid packet (correct fields,
+checksum last, big-endian) — Doc 3 builds SYN-ACKs the same way, just with a pseudo-header and state.
 
-## BY. Day 2 — deeper facts (461–500)
+## BY. Doc 2 — deeper facts (461–500)
 
 461. The checksum must cover exactly its region — no more, no less.
 462. The IP checksum is header-only to bound router cost.
@@ -8952,13 +8952,13 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 473. Reply size is bounded by the MTU in practice.
 474. The kernel verifies our reply before delivering.
 475. total_length is covered by the IP checksum.
-476. Day 2 is stateless; state begins Day 3.
+476. Doc 2 is stateless; state begins Doc 3.
 477. UDP checksum is optional in IPv4, mandatory in IPv6.
 478. Duplicated/reordered replies cause ping "DUP!"/reorder output.
 479. Our responder sends one in-order reply per request.
 480. Batching replies needs the event loop.
 481. The reply's TTL is reset to 64 (fresh packet).
-482. The key Day-3 skill from Day 2 is building a valid packet.
+482. The key Doc-3 skill from Doc 2 is building a valid packet.
 483. Checksum last; big-endian; field zeroed first.
 484. IP checksum over the header; transport over pseudo+segment.
 485. One's complement: invert; two zeros; end-around carry.
@@ -8975,10 +8975,10 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 496. UDP echo = pseudo-header checksum, no state (warm-up).
 497. ICMP error generation = build-from-scratch + quote (like SYN-ACK).
 498. Three-view debugging: test, log, tcpdump.
-499. Teach it (verify-to-zero, recompute-on-swap) = Day 2 owned.
-500. Day 2 milestone: ping 0% loss; the write half of the stack.
+499. Teach it (verify-to-zero, recompute-on-swap) = Doc 2 owned.
+500. Doc 2 milestone: ping 0% loss; the write half of the stack.
 
-## BZ. Debugging tools, deeper (Day-2 specific)
+## BZ. Debugging tools, deeper (Doc-2 specific)
 
 - **`cargo test`** — the first and fastest check; offline, deterministic. Run on every change.
 - **`tcpdump -i tun0 -n -vv`** — see request + reply; `-vv` flags bad checksums.
@@ -8992,7 +8992,7 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 - **`ip -s link show tun0`** — rx/tx packet and error counters; confirms packets are flowing.
 - **`getcap <binary>`** — confirm `cap_net_admin` is set (empty after a rebuild → re-setcap).
 - **`tc qdisc add dev tun0 root netem loss 10% delay 50ms`** — inject loss/delay to test robustness
-  (and to *see* the difference between detection and recovery — Day 2 detects/drops, doesn't recover).
+  (and to *see* the difference between detection and recovery — Doc 2 detects/drops, doesn't recover).
 
 The workflow: `cargo test` (bytes) → run + `tcpdump` (wire) → Wireshark if a generated packet is
 silently dropped (checksum) → `tc netem` to stress. Each tool answers a specific question; knowing
@@ -9000,7 +9000,7 @@ which to reach for is the debugging skill.
 
 ---
 
-## CA. Reference card II — the complete Day-2 mental model on one screen
+## CA. Reference card II — the complete Doc-2 mental model on one screen
 
 ```
 GOAL: make ping reply (0% loss) → first WRITE to the wire.
@@ -9021,9 +9021,9 @@ DETECTION (cksum, drop) ≠ RECOVERY (TCP retransmit, later)
 MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 ```
 
-## CB. Day 2 — deeper facts (501–580)
+## CB. Doc 2 — deeper facts (501–580)
 
-501. Day 2's goal: make ping reply, 0% loss.
+501. Doc 2's goal: make ping reply, 0% loss.
 502. It's the first time we write to the wire.
 503. The checksum is the centerpiece concept.
 504. RFC 1071 defines it; RFC 1624 the incremental update.
@@ -9058,7 +9058,7 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 533. A bad checksum is dropped silently.
 534. The pinger matches replies by ICMP id.
 535. RTT from the echoed timestamp.
-536. Day 2 split into utils/ip/icmp modules.
+536. Doc 2 split into utils/ip/icmp modules.
 537. mod X; compiles src/X.rs.
 538. pub defines the cross-module API.
 539. Tests live per module.
@@ -9091,7 +9091,7 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 566. UDP echo is the stateless pseudo-header warm-up.
 567. The pseudo-header is the one new checksum wrinkle.
 568. The build technique transfers to TCP.
-569. The checksum + pseudo-header recur unchanged in Day 3.
+569. The checksum + pseudo-header recur unchanged in Doc 3.
 570. The module structure makes tcp.rs slot in cleanly.
 571. ping (1983, Muuss); ICMP (1981, Postel).
 572. traceroute reuses Time Exceeded.
@@ -9101,12 +9101,12 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 576. Type the checksum; re-type build_echo_reply; Anki from slips; teach it.
 577. /tcp-tutor grades your explanation.
 578. Three-view debugging: test, log, tcpdump.
-579. Day 2 = the write half; Day 1 = read; together = full duplex.
+579. Doc 2 = the write half; Doc 1 = read; together = full duplex.
 580. Milestone: ping 0% loss, verified three ways.
 
-## CC. What's truly new in Day 3 (deep preview)
+## CC. What's truly new in Doc 3 (deep preview)
 
-Day 3 (TCP handshake) adds exactly three new things; everything else is Day-1/Day-2 skills reused.
+Doc 3 (TCP handshake) adds exactly three new things; everything else is Doc-1/Doc-2 skills reused.
 
 ### CC.1 — New thing 1: state across packets (the TCB)
 ICMP/UDP echo are stateless — handle a packet, forget it. TCP must *remember*: which connections
@@ -9132,14 +9132,14 @@ heart of TCP.
 - `iface.recv`/`send` — the same I/O.
 
 ### CC.5 — The honest difficulty curve
-Day 1: read. Day 2: write (stateless). Day 3+: write with *state and arithmetic*. The jump is real,
-which is why Days 1–2 built the foundation carefully. With packet parsing, construction, and the
-checksum owned, Day 3's only genuinely hard part is the state machine — and that's where the learning
+Doc 1: read. Doc 2: write (stateless). Doc 3+: write with *state and arithmetic*. The jump is real,
+which is why Docs 1–2 built the foundation carefully. With packet parsing, construction, and the
+checksum owned, Doc 3's only genuinely hard part is the state machine — and that's where the learning
 payoff is highest.
 
 ---
 
-## CD. Final consolidated tables (Day 2)
+## CD. Final consolidated tables (Doc 2)
 
 ### CD.1 — Every checksum the stack computes/verifies
 | Where | Layer | Range | Pseudo? | Action |
@@ -9167,15 +9167,15 @@ payoff is highest.
 | UDP | optional (0=none) | mandatory |
 | TCP | mandatory | mandatory |
 
-### CD.4 — The Day-2 code map
-| File | Adds in Day 2 | Lines (approx) |
+### CD.4 — The Doc-2 code map
+| File | Adds in Doc 2 | Lines (approx) |
 |------|---------------|----------------|
 | utils.rs | `checksum` | the core |
 | ip.rs | `write_header_checksum` | small |
 | icmp.rs | `build_echo_reply` | medium |
 | main.rs | ICMP reply arm; `mod` decls | small |
 
-## CE. Day 2 — deeper facts (581–650)
+## CE. Doc 2 — deeper facts (581–650)
 
 581. The kernel computes the request's checksums; we (could) verify them.
 582. We recompute the reply's IP + ICMP checksums.
@@ -9226,7 +9226,7 @@ payoff is highest.
 627. The refactor preserved behavior.
 628. UDP echo = pseudo-header, no state.
 629. The build technique transfers to TCP.
-630. Day 3 adds state, build-from-scratch, sequence arithmetic.
+630. Doc 3 adds state, build-from-scratch, sequence arithmetic.
 631. State (the TCB) is the biggest jump.
 632. SYN-ACK is build-from-scratch + pseudo-header.
 633. Sequence numbers are 32-bit and wrap.
@@ -9245,12 +9245,12 @@ payoff is highest.
 646. Anki from your slips; teach it.
 647. /tcp-tutor grades your explanation.
 648. Three-view debugging: test, log, tcpdump.
-649. Day 2 = the write half; ping 0% loss.
-650. Day 2 owned: re-type both, hand-checksum, teach verify-to-zero, 0% live.
+649. Doc 2 = the write half; ping 0% loss.
+650. Doc 2 owned: re-type both, hand-checksum, teach verify-to-zero, 0% live.
 
-## CF. Day-2 self-exam (50 questions, no answers)
+## CF. Doc-2 self-exam (50 questions, no answers)
 
-1. What is Day 2's milestone? 2. What's the first thing Day 2 does that Day 1 didn't?
+1. What is Doc 2's milestone? 2. What's the first thing Doc 2 does that Doc 1 didn't?
 3. State the checksum algorithm. 4. Why a u32 accumulator? 5. What is end-around carry?
 6. Why two zeros in one's complement? 7. State the verify rule. 8. How do you compute (4 steps)?
 9. What range does the IP checksum cover? 10. The ICMP checksum? 11. The TCP/UDP checksum?
@@ -9261,15 +9261,15 @@ type? 21. Why does the payload echo for free? 22. Why is the reply size-agnostic
 mutate-in-place vs build-from-scratch? 24. When use each? 25. What does an ICMP error quote, and why?
 26. Port Unreachable type/code? 27. Time Exceeded type? 28. What does iface.send do? 29. Why does a
 bad checksum vanish silently? 30. How does the kernel match a reply to ping? 31. How is RTT computed?
-32. Why did Day 2 justify modules? 33. Draw the module dependency graph. 34. What does `mod X;` do?
+32. Why did Doc 2 justify modules? 33. Draw the module dependency graph. 34. What does `mod X;` do?
 35. What does `pub` control? 36. Where do tests live? 37. Why was the refactor safe? 38. Detection vs
 recovery? 39. Who recovers from loss? 40. Why is the checksum weak, and why is that OK? 41. Name two
 errors it misses. 42. How do routers update it cheaply? 43. What must NAT fix? 44. What did IPv6
 change? 45. What is checksum offload? 46. Why is a red checksum on TUN a real bug? 47. What's new in
-Day 3 (three things)? 48. What transfers unchanged to Day 3? 49. What's the single most important
-Day-2 skill for Day 3? 50. How do you know Day 2 is *owned*, not just read?
+Doc 3 (three things)? 48. What transfers unchanged to Doc 3? 49. What's the single most important
+Doc-2 skill for Doc 3? 50. How do you know Doc 2 is *owned*, not just read?
 
-If you can answer all 50 cold, Day 2 is yours.
+If you can answer all 50 cold, Doc 2 is yours.
 
 ---
 
@@ -9311,7 +9311,7 @@ A checksum turns "silently act on corrupt data" into "detect and drop." Detectio
 recovery (resend) is TCP's. Watching one bit flip get caught (or slip through a canceling pair) is the
 most concrete way to internalize both the *value* and the *limits* of the Internet checksum.
 
-## CH. Day 2 — deeper facts (651–720)
+## CH. Doc 2 — deeper facts (651–720)
 
 651. A single bit flip changes the one's-complement sum → detected.
 652. The receiver's checksum comes out nonzero → drop.
@@ -9344,7 +9344,7 @@ most concrete way to internalize both the *value* and the *limits* of the Intern
 679. The payload echoes for free.
 680. iface.send = write(tun_fd); kernel verifies, drops if bad.
 681. Ping matches by id; RTT from echoed timestamp.
-682. Day 2 is stateless; Day 3 adds the TCB.
+682. Doc 2 is stateless; Doc 3 adds the TCB.
 683. SYN-ACK is build-from-scratch + pseudo-header.
 684. Sequence numbers wrap mod 2³².
 685. SYN/FIN each consume a sequence number.
@@ -9379,12 +9379,12 @@ most concrete way to internalize both the *value* and the *limits* of the Intern
 714. Type the checksum; re-type build_echo_reply.
 715. Anki from your slips; teach it (the finish line).
 716. /tcp-tutor grades your explanation.
-717. Day 2 = the write half; Day 1 = the read half.
+717. Doc 2 = the write half; Doc 1 = the read half.
 718. Together = full duplex over TUN.
-719. Day 2 milestone: ping 0% loss, verified three ways.
-720. Day 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% live.
+719. Doc 2 milestone: ping 0% loss, verified three ways.
+720. Doc 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% live.
 
-## CI. Consolidated glossary (Day 2, alphabetical)
+## CI. Consolidated glossary (Doc 2, alphabetical)
 
 - **Adler-32 / Fletcher** — stronger, position-sensitive checksums (catch reorders); uncommon in IP.
 - **build-from-scratch** — synthesize a packet in a zeroed buffer (SYN-ACK, ICMP error).
@@ -9449,7 +9449,7 @@ generalizes: TCP/UDP add a pseudo-header (more summands — same group), routers
 what modulus?" and its properties follow. This is the kind of structural understanding the curriculum
 is after — not memorizing steps, but seeing why they're forced.
 
-## CK. Day 2 — deeper facts (721–800)
+## CK. Doc 2 — deeper facts (721–800)
 
 721. One's-complement 16-bit addition is arithmetic mod 65535.
 722. It forms an abelian group under addition.
@@ -9508,9 +9508,9 @@ is after — not memorizing steps, but seeing why they're forced.
 775. Anki from your slips.
 776. Teach it (the finish line).
 777. /tcp-tutor grades your explanation.
-778. Day 1 = read; Day 2 = write; together = full duplex.
-779. Day 3 adds state, build-from-scratch, sequence arithmetic.
-780. Day 2 milestone: ping 0% loss, verified three ways.
+778. Doc 1 = read; Doc 2 = write; together = full duplex.
+779. Doc 3 adds state, build-from-scratch, sequence arithmetic.
+780. Doc 2 milestone: ping 0% loss, verified three ways.
 781. The group framing explains every checksum property from one principle.
 782. Ask "what group, what modulus?" of any checksum variant.
 783. Structural understanding > memorized steps (the curriculum's goal).
@@ -9526,11 +9526,11 @@ is after — not memorizing steps, but seeing why they're forced.
 793. Single bytes need no endianness.
 794. The reply's TTL is reset to 64 (fresh packet).
 795. ICMP id demultiplexes replies to the right process.
-796. The 4-tuple (Day 3) generalizes id-based demux.
+796. The 4-tuple (Doc 3) generalizes id-based demux.
 797. SYN/FIN each consume a sequence number.
 798. ACK is cumulative.
 799. The checksum + pseudo-header recur unchanged in TCP.
-800. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+800. Doc 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
 ## CL. Reference card III — the math in one screen
 
@@ -9552,7 +9552,7 @@ PSEUDO-HEADER (12B): srcIP dstIP 0 proto len   (input only)
 
 ## CM. The UDP-echo and RST code, annotated (shipped in PR #6)
 
-The stack grew two real features that put Day-2's construction skills to work. Both are now in the
+The stack grew two real features that put Doc-2's construction skills to work. Both are now in the
 code and tested (24 tests green).
 
 ### CM.1 — `udp::build_echo_reply` (UDP echo)
@@ -9591,14 +9591,14 @@ pub fn build_rst(ip_src, ip_dst, th, payload_len) -> Vec<u8> {
 Two cases from the RFC: if the offending segment carried an ACK, the peer already has a sequence
 context, so reset with `seq = SEG.ACK` and no ACK flag; otherwise acknowledge the offending segment's
 sequence span (`SEG.SEQ + SEG.LEN`, with SYN/FIN counting as 1) and set RST+ACK. It's build-from-
-scratch (no request to mutate), so it exercises the §BG/Day-3 construction technique. Wired into the
+scratch (no request to mutate), so it exercises the §BG/Doc-3 construction technique. Wired into the
 TCP `None =>` (no connection) branch.
 
 ### CM.3 — Why these two, now
 UDP echo completes the *stateless* transport story (the pseudo-header checksum on a real reply, §BJ).
 RST makes the TCP responder *polite and correct* — a scanner or a stale client gets a definitive
 "no connection here" instead of timing out, which is both proper behavior and a security-relevant
-signal-reduction (no silent black hole). Both are small, well-tested, and reuse Day-2 skills — the
+signal-reduction (no silent black hole). Both are small, well-tested, and reuse Doc-2 skills — the
 right kind of increment.
 
 ### CM.4 — The tests that guard them
@@ -9613,11 +9613,11 @@ test goes red.
 ### CM.5 — What they teach
 UDP echo proves you can do the pseudo-header checksum on a *generated* reply (not just verify it).
 RST proves you can build a packet *from scratch* with spec-driven seq/ack logic — the exact muscle
-Day 3's SYN-ACK needs. So these aren't detours: they're Day-2-skill consolidation that front-loads
-two of Day-3's three new things (build-from-scratch, pseudo-header), leaving only *state* genuinely
-new in Day 3.
+Doc 3's SYN-ACK needs. So these aren't detours: they're Doc-2-skill consolidation that front-loads
+two of Doc-3's three new things (build-from-scratch, pseudo-header), leaving only *state* genuinely
+new in Doc 3.
 
-## CN. Day 2 — deeper facts (801–870)
+## CN. Doc 2 — deeper facts (801–870)
 
 801. UDP echo mirrors ICMP echo with two differences.
 802. Difference 1: swap ports, not flip a type.
@@ -9640,9 +9640,9 @@ new in Day 3.
 819. It also reduces a silent-timeout signal for scanners.
 820. build_rst window is 0.
 821. rst_for_stray_ack test: seq = SEG.ACK, valid checksums.
-822. UDP echo front-loads Day-3's pseudo-header skill.
-823. RST front-loads Day-3's build-from-scratch skill.
-824. Only *state* is genuinely new in Day 3.
+822. UDP echo front-loads Doc-3's pseudo-header skill.
+823. RST front-loads Doc-3's build-from-scratch skill.
+824. Only *state* is genuinely new in Doc 3.
 825. 24 tests pass after these additions.
 826. Tests encode the spec as executable checks.
 827. Break construction order → a test goes red.
@@ -9687,7 +9687,7 @@ new in Day 3.
 866. tcpdump shows the echo/RST on the wire.
 867. The Rust code is safe (iterators/bounds) and fast.
 868. Type the cores; re-type the builders; teach it.
-869. Day 2 = the write half; the checksum is the centerpiece.
+869. Doc 2 = the write half; the checksum is the centerpiece.
 870. The stack now answers ping, echoes UDP, and resets stray TCP.
 
 ## CO. Final reference — the stack's response behavior (post-PR #6)
@@ -9708,7 +9708,7 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 
 ---
 
-## CP. Day 2 — deeper facts (871–960)
+## CP. Doc 2 — deeper facts (871–960)
 
 871. The stack now answers ping, echoes UDP, and resets stray TCP.
 872. Each response carries valid IP + (where applicable) transport checksums.
@@ -9753,14 +9753,14 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 911. Tests encode the spec as executable checks.
 912. PR #6 carries the stack + the teaching books.
 913. The doc loop continues on the feature branch.
-914. UDP echo front-loads Day-3's pseudo-header skill.
-915. RST front-loads Day-3's build-from-scratch skill.
-916. Only *state* is genuinely new in Day 3.
+914. UDP echo front-loads Doc-3's pseudo-header skill.
+915. RST front-loads Doc-3's build-from-scratch skill.
+916. Only *state* is genuinely new in Doc 3.
 917. SYN/FIN each consume a sequence number.
 918. ACK is cumulative ("next expected").
 919. The 4-tuple identifies a TCP connection.
 920. ICMP id / UDP+TCP ports demultiplex.
-921. The connection table (Day 3) is TCP's memory.
+921. The connection table (Doc 3) is TCP's memory.
 922. Sequence numbers are 32-bit and wrap.
 923. The checksum + pseudo-header recur unchanged in TCP.
 924. build_packet synthesizes IP + TCP.
@@ -9789,16 +9789,16 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 947. tc netem stresses with loss/delay.
 948. debug_assert checksums in build fns.
 949. tracing + RUST_LOG for structured logs.
-950. Day 1 = read; Day 2 = write; together = full duplex.
-951. Day 2 milestone: ping 0% loss, UDP echo, TCP RST.
-952. Day 3 milestone: a TCP connection reaches ESTABLISHED.
+950. Doc 1 = read; Doc 2 = write; together = full duplex.
+951. Doc 2 milestone: ping 0% loss, UDP echo, TCP RST.
+952. Doc 3 milestone: a TCP connection reaches ESTABLISHED.
 953. The build discipline is universal across protocols.
 954. The checksum function is reused everywhere.
 955. Modules mirror the protocol stack.
 956. The stack is ~5 small, readable files.
 957. Smallness makes real stacks (smoltcp/Linux) readable later.
 958. Structural understanding > memorized steps.
-959. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+959. Doc 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
 960. The stack now genuinely participates in the network, not just observes.
 
 ## CR. Answer key to the §CF self-exam (50 questions)
@@ -9832,7 +9832,7 @@ closed-book, hand-compute a checksum, teach verify-to-zero, and get 0% loss live
 
 ---
 
-## CS. Every Day-2 formula and constant
+## CS. Every Doc-2 formula and constant
 
 ### CS.1 — Formulas
 - Checksum: `c = ~( foldcarries( Σ be16(words) + (odd_byte << 8) ) )`
@@ -9893,9 +9893,9 @@ value; re-summing with it → 0.
 **A.** A RST tears down; there's no flow to advertise a window for. The receiver ignores the window on
 a RST. Setting it to 0 is conventional and harmless.
 
-## CU. Day 2 — final facts (961–1000)
+## CU. Doc 2 — final facts (961–1000)
 
-961. CS.1 lists every Day-2 formula.
+961. CS.1 lists every Doc-2 formula.
 962. CS.2 lists every constant (protocols, types, offsets, flags).
 963. The checksum modulus is 65535.
 964. Checksum field offsets: IP 10-11, ICMP 2-3, UDP 6-7, TCP 16-17.
@@ -9921,10 +9921,10 @@ a RST. Setting it to 0 is conventional and harmless.
 984. The one's-complement sum is an abelian group mod 65535.
 985. Its properties (order/group independence, reorder-blindness) follow.
 986. UDP echo front-loads the pseudo-header; RST front-loads build-from-scratch.
-987. Only *state* is genuinely new in Day 3.
+987. Only *state* is genuinely new in Doc 3.
 988. The TCB is TCP's memory; the 4-tuple is the key.
 989. SYN/FIN consume a sequence number; ACK is cumulative.
-990. The checksum + pseudo-header recur unchanged in Day 3.
+990. The checksum + pseudo-header recur unchanged in Doc 3.
 991. 24 tests pass; PR #6 carries code + books.
 992. cargo test proves bytes offline.
 993. tcpdump/Wireshark verify the wire.
@@ -9933,12 +9933,12 @@ a RST. Setting it to 0 is conventional and harmless.
 996. Type the cores; re-type the builders; Anki from slips; teach it.
 997. /tcp-tutor grades your explanation.
 998. Three-view debugging: test, log, tcpdump.
-999. Day 1 = read; Day 2 = write; Day 3 = state.
-1000. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% loss live.
+999. Doc 1 = read; Doc 2 = write; Doc 3 = state.
+1000. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% loss live.
 
-## CV. Closing note — Day 2
+## CV. Closing note — Doc 2
 
-Day 1 taught you to *read* the network; Day 2 taught you to *write* to it. The hinge was a single
+Doc 1 taught you to *read* the network; Doc 2 taught you to *write* to it. The hinge was a single
 piece of arithmetic — the one's-complement Internet checksum — and a single discipline — build a
 packet by laying out bytes big-endian and checksumming last. With those, you made `ping` reply (0%
 loss), echoed UDP, and learned to reset stray TCP. You also saw, in `§CJ`, that the checksum's every
@@ -9947,22 +9947,22 @@ flip get caught — and a canceling pair slip through — so you know both its p
 
 The one habit to carry: **build the offline test before the live run.** A reply's correctness is a
 claim about specific bytes; a `#[cfg(test)]` that asserts the type, the addresses, and that each
-region's checksum verifies to 0 catches almost every Day-2 bug *before* you touch `tun0`. When the
+region's checksum verifies to 0 catches almost every Doc-2 bug *before* you touch `tun0`. When the
 test is green and the live link still misbehaves, it's the environment (PI header, setcap, interface),
 not your bytes — and you'll know which to fix.
 
 Now do the conversion-to-knowing: **re-type `utils::checksum` and `build_echo_reply` from this book
 with it closed, run `cargo test`, hand-compute one checksum, and make an Anki card from every line you
-peeked at.** Then turn to `day3-book.md`, where the stack grows a *memory* — the TCB — and a `SYN`
+peeked at.** Then turn to `doc3-book.md`, where the stack grows a *memory* — the TCB — and a `SYN`
 becomes a `SYN-ACK`. The checksum and the build discipline you own now are exactly what build that
 SYN-ACK; the only genuinely new thing waiting is *state*.
 
-— End of Day 2 (Volume I narrative + Volume II reference + Volume III tables). On to Day 3.
+— End of Doc 2 (Volume I narrative + Volume II reference + Volume III tables). On to Doc 3.
 
 ---
 ---
 
-# VOLUME IV — Appendix (Day 2)
+# VOLUME IV — Appendix (Doc 2)
 
 ## A2.1 — Binary / hex / decimal for 0–63 (the checksum drill table)
 
@@ -9999,7 +9999,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 0xEDCB. 20. `[ca fe ba be]` → fold(0x185BC)→0x85BD → 0x7A42. (Verify each: sum incl. its complement
 = 0xFFFF.)
 
-## A2.3 — Day 2 — final facts (1001–1190)
+## A2.3 — Doc 2 — final facts (1001–1190)
 
 1001. The Internet checksum is RFC 1071.
 1002. It is one's-complement sum then complement.
@@ -10067,7 +10067,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1064. The build discipline is universal.
 1065. The checksum function is reused everywhere.
 1066. Only byte range and pseudo-header presence differ.
-1067. Day 1 = read; Day 2 = write; Day 3 = state.
+1067. Doc 1 = read; Doc 2 = write; Doc 3 = state.
 1068. The stack answers ping, echoes UDP, resets stray TCP.
 1069. Each response has valid checksums.
 1070. Each inbound is length-guarded.
@@ -10087,7 +10087,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1084. RST avoids a silent black hole.
 1085. UDP echo front-loads the pseudo-header skill.
 1086. RST front-loads build-from-scratch.
-1087. Only state is genuinely new in Day 3.
+1087. Only state is genuinely new in Doc 3.
 1088. The TCB is TCP's memory.
 1089. SYN/FIN consume a sequence number.
 1090. ACK is cumulative.
@@ -10113,7 +10113,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1110. The verify trick turns checking into "sum to 0."
 1111. Fletcher/Adler catch reorders; uncommon in IP.
 1112. The build technique scales from echo to TCP.
-1113. Day 1 read + Day 2 write = full duplex.
+1113. Doc 1 read + Doc 2 write = full duplex.
 1114. The checksum reappears in TCP unchanged.
 1115. Clean modules make tcp.rs slot in cleanly.
 1116. Build the offline test before the wire.
@@ -10154,7 +10154,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1151. Each response is built with valid checksums.
 1152. Each inbound is parsed with guards (no panic).
 1153. The stack participates in ICMP/TCP/UDP.
-1154. It does not yet do retransmission (Day 5+ roadmap).
+1154. It does not yet do retransmission (Doc 5+ roadmap).
 1155. Retransmission needs the event-loop refactor.
 1156. Flow/congestion control are roadmap items.
 1157. Active open (connect) is a roadmap item.
@@ -10169,7 +10169,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1166. Building 1% yourself makes the 99% readable.
 1167. The stack is ~5 small files.
 1168. Smallness is the point.
-1169. The checksum is the centerpiece of Day 2.
+1169. The checksum is the centerpiece of Doc 2.
 1170. It's the most-run arithmetic on the internet.
 1171. It must be cheap; every packet pays.
 1172. Detection turns "act on garbage" into "drop."
@@ -10180,19 +10180,19 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1177. Reorder-blindness is the cost of commutativity.
 1178. CRC trades cost for reorder-detection.
 1179. The right check depends on the threat.
-1180. Day 2 = the write half; ping 0% loss.
+1180. Doc 2 = the write half; ping 0% loss.
 1181. Plus UDP echo and TCP RST.
 1182. The stack now participates, not just observes.
-1183. Day 3 adds state, build-from-scratch, sequence arithmetic.
+1183. Doc 3 adds state, build-from-scratch, sequence arithmetic.
 1184. Build-from-scratch was front-loaded by RST.
 1185. The pseudo-header was front-loaded by UDP.
 1186. Only state is genuinely new.
-1187. The TCB and connection table are Day 3's core.
+1187. The TCB and connection table are Doc 3's core.
 1188. The handshake's +1s are SYN consuming a seq.
 1189. ACK numbers mean "next expected."
-1190. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+1190. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
-## A2.4 — Day 2 — final facts (1191–1230)
+## A2.4 — Doc 2 — final facts (1191–1230)
 
 1191. The RST seq logic has two RFC cases (ACK / no ACK).
 1192. RST with ACK present uses seq = SEG.ACK.
@@ -10224,18 +10224,18 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1218. 24 tests pass; PR #6 carries code + books.
 1219. UDP echo front-loads the pseudo-header skill.
 1220. RST front-loads build-from-scratch.
-1221. Only state is genuinely new in Day 3.
+1221. Only state is genuinely new in Doc 3.
 1222. The TCB is TCP's memory; the 4-tuple is the key.
 1223. SYN/FIN consume a sequence number; ACK is cumulative.
 1224. The checksum + pseudo-header recur unchanged in TCP.
 1225. cargo test proves bytes offline.
 1226. tcpdump/Wireshark verify the wire.
 1227. Type the cores; re-type the builders; teach it.
-1228. Day 1 = read; Day 2 = write; Day 3 = state.
-1229. Day 2 milestone: ping 0% loss + UDP echo + TCP RST.
-1230. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+1228. Doc 1 = read; Doc 2 = write; Doc 3 = state.
+1229. Doc 2 milestone: ping 0% loss + UDP echo + TCP RST.
+1230. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
-*Day 2 complete (5,000+ lines). The stack writes to the wire. On to Day 3 — the stack grows a memory.*
+*Doc 2 complete (5,000+ lines). The stack writes to the wire. On to Doc 3 — the stack grows a memory.*
 
 
 
@@ -10245,7 +10245,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 
 
 
-# Day 3 — TCP, Part 1: The Three-Way Handshake
+# Doc 3 — TCP, Part 1: The Three-Way Handshake
 
 > Goal: when a client runs `nc 192.168.0.2 8080`, our stack answers its `SYN` with a `SYN-ACK`,
 > accepts the client's `ACK`, and reaches **ESTABLISHED** — a real, open TCP connection. This is
@@ -10253,7 +10253,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 > TCB), sequence numbers, and a state machine. After this you can explain every number in a handshake
 > and why three packets — not two, not four — are required.
 
-This is the hinge of the whole project. Days 1–2 were *stateless*: parse a packet, maybe reply, forget
+This is the hinge of the whole project. Docs 1–2 were *stateless*: parse a packet, maybe reply, forget
 it. From here on TCP forces us to *remember* — and almost every later day (data transfer,
 retransmission, flow/congestion control, options, SACK) is a refinement of the bookkeeping we set up
 today. Read this one slowly.
@@ -10300,7 +10300,7 @@ Volume II — the exhaustive reference
 
 ## 1. Why TCP is a different kind of problem
 
-ICMP (Day 2) was **stateless**: each packet was handled in isolation — see an echo request, send an
+ICMP (Doc 2) was **stateless**: each packet was handled in isolation — see an echo request, send an
 echo reply, forget everything. There was nothing to remember between packets. TCP is **stateful**. It
 turns IP's unreliable, unordered, duplicating, best-effort packet delivery into a **reliable, ordered,
 de-duplicated byte stream**, and the only way to do that is for both ends to *remember things across
@@ -10343,7 +10343,7 @@ and use it as the key of a `HashMap<Quad, Connection>`. Every incoming TCP segme
 
 - **found** → hand it to that connection's state machine (`on_segment`),
 - **not found** → if it's a `SYN`, open a new connection (`accept`); otherwise it's a stray segment to
-  a closed port, and the correct reply is a `RST` (we add that on Day 5; Day 3 simply ignores it).
+  a closed port, and the correct reply is a `RST` (we add that on Doc 5; Doc 3 simply ignores it).
 
 `Quad` derives `Hash, Eq, Copy` so it can be a map key and passed by value freely; `Ipv4Addr` already
 supports those. The direction convention (remote = source = client, local = destination = us) is worth
@@ -10361,7 +10361,7 @@ Four facts you must internalize:
 
 1. **They are 32-bit and wrap around** (mod 2³²). After `0xFFFF_FFFF` comes `0`. All arithmetic uses
    `wrapping_add` so overflow is *defined*, not a panic, and comparisons use *modular* "is A before B"
-   logic (RFC 1982 serial numbers — Day 3's `src/seq.rs`, expanded in §B). A connection that runs
+   logic (RFC 1982 serial numbers — Doc 3's `src/seq.rs`, expanded in §B). A connection that runs
    long enough genuinely wraps; the math must keep working across the seam.
 
 2. **They do not start at 0 on the wire.** Each side picks a random **Initial Sequence Number (ISN)**
@@ -10370,7 +10370,7 @@ Four facts you must internalize:
 
 3. **The ACK number is "the next sequence number I expect from you"** — a *cumulative* acknowledgement.
    `ACK = 101` means "I have everything up to and including byte 100; send me 101 next." One number
-   summarizes everything received so far. (Day 18's SACK adds a *second* channel for the gaps this one
+   summarizes everything received so far. (Doc 18's SACK adds a *second* channel for the gaps this one
    can't express — but that's far ahead.)
 
 4. **`SYN` and `FIN` each consume one sequence number**, even though they carry no data. This is why
@@ -10400,10 +10400,10 @@ read directly off the spec.
   acked yet. Everything below it is safely delivered.
 - `nxt` — **S**e**nd** **N**e**xt**: the next sequence number we'll put on the wire.
 - `wnd` — the peer's advertised receive window: how much it will let us have in flight (flow control,
-  Day 8). It's a `u32` in our code because window scaling (Day 17) can stretch it past 64 KB.
+  Doc 8). It's a `u32` in our code because window scaling (Doc 17) can stretch it past 64 KB.
 
 The region `[UNA, NXT)` is "sent but not yet acknowledged" — the data we may have to **retransmit**
-(Day 6). The region from `NXT` up to `UNA + WND` is what we may still send.
+(Doc 6). The region from `NXT` up to `UNA + WND` is what we may still send.
 
 **Receive Sequence Space** — about the bytes *we* receive (`RecvSequence`):
 
@@ -10461,7 +10461,7 @@ the minimum for two parties to agree on two numbers over an unreliable channel. 
 **Why bother agreeing on ISNs at all?** Because the network can deliver an *old* duplicate segment
 from a previous connection on the same 4-tuple. Random, per-connection ISNs make it astronomically
 unlikely that a stale segment's sequence number falls in the new connection's window, so the new
-connection isn't poisoned by ghosts of the old one. (This is the same reason TIME_WAIT exists — Day 7.)
+connection isn't poisoned by ghosts of the old one. (This is the same reason TIME_WAIT exists — Doc 7.)
 
 ## 6. The state machine (our subset)
 
@@ -10475,7 +10475,7 @@ is the smallest meaningful slice:
 - **(no entry in the table)** is effectively LISTEN/CLOSED — every port is implicitly "listening,"
   because we open a TCB on any incoming SYN.
 - **SYN_RCVD** — we've sent our SYN-ACK and await the client's ACK.
-- **ESTABLISHED** — open; ready for data (Day 4).
+- **ESTABLISHED** — open; ready for data (Doc 4).
 
 `Connection::accept` creates the TCB and the SYN-ACK; `Connection::on_segment` drives
 SYN_RCVD → ESTABLISHED. Later days add the teardown states (FIN_WAIT_1/2, CLOSING, CLOSE_WAIT,
@@ -10493,15 +10493,15 @@ mirror image of parsing:
 - **TCP header (20 B + options):** source/dest ports, the 32-bit seq and ack, the **data offset**
   (header length in 32-bit words, in the high nibble of byte 12 — the TCP analogue of IHL), the flag
   byte, the window, then the checksum, then the urgent pointer (0).
-- **payload** — none for a SYN-ACK; data arrives in Day 4.
+- **payload** — none for a SYN-ACK; data arrives in Doc 4.
 
 The whole thing is `vec![0u8; total_len]` followed by field-by-field `copy_from_slice` of big-endian
 bytes. Every multi-byte field goes out **most-significant byte first** (network byte order) — the
-discipline drilled in Day 1 §7. (Every field of the TCP header is dissected in §A.)
+discipline drilled in Doc 1 §7. (Every field of the TCP header is dissected in §A.)
 
 ## 8. The TCP checksum and the pseudo-header
 
-The TCP checksum uses the same one's-complement `utils::checksum` (Day 2), but over more than the
+The TCP checksum uses the same one's-complement `utils::checksum` (Doc 2), but over more than the
 segment: it covers a **pseudo-header** *plus* the TCP segment. The IPv4 pseudo-header is 12 bytes:
 
 ```text
@@ -10592,11 +10592,11 @@ see all three packets and can read the seq/ack numbers exactly as drawn in §5.
 | Decision | We chose | Alternative | Why / caveat |
 |---|---|---|---|
 | ISN | fixed 0 in tests, random in `accept` | always random | 0 is debuggable; **production must randomize** (RFC 6528) — a predictable ISN enables off-path spoofing/injection (§D). |
-| No-connection non-SYN | ignore (Day 3) | send RST | RST is the correct behavior; we add it on Day 5. |
+| No-connection non-SYN | ignore (Doc 3) | send RST | RST is the correct behavior; we add it on Doc 5. |
 | Connection key | `Quad{remote,local}` | a listener-socket abstraction | a real API has explicit listening sockets + an accept queue (§I); we go straight to per-flow TCBs. |
 | SYN-flood defense | none | SYN cookies | a real server must resist half-open floods (§E); out of scope but essential to know. |
-| Simultaneous open | not handled at Day 3 | full state machine | both-sides-SYN is rare; the code grows to handle it later (§G). |
-| Receive window | fixed 1024 | dynamic, from buffer space | real flow control arrives on Day 8. |
+| Simultaneous open | not handled at Doc 3 | full state machine | both-sides-SYN is rare; the code grows to handle it later (§G). |
+| Receive window | fixed 1024 | dynamic, from buffer space | real flow control arrives on Doc 8. |
 | TCB layout | two RFC-named structs | flat fields | matching RFC 9293 §3.3.1 names makes later rules read off the spec. |
 
 ## 13. Honesty: what production does that we don't
@@ -10608,7 +10608,7 @@ see all three packets and can read the seq/ack numbers exactly as drawn in §5.
 - **Fixed window, no buffers yet.** We advertise 1024 unconditionally; the real window tracks free
   receive-buffer space.
 - **No options yet.** A real SYN carries MSS, window scale, SACK-permitted, timestamps — all added
-  Days 15–18. Today's SYN-ACK is bare.
+  Docs 15–18. Today's SYN-ACK is bare.
 - **No RST, no PAWS, no challenge-ACK.** The defensive validations (RFC 5961) come much later.
 - **ISN is a counter/0 in tests**, not the RFC 6528 keyed hash (§D).
 
@@ -10645,11 +10645,11 @@ hardened server.
 
 ## 15. What the next step adds
 
-Day 4 is **data transfer**: in ESTABLISHED, accept incoming data, advance `RCV.NXT`, send an **ACK**
+Doc 4 is **data transfer**: in ESTABLISHED, accept incoming data, advance `RCV.NXT`, send an **ACK**
 for it, and — to prove it end to end — build a tiny **echo server** that sends the data back, verifiable
 with `nc`. That brings *acceptance tests* on sequence numbers (in-window vs out-of-window), the `PSH`
-flag, and sending data with correct seq/ack. After that: teardown (FIN/TIME_WAIT, Days 5 & 7) and
-reliability (retransmission, Day 6).
+flag, and sending data with correct seq/ack. After that: teardown (FIN/TIME_WAIT, Docs 5 & 7) and
+reliability (retransmission, Doc 6).
 
 ---
 
@@ -10693,7 +10693,7 @@ within the TCP header:
    Window           14–15  16    receive window advertised by the sender
    Checksum         16–17  16    one's-complement over pseudo-header + segment
    Urgent Pointer   18–19  16    offset of urgent data; valid only if URG set
-   Options          20…    0–40  MSS, window scale, SACK-perm, timestamps (Days 15–18)
+   Options          20…    0–40  MSS, window scale, SACK-perm, timestamps (Docs 15–18)
 ```
 
 The six flags (byte 13, low bits), most to least significant of the low six:
@@ -10743,7 +10743,7 @@ The two windows on the circle, drawn together:
 ```
 
 A 32-bit space wraps after 4 GiB of one-directional data — reachable on a fast link, which is exactly
-why timestamps + PAWS (Day 16) exist to disambiguate a wrapped sequence from an ancient duplicate.
+why timestamps + PAWS (Doc 16) exist to disambiguate a wrapped sequence from an ancient duplicate.
 
 ## C. The full 11-state TCP state machine
 
@@ -10784,9 +10784,9 @@ where the handshake sits:
 ```
 
 - **The handshake** is the top half: CLOSED → (LISTEN | SYN_SENT) → SYN_RCVD → ESTABLISHED.
-- **The teardown** is the bottom half (Days 5 & 7): four-way close with FIN_WAIT/CLOSE_WAIT/CLOSING,
+- **The teardown** is the bottom half (Docs 5 & 7): four-way close with FIN_WAIT/CLOSE_WAIT/CLOSING,
   ending in TIME_WAIT's 2·MSL linger.
-- Our code's `State` enum names all of these; only the handshake half is reachable at Day 3.
+- Our code's `State` enum names all of these; only the handshake half is reachable at Doc 3.
 
 ## D. ISN selection and thirty years of attacks (RFC 6528)
 
@@ -10869,7 +10869,7 @@ Sum all the 16-bit words (pseudo-header + header) with end-around carry, then ta
 complement; that 16-bit result goes into the checksum field. The receiver sums the *same* words *with*
 the checksum in place and gets `0xFFFF` → `0` after complement — the property our
 `accept_produces_valid_synack` test checks with `tcp_checksum(...) == 0`. (The full one's-complement
-mechanics — folding carries, why `0` is sent as `0xFFFF` — are in day2-book.md §R; here the point is
+mechanics — folding carries, why `0` is sent as `0xFFFF` — are in doc2-book.md §R; here the point is
 *which bytes* go in: pseudo-header first, then the segment.)
 
 ## G. Active open, simultaneous open, and self-connect
@@ -10903,7 +10903,7 @@ The full passive-open handshake from §5, with our TCB after each step. `C` = cl
    ② U→C  SYN,ACK  seq=0 ack=101 win=1024
       wire (TCP hdr): 00 50 12 34 | 00 00 00 00 | 00 00 00 65 | 50 12 04 00 | csum | 00 00
                       sport 80    | seq 0       | ack 101     | off5 SYNACK  | ...
-      (queued for retransmission until the final ACK — Day 12)
+      (queued for retransmission until the final ACK — Doc 12)
 
    ③ C→U  ACK  seq=101 ack=1 win=65535
       wire (TCP hdr): 12 34 00 50 | 00 00 00 65 | 00 00 00 01 | 50 10 ff ff | csum | 00 00
@@ -10938,7 +10938,7 @@ Every byte we parse from a SYN is attacker-controlled, and the handshake itself 
 attacker can consume:
 
 - **Parser safety.** `parse` validates the data offset before slicing; a malformed offset can't make
-  us read out of bounds or panic. This is the same discipline as the Day 1/2 parsers — every length is
+  us read out of bounds or panic. This is the same discipline as the Doc 1/2 parsers — every length is
   checked against the actual buffer.
 - **Resource exhaustion.** With no half-open limit, a SYN flood grows our map without bound (§E). A
   real server caps it and uses cookies.
@@ -10949,7 +10949,7 @@ attacker can consume:
   source turns our server into a (small) reflector. Real mitigations rate-limit and use cookies.
 
 The takeaway from the security track: *the handshake is both a parser (validate everything) and a
-resource allocator (bound everything)*, and Day 3 implements the parser-safety half but not the
+resource allocator (bound everything)*, and Doc 3 implements the parser-safety half but not the
 resource-bounding half.
 
 ## K. Performance notes
@@ -10971,27 +10971,27 @@ resource-bounding half.
    the minimum that confirms both directions (§5). Four would be redundant.
 2. **Why does SYN consume a sequence number?** So its delivery is itself reliable — the SYN occupies a
    slot the ACK can acknowledge; that's the `+1`.
-3. **Does FIN also consume one?** Yes — same reason, at close (Day 5).
+3. **Does FIN also consume one?** Yes — same reason, at close (Doc 5).
 4. **What is the ACK number, exactly?** The next sequence number expected = cumulative "I have
    everything below this."
 5. **Why random ISNs?** To defeat off-path spoofing/injection and to fence off stale duplicates from a
    prior connection (§D).
-6. **What if two connections share a 4-tuple over time?** TIME_WAIT (Day 7) plus rising ISNs keep the
+6. **What if two connections share a 4-tuple over time?** TIME_WAIT (Doc 7) plus rising ISNs keep the
    old incarnation's segments from poisoning the new one.
 7. **What's `RCV.NXT` used for in our segments?** It's the ACK number we send — "send me this next."
 8. **What's `SND.NXT` vs `SND.UNA`?** NXT = next to send; UNA = oldest unacked. `[UNA, NXT)` is the
    retransmittable window.
-9. **Why is the window 1024 and fixed?** Placeholder until Day 8 wires it to real buffer space.
+9. **Why is the window 1024 and fixed?** Placeholder until Doc 8 wires it to real buffer space.
 10. **Why is `SND.WND` a `u32` but `RCV.WND` a `u16`?** The peer's window can be window-scaled past
-    64 KB (Day 17); the raw value we advertise is the 16-bit field.
+    64 KB (Doc 17); the raw value we advertise is the 16-bit field.
 11. **What's the pseudo-header for?** To bind the checksum to the IP addresses/protocol so a
     misdelivered segment is caught (§8, §F).
 12. **Is the pseudo-header sent on the wire?** No — it's only an input to the checksum.
 13. **What's the data offset?** TCP header length in 32-bit words (5 = 20 bytes, up to 15 = 60).
 14. **Why reject a data offset < 5?** A header can't be shorter than its fixed 20 bytes; a smaller
     value is malformed.
-15. **What happens to a non-SYN to a closed port?** Day 3 ignores it; the correct reply is a RST
-    (Day 5).
+15. **What happens to a non-SYN to a closed port?** Doc 3 ignores it; the correct reply is a RST
+    (Doc 5).
 16. **What's `Quad`'s direction convention?** `remote` = source = peer; `local` = dest = us. Replies
     swap them.
 17. **Can we open from any port?** We do (implicit LISTEN); a real stack only on `listen()`ed ports
@@ -11003,14 +11003,14 @@ resource-bounding half.
     ACK (§E).
 21. **What's simultaneous open?** Both sides `connect` at once; both go SYN_SENT → SYN_RCVD →
     ESTABLISHED (§G).
-22. **Do we handle simultaneous open at Day 3?** Not yet; the code grows to (exercise E5 / later days).
+22. **Do we handle simultaneous open at Doc 3?** Not yet; the code grows to (exercise E5 / later days).
 23. **Why split the TCB into two structs?** To mirror RFC 9293 §3.3.1 so later rules read off the spec.
 24. **Why `Option` from `accept`?** "Not a SYN → can't open" is a value, not a panic.
 25. **Why `wrapping_add`?** Sequence numbers wrap at 2³²; `+1` near the top must become 0, not overflow
     (§B).
 26. **Does a SYN carry data?** It may (TCP Fast Open), but classically no; ours doesn't.
 27. **What options does a real SYN carry?** MSS, window scale, SACK-permitted, timestamps (Days
-    15–18). Ours is bare at Day 3.
+    15–18). Ours is bare at Doc 3.
 28. **How is this tested without a network?** Construct headers, call `accept`/`on_segment`, assert
     states and checksums — all offline (§11).
 29. **What's the biggest simplification today?** No LISTEN/accept-queue/backlog and no RST — implicit
@@ -11033,7 +11033,7 @@ Q: What does the TCP pseudo-header contain?  A: src IP, dst IP, 0, protocol 6, T
 Q: Is the pseudo-header transmitted?  A: no — only an input to the checksum.
 Q: Data offset value for a 20-byte header?  A: 5 (words); byte 12 high nibble = 0x5.
 Q: Flag byte for SYN|ACK?  A: 0x12.
-Q: A non-SYN to a closed port should get?  A: a RST (Day 3 ignores; Day 5 adds it).
+Q: A non-SYN to a closed port should get?  A: a RST (Doc 3 ignores; Doc 5 adds it).
 Q: What is a SYN flood, and the defense?  A: never-completed SYNs exhausting half-open store; SYN cookies.
 Q: Why wrapping_add for SND.NXT/RCV.NXT?  A: 32-bit seq space wraps; +1 near top must become 0.
 ```
@@ -11103,13 +11103,13 @@ Q: Why wrapping_add for SND.NXT/RCV.NXT?  A: 32-bit seq space wraps; +1 near top
 
 
 
-# Day 4 — TCP, Part 2: Data Transfer (an Echo Server)
+# Doc 4 — TCP, Part 2: Data Transfer (an Echo Server)
 
 > Goal: once a connection is ESTABLISHED, accept the bytes the client sends, acknowledge them, and
 > send them back. `printf 'hi' | nc 192.168.0.2 8080` should print `hi`. This is the payoff — a working
 > TCP application running on a stack you wrote, end to end: handshake, data in, ACK, data out.
 
-Day 3 reached ESTABLISHED but the connection was mute. Today it *talks*. The mechanism is small — a
+Doc 3 reached ESTABLISHED but the connection was mute. Today it *talks*. The mechanism is small — a
 receiver advances one cumulative pointer and a sender stamps bytes with sequence numbers — but it is
 the heart of "a reliable, ordered byte stream," and every later day (reassembly, retransmission, flow
 and congestion control, the socket API) refines exactly this loop.
@@ -11167,7 +11167,7 @@ that those sequence numbers are now "in flight" until the peer acknowledges them
 
 That is the whole of data transfer: one pointer advancing on each side, and an ACK number carrying the
 receiver's pointer back to the sender. Reliability (what to do when a segment is *lost*) is a separate
-concern we add on Day 6; today we assume the cooperative, lossless TUN link and keep the core idea
+concern we add on Doc 6; today we assume the cooperative, lossless TUN link and keep the core idea
 clean.
 
 ## 2. Accepting in-order data (and why only in-order, for now)
@@ -11176,7 +11176,7 @@ We accept a segment's data only when it is *exactly* the next byte we expect:
 
 ```text
    seg.seq == RCV.NXT      ⇒  in order: accept
-   seg.seq >  RCV.NXT      ⇒  a gap (future data): drop for now (Day 9 buffers it)
+   seg.seq >  RCV.NXT      ⇒  a gap (future data): drop for now (Doc 9 buffers it)
    seg.seq <  RCV.NXT      ⇒  a duplicate (old data): drop
 ```
 
@@ -11187,13 +11187,13 @@ self.recv.nxt = self.recv.nxt.wrapping_add(payload.len() as u32);
 ```
 
 `RCV.NXT` now points just past the bytes we hold. **In-order-only is a real simplification** — a full
-stack buffers out-of-order segments and reassembles them when the gap fills (Day 9), and detects
+stack buffers out-of-order segments and reassembles them when the gap fills (Doc 9), and detects
 acceptability with a *window* test rather than strict equality (§C). But the simplification keeps the
-day-4 idea pure: **the receiver advances a single cumulative pointer.** Everything else is refinement.
+doc-4 idea pure: **the receiver advances a single cumulative pointer.** Everything else is refinement.
 
 Why is in-order-only *correct* (if inefficient) on our link? Because the peer (`nc` over a lossless
 TUN) sends in order and nothing is dropped, so `seg.seq` always equals `RCV.NXT`. The moment we
-introduce loss or reordering (Days 6 & 9), this assumption breaks and we need the buffer and the
+introduce loss or reordering (Docs 6 & 9), this assumption breaks and we need the buffer and the
 window — which is exactly why those days exist.
 
 ## 3. Acknowledgements: cumulative ACK and piggybacking
@@ -11222,7 +11222,7 @@ self.send.nxt = self.send.nxt.wrapping_add(k as u32);
 
 Those `k` sequence numbers are now **in flight**. `SND.UNA` (oldest unacknowledged) stays put until the
 peer ACKs them; the region `[SND.UNA, SND.NXT)` is the unacknowledged data a real stack keeps buffered
-for **retransmission** (Day 6). We learn the peer acknowledged our data by reading the `ack` field of
+for **retransmission** (Doc 6). We learn the peer acknowledged our data by reading the `ack` field of
 incoming segments and advancing `SND.UNA`.
 
 This is the send-side mirror of §2: where the receiver advances `RCV.NXT` on data *in*, the sender
@@ -11230,7 +11230,7 @@ advances `SND.NXT` on data *out*, and `SND.UNA` trails behind, marking how much 
 
 ## 5. The echo logic, walked
 
-The day-4 ESTABLISHED handler, in pseudocode:
+The doc-4 ESTABLISHED handler, in pseudocode:
 
 ```text
    if segment has an ACK:                       SND.UNA = seg.ack        // peer acked our data
@@ -11247,13 +11247,13 @@ completes SYN_RCVD → ESTABLISHED and then **falls through** into this same dat
 for "data on the final ACK." The states share one linear handler.
 
 (Note: the *current* code splits this — `on_segment` delivers data to a buffer and returns a bare ACK,
-while the application echoes via `write`/`poll_transmit`. The day-4 inline echo above is the milestone;
+while the application echoes via `write`/`poll_transmit`. The doc-4 inline echo above is the milestone;
 §F explains the refactor and why it happened.)
 
 ## 6. Modular sequence arithmetic and the acceptance window
 
 Sequence numbers are 32-bit and wrap, so "is A before B?" is **modular**, not plain `<` (RFC 1982; see
-day3-book.md §B). A correct stack decides acceptability with a *window* test, not strict equality. The
+doc3-book.md §B). A correct stack decides acceptability with a *window* test, not strict equality. The
 RFC 9293 §3.10.7.4 acceptance rule asks: does any part of the segment fall in the receive window
 `[RCV.NXT, RCV.NXT + RCV.WND)`? The four cases (length × window) are tabulated exhaustively in §C.
 
@@ -11265,7 +11265,7 @@ We sidestepped the full test with two honest simplifications, both flagged in th
   ignored.
 
 These are fine for a cooperative `nc` over a lossless TUN link; they are the first things hardened for
-the open internet. (Day 6 replaces the unconditional UNA update with the `between` check; Day 9 replaces
+the open internet. (Doc 6 replaces the unconditional UNA update with the `between` check; Doc 9 replaces
 in-order-only with the reassembler.)
 
 ## 7. The PSH flag
@@ -11298,11 +11298,11 @@ it rarely changes behavior — but it's part of speaking TCP correctly.
 
 `src/tcp.rs`, ESTABLISHED branch of the segment handler:
 
-- Read the ACK field → advance `SND.UNA` (day-4: unconditionally; later: `seq::between`-validated).
+- Read the ACK field → advance `SND.UNA` (doc-4: unconditionally; later: `seq::between`-validated).
 - If there's payload and it's in order (`seg.seq == RCV.NXT`): advance `RCV.NXT`, build the echo
   (`PSH|ACK`, `seq = SND.NXT`, `ack = RCV.NXT`, the payload), advance `SND.NXT`, return the packet.
 - `segment(seq, ack, flags, payload)` builds the IP+TCP packet from this connection's perspective
-  (src = us, dst = peer), advertising our receive window, and checksums both layers (Day 3 §7–8).
+  (src = us, dst = peer), advertising our receive window, and checksums both layers (Doc 3 §7–8).
 
 `src/main.rs` dispatches: look up the `Quad`, call the handler, and write any returned bytes to the
 TUN. The handshake and data paths are the same call — `on_segment` — so `main` doesn't distinguish
@@ -11310,7 +11310,7 @@ TUN. The handshake and data paths are the same call — `on_segment` — so `mai
 
 ## 10. Verification
 
-`cargo test` proves the echo offline (no TUN/sudo). The day-4 test, `established_echoes_data` (and its
+`cargo test` proves the echo offline (no TUN/sudo). The doc-4 test, `established_echoes_data` (and its
 descendants like `established_delivers_data_then_app_echoes`):
 
 - establish a connection, then feed an in-order 2-byte segment (`"hi"` at seq 101);
@@ -11335,35 +11335,35 @@ numbers.
 
 | Decision | We chose | Alternative | Why / caveat |
 |---|---|---|---|
-| Out-of-order data | drop | buffer + reassemble | reassembly needs a receive queue — the Day 9 reliability work. |
+| Out-of-order data | drop | buffer + reassemble | reassembly needs a receive queue — the Doc 9 reliability work. |
 | ACK strategy | piggyback on the echo | delayed / standalone ACKs | fine for request/response; delayed ACK batches for efficiency (§B). |
-| Send window | ignore the peer's window | obey `SND.WND` (flow control) | we never flood `nc`; flow control matters for bulk transfer (Day 8). |
-| Nagle's algorithm | off (send immediately) | coalesce small writes | Nagle reduces tiny-packet overhead; irrelevant for echo (Day 13 adds it). |
-| UNA update | trust `seg.ack` (day-4) | validate in `(UNA, NXT]` | required against stale/forged acks on a real network (Day 6 hardens it). |
+| Send window | ignore the peer's window | obey `SND.WND` (flow control) | we never flood `nc`; flow control matters for bulk transfer (Doc 8). |
+| Nagle's algorithm | off (send immediately) | coalesce small writes | Nagle reduces tiny-packet overhead; irrelevant for echo (Doc 13 adds it). |
+| UNA update | trust `seg.ack` (doc-4) | validate in `(UNA, NXT]` | required against stale/forged acks on a real network (Doc 6 hardens it). |
 | Acceptance | strict `seq == RCV.NXT` | window test (§C) | strict is correct in-order; the window test handles partial overlaps and reordering. |
 
 ## 12. Honesty: what production does, and how later days refactored this
 
-The day-4 inline echo is the clearest *teaching* shape, but it conflates three jobs that a real stack —
+The doc-4 inline echo is the clearest *teaching* shape, but it conflates three jobs that a real stack —
 and our *current* code — keep separate:
 
 - **Receiving** ≠ **delivering** ≠ **echoing.** The current `on_segment` hands the payload to the
-  **reassembler** (`reasm.recv`, Day 9), which returns the now-contiguous bytes; those go into a
+  **reassembler** (`reasm.recv`, Doc 9), which returns the now-contiguous bytes; those go into a
   **receive buffer** (`recv_buf`); the handler returns a *bare* ACK. The **application** then reads the
   bytes (`take_received`), decides to echo, calls `write`, and `poll_transmit` drains the send buffer
-  onto the wire as the window allows (Days 8, 10, 11). So "accept → echo" became "accept → reassemble →
-  buffer → ACK" plus "app: read → write → transmit." The day-4 milestone is the same connection from
+  onto the wire as the window allows (Docs 8, 10, 11). So "accept → echo" became "accept → reassemble →
+  buffer → ACK" plus "app: read → write → transmit." The doc-4 milestone is the same connection from
   the client's point of view; the internals grew a clean receive/send split.
 - **Acceptance is a window, not equality.** Production uses the four-case test (§C) so it can accept the
   *new* tail of a partially-overlapping segment and tolerate reordering.
 - **ACKs are delayed.** Real receivers ack roughly every *other* full-sized segment, or after ~40–200
   ms, halving ACK traffic (§B). We ack every segment.
 - **Flow and congestion control gate sending.** We send the whole echo immediately; a real sender is
-  bounded by `min(SND.WND, cwnd)` (Days 8, 10).
+  bounded by `min(SND.WND, cwnd)` (Docs 8, 10).
 - **Zero-copy and buffering.** Real stacks avoid copying payloads (page flipping, `sendfile`); we copy
   into a `Vec`.
 
-None of these change the day-4 *contract* (bytes go in, the same bytes come back, acknowledged); they
+None of these change the doc-4 *contract* (bytes go in, the same bytes come back, acknowledged); they
 are the breadth the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -11381,20 +11381,20 @@ are the breadth the later days add.
 - **E1.** Send a **bare ACK** for received data when you have nothing to echo: build an `ACK` segment
   with `seq = SND.NXT, ack = RCV.NXT`, no payload. (This is what the current code does.)
 - **E2.** Buffer **one** out-of-order segment and deliver it once the gap fills; add a test. (The seed
-  of Day 9.)
+  of Doc 9.)
 - **E3.** Implement the modular `between(start, x, end)` helper and use it to validate incoming acks;
-  test the wraparound boundary. (The seed of Day 6's UNA check.)
+  test the wraparound boundary. (The seed of Doc 6's UNA check.)
 - **E4.** Respect `SND.WND`: don't send more unacknowledged data than the peer's advertised window.
-  (The seed of Day 8.)
+  (The seed of Doc 8.)
 - **E5.** Implement a **delayed ACK** (§B): when in-order data arrives, hold the ACK briefly and ack
   every other segment or on a timer; measure the drop in ACK packets under a bulk transfer.
 
 ## 14. What the next step adds
 
-Day 5 is **teardown**: handle the client's `FIN` (it consumes a sequence number, like SYN), ACK it,
+Doc 5 is **teardown**: handle the client's `FIN` (it consumes a sequence number, like SYN), ACK it,
 send our own `FIN`, and walk the closing states (CLOSE_WAIT → LAST_ACK on the passive side). After that
 the connection lifecycle is complete: **open → transfer → close**. Reliability (retransmission/RTO,
-Day 6), reassembly (Day 9), and congestion control (Day 10) are the hardening that makes it survive a
+Doc 6), reassembly (Doc 9), and congestion control (Doc 10) are the hardening that makes it survive a
 real, lossy network.
 
 ---
@@ -11417,7 +11417,7 @@ parse detail is the **data offset**: the payload does not always start at byte 2
 In our parser, `data_offset` is the TCP header length in bytes (the high nibble of TCP byte 12, ×4).
 The payload is `&segment[data_offset..]` within the TCP portion, i.e. `&packet[20 + data_offset..]` in
 the full IP packet. The helper `payload_of(pkt)` in the tests does exactly this. Getting this wrong —
-assuming payload at byte 40 always — breaks the instant options appear (Days 15–18), which is why every
+assuming payload at byte 40 always — breaks the instant options appear (Docs 15–18), which is why every
 test extracts the payload via the parsed `data_offset`, never a hard-coded offset.
 
 The payload length is implicit: `IP.total_length − IP.IHL×4 − TCP.data_offset`. TCP has no payload-length
@@ -11437,7 +11437,7 @@ ACK, but:
 - it MUST NOT delay an ACK by more than 500 ms (typically ~40–200 ms).
 
 The win is roughly halving the ACK packet count on a bulk transfer (and enabling piggybacking on
-reverse-direction data). The risk is interacting badly with **Nagle's algorithm** (Day 13): a small
+reverse-direction data). The risk is interacting badly with **Nagle's algorithm** (Doc 13): a small
 write held by Nagle, waiting for an ACK that the receiver is delaying, causes a visible latency stall —
 the classic "Nagle + delayed-ACK" 40 ms hiccup. We ack every segment (no delay), so we don't hit this,
 but it's a famous interaction worth knowing.
@@ -11445,7 +11445,7 @@ but it's a famous interaction worth knowing.
 ```text
    receiver policy      ACKs per 10 data segments     latency           our choice
    ─────────────────    ─────────────────────────     ───────────       ──────────
-   ACK every segment    10                            lowest            ✓ (day 4)
+   ACK every segment    10                            lowest            ✓ (doc 4)
    delayed (every 2nd)  5                             +up to ~200 ms    real stacks
 ```
 
@@ -11467,10 +11467,10 @@ all. The spec enumerates four cases by **segment length** and **window size**:
 The two-clause last case is what lets a receiver accept a segment that *starts* below the window but
 *ends* inside it (a partial overlap with already-received data, e.g. a retransmission of `[100,200)`
 when we already have `[100,150)`): the receiver trims the duplicate prefix and keeps the new tail. Our
-Day-9 reassembler implements exactly this trimming (`trims_partial_overlap_with_delivered`); our day-4
+Doc-9 reassembler implements exactly this trimming (`trims_partial_overlap_with_delivered`); our doc-4
 strict `seq == RCV.NXT` is the special case "starts exactly at the window's left edge." A segment wholly
 outside the window is dropped — but TCP still sends an ACK (to re-sync a confused peer), which is the
-seed of the duplicate-ACK mechanism (Day 10).
+seed of the duplicate-ACK mechanism (Doc 10).
 
 ## D. Sequence-space accounting, worked numerically
 
@@ -11509,21 +11509,21 @@ echo's `ack` is the receiver pointer; each echo's `seq` is the sender pointer at
 The clean separation the current code uses, and the day that introduced each piece:
 
 ```text
-   wire → on_segment ─┬─ reasm.recv(seq, data, RCV.NXT)  → contiguous bytes   [Day 9]
+   wire → on_segment ─┬─ reasm.recv(seq, data, RCV.NXT)  → contiguous bytes   [Doc 9]
                       │     (buffers out-of-order, trims duplicates)
-                      ├─ recv_buf.extend(contiguous)      → app-visible bytes  [Day 11]
-                      └─ return bare ACK (ack_options)     → acknowledge        [Day 4 idea, hardened]
+                      ├─ recv_buf.extend(contiguous)      → app-visible bytes  [Doc 11]
+                      └─ return bare ACK (ack_options)     → acknowledge        [Doc 4 idea, hardened]
 
-   app loop (main) ─┬─ take_received()   → bytes for the application           [Day 11]
-                    ├─ write(echo)       → queue into send_buf                  [Day 11]
-                    └─ poll_transmit()   → drain send_buf to the wire,         [Days 8/10]
+   app loop (main) ─┬─ take_received()   → bytes for the application           [Doc 11]
+                    ├─ write(echo)       → queue into send_buf                  [Doc 11]
+                    └─ poll_transmit()   → drain send_buf to the wire,         [Docs 8/10]
                                             bounded by min(SND.WND, cwnd), MSS
 ```
 
 Why split it? Three reasons: (1) **reassembly** needs to hold out-of-order data and deliver it later,
 which a fire-and-forget inline echo can't; (2) **flow/congestion control** must gate *sending*
 independently of *receiving*, so send and receive became separate buffers with their own pacing; (3) a
-real **application interface** is read/write, not "echo inside the protocol handler." The day-4 inline
+real **application interface** is read/write, not "echo inside the protocol handler." The doc-4 inline
 echo is the right first lesson; the refactor is the right architecture. Both are in the git history, and
 this book teaches the lesson while pointing at the architecture.
 
@@ -11558,11 +11558,11 @@ Flag byte `0x18` = PSH|ACK on the data segments, `0x10` = ACK on the bare ack. T
 ```text
    concept              real kernel (Linux/BSD)                  this stack
    ──────────────────   ──────────────────────────────────────  ──────────────────────────
-   receive path         segment → recv buffer (sk_rcvbuf)        reasm → recv_buf (Day 9/11)
+   receive path         segment → recv buffer (sk_rcvbuf)        reasm → recv_buf (Doc 9/11)
    app read             recv()/read() drains the buffer          take_received()
    app write            send()/write() into send buffer          write() → send_buf
    send pacing          min(cwnd, rwnd), TSO/GSO offload         poll_transmit, min(SND.WND,cwnd)
-   ACK policy           delayed (every 2nd / timer)              every segment (day 4)
+   ACK policy           delayed (every 2nd / timer)              every segment (doc 4)
    PSH                  set on buffer flush; mostly advisory     set on echo
    buffer sizing        autotuned SO_RCVBUF/SO_SNDBUF            fixed ~1 KB window
    copy                 zero-copy paths (sendfile, MSG_ZEROCOPY) copy into Vec
@@ -11574,15 +11574,15 @@ reliability and flow control enter.
 
 ## I. Security — data injection and why the acceptance window matters
 
-The day-4 simplifications are exactly the ones an attacker abuses, which is why hardening them is the
+The doc-4 simplifications are exactly the ones an attacker abuses, which is why hardening them is the
 security track:
 
 - **Unconditional `SND.UNA = seg.ack`.** A forged segment with a bogus ack could *advance* `SND.UNA`
   past data the peer never acknowledged, making us discard unacknowledged data. The fix (`seq::between`,
-  Day 6) only advances UNA for an ack in `(SND.UNA, SND.NXT]`, ignoring stale/forged values.
+  Doc 6) only advances UNA for an ack in `(SND.UNA, SND.NXT]`, ignoring stale/forged values.
 - **Blind data injection.** An off-path attacker who guesses the 4-tuple and a sequence number *in the
   window* can inject bytes into the stream. The acceptance window (§C) bounds *which* sequence numbers
-  are accepted; a small window and random ISNs (Day 3 §D) shrink the attacker's target. RFC 5961 adds
+  are accepted; a small window and random ISNs (Doc 3 §D) shrink the attacker's target. RFC 5961 adds
   further checks (challenge ACKs).
 - **RST injection.** The same logic applies to a forged RST — accepted only if in-window, which is why
   RFC 5961 tightened RST acceptance to the *exact* next sequence number.
@@ -11607,7 +11607,7 @@ ack validation are not just for correctness under loss, they're the connection's
 
 1. **What makes a segment "in order"?** `seg.seq == RCV.NXT` — it starts exactly at the next expected
    byte.
-2. **What happens to out-of-order data at day 4?** Dropped; Day 9's reassembler buffers it.
+2. **What happens to out-of-order data at doc 4?** Dropped; Doc 9's reassembler buffers it.
 3. **What does `ack = 103` mean?** "I have everything below 103; send 103 next" (cumulative).
 4. **What is piggybacking?** Carrying the ACK on a data segment — one packet does data + ack.
 5. **Why `PSH|ACK` on the echo?** ACK acknowledges received data; PSH says "deliver promptly"; together
@@ -11617,18 +11617,18 @@ ack validation are not just for correctness under loss, they're the connection's
 8. **Why advance `SND.NXT` by the payload length?** Those sequence numbers are now used by our data and
    must be acknowledged.
 9. **What's `[SND.UNA, SND.NXT)`?** Data we've sent but the peer hasn't acked — the retransmit window
-   (Day 6).
-10. **Why is unconditional `SND.UNA = seg.ack` unsafe?** A forged/stale ack could move UNA wrongly; Day 6
+   (Doc 6).
+10. **Why is unconditional `SND.UNA = seg.ack` unsafe?** A forged/stale ack could move UNA wrongly; Doc 6
     validates with `between`.
-11. **Why only in-order at day 4?** Simplicity; correct on a lossless link. Loss/reorder needs the
-    reassembler (Day 9).
+11. **Why only in-order at doc 4?** Simplicity; correct on a lossless link. Loss/reorder needs the
+    reassembler (Doc 9).
 12. **Does the final handshake ACK carry data?** It can; the handler completes ESTABLISHED then falls
     through to the data path.
 13. **Where does the payload start in the packet?** `20 (IP) + data_offset (TCP)`; never assume 40.
 14. **How is payload length known?** Derived from IP total length; TCP has no length field.
 15. **What is a delayed ACK?** Acking every other segment / on a timer to cut ACK traffic (§B).
 16. **What's the Nagle + delayed-ACK stall?** A held small write waiting on a delayed ACK → ~40 ms
-    latency (Day 13).
+    latency (Doc 13).
 17. **Does the current code echo inside `on_segment`?** No — it buffers and ACKs; the app echoes via
     `take_received`/`write`/`poll_transmit` (§F).
 18. **Why was it refactored?** Reassembly, flow/congestion control, and a real read/write app interface
@@ -11638,9 +11638,9 @@ ack validation are not just for correctness under loss, they're the connection's
     other direction's ack (piggyback); "both data" needs two segments.
 21. **What's the acceptance window?** `[RCV.NXT, RCV.NXT + RCV.WND)`; a segment overlapping it is
     acceptable (§C).
-22. **What if the window is 0?** Data is unacceptable but still ACKed; the sender probes (Day 14).
+22. **What if the window is 0?** Data is unacceptable but still ACKed; the sender probes (Doc 14).
 23. **Why ACK an out-of-window segment?** To re-sync a confused peer; repeated such ACKs become
-    duplicate ACKs (Day 10).
+    duplicate ACKs (Doc 10).
 24. **Is the echo's checksum recomputed?** Yes — `build_packet` zeroes then computes both IP and TCP
     checksums.
 25. **How is this tested offline?** Feed a header+payload to `on_segment`, assert pointers and the echo
@@ -11658,7 +11658,7 @@ Q: Does PSH affect sequence numbers or reliability?  A: no — advisory "deliver
 Q: How far does SND.NXT advance when we send k bytes?  A: by k (those seq numbers are in flight).
 Q: What is [SND.UNA, SND.NXT)?  A: sent-but-unacked data (the retransmit window).
 Q: Why is unconditional SND.UNA = seg.ack unsafe?  A: a forged/stale ack could move UNA wrongly.
-Q: Day-4 acceptance vs real acceptance?  A: strict seq==RCV.NXT vs the 4-case window test (§C).
+Q: Doc-4 acceptance vs real acceptance?  A: strict seq==RCV.NXT vs the 4-case window test (§C).
 Q: Where does the payload start in a packet?  A: 20 (IP) + data_offset (TCP); never hard-code 40.
 Q: What is a delayed ACK?  A: ack every other segment / on a timer to cut ACK traffic.
 Q: How did the code later split this day?  A: reassembler + recv_buf + app write/poll_transmit.
@@ -11676,7 +11676,7 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
 - **Acceptance window** — `[RCV.NXT, RCV.NXT + RCV.WND)`; the seq range a receiver will accept.
 - **In flight** — sent but not yet acknowledged: `[SND.UNA, SND.NXT)`.
 - **Delayed ACK** — acking every other segment / on a timer to reduce ACK packets.
-- **Echo server** — sends received bytes back; our day-4 end-to-end proof.
+- **Echo server** — sends received bytes back; our doc-4 end-to-end proof.
 - **`take_received` / `write` / `poll_transmit`** — the current code's app read / app write / paced
   send (the refactor of the inline echo).
 
@@ -11689,7 +11689,7 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
    ───────────────────────────   ──────────────────────────────
    in-order data of len L in     RCV.NXT += L
    we send L payload bytes       SND.NXT += L
-   peer acks (ack A acceptable)  SND.UNA  = A   (day-4: unconditional; later: if between(UNA,A,NXT))
+   peer acks (ack A acceptable)  SND.UNA  = A   (doc-4: unconditional; later: if between(UNA,A,NXT))
 ```
 
 **N.2 — Flag bytes seen in data transfer**
@@ -11699,19 +11699,19 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
    ───────   ────────   ─────────────────────────────
    0x10      ACK        bare acknowledgement
    0x18      PSH|ACK    data segment (push + ack)
-   0x11      FIN|ACK    last data / close (Day 5)
+   0x11      FIN|ACK    last data / close (Doc 5)
 ```
 
-**N.3 — Day-4 simplifications → where each is hardened**
+**N.3 — Doc-4 simplifications → where each is hardened**
 
 ```text
    simplification                      hardened on   by
    ────────────────────────────────    ───────────   ─────────────────────────────
-   in-order only (drop OOO)            Day 9         reassembler (buffer + deliver)
-   SND.UNA = seg.ack unconditionally   Day 6         seq::between(UNA, ack, NXT) check
+   in-order only (drop OOO)            Doc 9         reassembler (buffer + deliver)
+   SND.UNA = seg.ack unconditionally   Doc 6         seq::between(UNA, ack, NXT) check
    ack every segment                   (exercise)    delayed ACK
-   ignore SND.WND                      Day 8         flow control
-   send immediately (no Nagle)         Day 13        Nagle + TCP_NODELAY
+   ignore SND.WND                      Doc 8         flow control
+   send immediately (no Nagle)         Doc 13        Nagle + TCP_NODELAY
 ```
 
 > Re-type the ESTABLISHED data branch — accept in order, advance `RCV.NXT`, echo `PSH|ACK`, advance
@@ -11720,14 +11720,14 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
 
 
 
-# Day 5 — TCP, Part 3: Connection Teardown (the Passive Close)
+# Doc 5 — TCP, Part 3: Connection Teardown (the Passive Close)
 
 > Goal: close the connection cleanly. When the client sends `FIN`, we acknowledge it, send our own
 > `FIN`, and on the client's final `ACK` we destroy the TCB. After this the whole lifecycle —
 > **open → transfer → close** — works end to end with a stock `nc`. This chapter teaches the *passive*
-> close (the responder's side) in full, and maps the rest of the teardown machine that Day 7 completes.
+> close (the responder's side) in full, and maps the rest of the teardown machine that Doc 7 completes.
 
-Opening a connection took three packets and a careful dance of sequence numbers (Day 3). Closing is
+Opening a connection took three packets and a careful dance of sequence numbers (Doc 3). Closing is
 the mirror image, and it is subtler than it looks, because TCP connections are **full-duplex**: closing
 is really *two* independent half-closes, and the rules for who waits, who can still send, and how stray
 old packets are kept from poisoning a reused address are where decades of TCP folklore (TIME_WAIT,
@@ -11816,7 +11816,7 @@ the tail of a stream to a close. The FIN can't "overtake" data.
 The RFC's two closing paths, side by side:
 
 ```text
-   active close (initiator)            passive close (responder — us, day 5)
+   active close (initiator)            passive close (responder — us, doc 5)
    ESTABLISHED                          ESTABLISHED
      │ send FIN                           │ recv FIN, send ACK
      ▼                                    ▼
@@ -11830,9 +11830,9 @@ Today we implement the **passive** side, *collapsed*: because an echo server has
 instant the client closes, we go `ESTABLISHED → LAST_ACK` directly, sending `FIN|ACK` in one segment
 (the ACK of their FIN + our FIN together), then `LAST_ACK → CLOSED` on their final ACK. We skip
 **CLOSE_WAIT** as a *distinct* state because there is no interval during which a local application is
-still writing — there is no local application, just the echo. (Day 7 adds the *active* close —
+still writing — there is no local application, just the echo. (Doc 7 adds the *active* close —
 our side initiating — with FIN_WAIT_1/2, CLOSING, and TIME_WAIT. The full state enum already exists in
-the code; day 5 reaches the passive subset.)
+the code; doc 5 reaches the passive subset.)
 
 ## 4. The passive close, number by number
 
@@ -11874,11 +11874,11 @@ the wait is ~4 minutes) before truly closing. Two reasons, both essential:
 2. **Old-duplicate protection.** It lets stray, delayed segments from *this* connection drain out of
    the network before the same 4-tuple can be reused, so a ghost segment from the old connection can't
    be mistaken for data on a new one. (This is the same hazard random ISNs guard against at open —
-   Day 3 §D.)
+   Doc 3 §D.)
 
 As the **passive** closer, we send the last *FIN* and receive the last *ACK*, so we end in CLOSED via
 LAST_ACK and don't need TIME_WAIT — the *peer* (the active closer) is the one that waits. (When we
-implement active close ourselves on Day 7, we add TIME_WAIT and its 2·MSL timer. It is the classic
+implement active close ourselves on Doc 7, we add TIME_WAIT and its 2·MSL timer. It is the classic
 reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
 
 ## 6. The Rust: state transitions and reaping the TCB
@@ -11892,7 +11892,7 @@ reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
   protocol logic decides *when* the connection is dead; the container decides *how* it's freed, via the
   `Drop` that running off the end of `remove` triggers.
 - **The FIN is queued for retransmission.** The current code records our FIN in the retransmission
-  queue (Day 12) so a lost FIN is resent until acknowledged, rather than hanging the teardown. At day 5
+  queue (Doc 12) so a lost FIN is resent until acknowledged, rather than hanging the teardown. At doc 5
   the link is lossless so this isn't exercised, but the hook is there.
 
 ## 7. The code, walked end to end
@@ -11904,7 +11904,7 @@ reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
        RCV.NXT += 1                                      # consume their FIN
        out = segment(seq=SND.NXT, ack=RCV.NXT, FIN|ACK)  # ack theirs + send ours
        SND.NXT += 1                                      # consume our FIN
-       (queue our FIN for retransmission — Day 12)
+       (queue our FIN for retransmission — Doc 12)
        state = LAST_ACK
        return out
 ```
@@ -11965,11 +11965,11 @@ matching seq/ack numbers.
 
 | Decision | We chose | Real TCP | Why / caveat |
 |---|---|---|---|
-| Close path | passive only, collapsed to LAST_ACK | active + passive, full state set | an echo server only ever *responds* to a close (Day 7 adds active). |
+| Close path | passive only, collapsed to LAST_ACK | active + passive, full state set | an echo server only ever *responds* to a close (Doc 7 adds active). |
 | CLOSE_WAIT | fused with the FIN-ACK | a distinct state | there's no local app still writing, so no gap to model (§E). |
-| TIME_WAIT | none (we're the passive closer) | 2·MSL on the active closer | the *peer* waits; we add it when we close actively (Day 7, §C). |
+| TIME_WAIT | none (we're the passive closer) | 2·MSL on the active closer | the *peer* waits; we add it when we close actively (Doc 7, §C). |
 | FIN with data | data branch + a separate bare-FIN branch | a segment can carry final data + FIN together | our echo never co-sends data and FIN; a real stack handles both at once. |
-| RST | not sent at day 5 | RST on bad/closed-port segments | added later (Day 7 path); abortive close is §F. |
+| RST | not sent at doc 5 | RST on bad/closed-port segments | added later (Doc 7 path); abortive close is §F. |
 | Half-close | not supported (we close both ways at once) | app can close one direction, keep reading | needs CLOSE_WAIT as a real state (§E). |
 
 ## 11. Honesty: what production does that we don't
@@ -11980,16 +11980,16 @@ matching seq/ack numbers.
   closes its request direction relies on this.
 - **No graceful-vs-abortive choice.** We always close gracefully (FIN). Applications can force an
   *abortive* close (RST) to discard buffered data and skip TIME_WAIT (`SO_LINGER` with timeout 0, §F).
-- **Simultaneous close not exercised at day 5.** If both sides FIN at once you reach CLOSING (§D);
-  the code grows to handle it (Day 7).
+- **Simultaneous close not exercised at doc 5.** If both sides FIN at once you reach CLOSING (§D);
+  the code grows to handle it (Doc 7).
 - **No FIN-with-data.** A real final segment may carry the last bytes *and* the FIN; we separate them.
 - **TIME_WAIT tuning.** Real stacks have `tcp_tw_reuse`, `SO_REUSEADDR`, and TIME_WAIT-assassination
   defenses (§C, §I) to manage the close storm of a busy server. We have none (we're the passive side).
-- **Lingering reliability.** The current code *does* queue the FIN for retransmission (Day 12), so a
-  lost FIN is resent — a genuine reliability improvement over the original day-5 fire-and-forget.
+- **Lingering reliability.** The current code *does* queue the FIN for retransmission (Doc 12), so a
+  lost FIN is resent — a genuine reliability improvement over the original doc-5 fire-and-forget.
 
-None of these change the day-5 contract (a client can close and we tear down cleanly); they are the
-breadth Day 7 and beyond add.
+None of these change the doc-5 contract (a client can close and we tear down cleanly); they are the
+breadth Doc 7 and beyond add.
 
 ## 12. Rebuild it yourself — checklist + exercises
 
@@ -12005,8 +12005,8 @@ breadth Day 7 and beyond add.
 
 - **E1.** Add `CLOSE_WAIT` as a real intermediate state: ACK the FIN immediately, and only send our
   FIN on a later `on_tick`. This sets up half-close (§E).
-- **E2.** Send a `RST` for a segment to an unknown/closed connection (ties together with day3 E2; §F).
-- **E3.** Implement `TIME_WAIT` for an *active* close and explain the 2·MSL timer (preview of Day 7;
+- **E2.** Send a `RST` for a segment to an unknown/closed connection (ties together with doc3 E2; §F).
+- **E3.** Implement `TIME_WAIT` for an *active* close and explain the 2·MSL timer (preview of Doc 7;
   §C).
 - **E4.** Handle a **FIN that carries data**: accept the trailing bytes, *then* process the FIN, in one
   segment.
@@ -12015,10 +12015,10 @@ breadth Day 7 and beyond add.
 
 ## 13. What the next step adds
 
-Day 6 is **reliability**: keep unacknowledged data in a retransmission queue, drive a timer from a
+Doc 6 is **reliability**: keep unacknowledged data in a retransmission queue, drive a timer from a
 non-blocking event loop, and resend on a retransmission timeout (RTO) computed adaptively (RFC 6298).
 That is the change that lets the connection survive a *lossy* link — including a lost FIN, so the
-teardown itself becomes reliable. Day 7 then adds the **active close** (our side initiating) with
+teardown itself becomes reliable. Doc 7 then adds the **active close** (our side initiating) with
 FIN_WAIT_1/2, CLOSING, and TIME_WAIT — completing the state machine sketched in §3.
 
 ---
@@ -12054,7 +12054,7 @@ the request half-closes.
 
 ## B. The teardown half of the 11-state machine
 
-Zooming into the bottom of the full diagram (day3-book.md §C):
+Zooming into the bottom of the full diagram (doc3-book.md §C):
 
 ```text
                          ESTABLISHED
@@ -12082,7 +12082,7 @@ Zooming into the bottom of the full diagram (day3-book.md §C):
 - **LAST_ACK** — we sent our FIN (from CLOSE_WAIT); awaiting its ACK.
 - **TIME_WAIT** — the active closer's 2·MSL linger (§C).
 
-Day 5 reaches only ESTABLISHED → LAST_ACK → CLOSED (the fused passive path). Day 7 reaches the rest.
+Doc 5 reaches only ESTABLISHED → LAST_ACK → CLOSED (the fused passive path). Doc 7 reaches the rest.
 
 ## C. TIME_WAIT in depth (2·MSL, the two reasons, the hazards)
 
@@ -12109,10 +12109,10 @@ final ACK has been delivered (or re-sent) and any straggling segment from this c
   source ports, all stuck in TIME_WAIT. Mitigations: `tcp_tw_reuse` (reuse a TIME_WAIT for a new
   *outgoing* connection when safe via timestamps), `SO_REUSEADDR`, longer ephemeral ranges.
 - **TIME_WAIT assassination (RFC 1337).** An injected RST can prematurely kill a TIME_WAIT, reopening
-  the old-duplicate window. PAWS (Day 16 timestamps) defends against the duplicate hazard.
+  the old-duplicate window. PAWS (Doc 16 timestamps) defends against the duplicate hazard.
 
 We, as passive closer, never hold TIME_WAIT — which is precisely why a passive-only server is cheap to
-close. Day 7's active close is where we take on the cost.
+close. Doc 7's active close is where we take on the cost.
 
 ## D. Simultaneous close and the CLOSING state
 
@@ -12127,7 +12127,7 @@ Each then receives the *other's* FIN before its own FIN is acked:
 
 **CLOSING** is the state "I've acked your FIN, but mine isn't acked yet." It's rare (needs both apps to
 close within a round trip of each other) but the state machine handles it with no new packet types —
-just the same FIN/ACK in a different interleaving. Our code adds CLOSING on Day 7's active-close path.
+just the same FIN/ACK in a different interleaving. Our code adds CLOSING on Doc 7's active-close path.
 
 ## E. Half-close, `shutdown`, and CLOSE_WAIT as a distinct state
 
@@ -12152,7 +12152,7 @@ close leak. Exercise E1 makes CLOSE_WAIT real in our stack.
 There are two ways to end a connection:
 
 - **Graceful close (FIN).** The four-way (or three-way fused) handshake above. Guarantees all data sent
-  before the FIN is delivered and acknowledged. This is the default and what day 5 implements.
+  before the FIN is delivered and acknowledged. This is the default and what doc 5 implements.
 - **Abortive close (RST).** Send a `RST` to immediately discard the connection — any unsent/unacked
   data is dropped, the peer gets "connection reset by peer," and there is **no TIME_WAIT**. Triggered
   by `SO_LINGER` with a zero timeout, by closing a socket with unread data, or by the stack when it
@@ -12164,7 +12164,7 @@ until data is delivered or the timer expires; with a *zero* timeout it sends a R
 the right tool when the application knows the data is worthless (e.g. a protocol error) and wants to
 skip both delivery and TIME_WAIT.
 
-We send neither RST in the day-5 path; the broader stack sends RST for segments to unknown/closed
+We send neither RST in the doc-5 path; the broader stack sends RST for segments to unknown/closed
 connections (`build_rst`, used on the dispatch path). Exercise E2 wires RST into the close logic.
 
 ## G. FIN consuming a sequence number, worked numerically
@@ -12215,10 +12215,10 @@ Flag byte `0x11` = FIN|ACK; `0x10` = ACK. The two `+1`s are visible: ①'s FIN a
 ## I. Comparison to real stacks — the TIME_WAIT problem
 
 ```text
-   concept            real kernel (Linux/BSD)                    this stack (day 5)
+   concept            real kernel (Linux/BSD)                    this stack (doc 5)
    ────────────────   ────────────────────────────────────────  ──────────────────────
    passive close      CLOSE_WAIT (distinct), app then closes      fused → LAST_ACK
-   active close        FIN_WAIT_1/2 → TIME_WAIT (2·MSL)            Day 7 adds it
+   active close        FIN_WAIT_1/2 → TIME_WAIT (2·MSL)            Doc 7 adds it
    TIME_WAIT cost      per-TCB memory; ephemeral-port pressure     n/a (we're passive)
    mitigations         tcp_tw_reuse, SO_REUSEADDR, tw recycling    none
    half-close          shutdown(SHUT_WR); stream after peer FIN    not supported
@@ -12235,13 +12235,13 @@ design point for a request/response server, not a gap.
 
 - **RST injection.** A forged in-window RST tears down a live connection (a DoS, or censorship — some
   middleboxes inject RSTs to block traffic). The defense (RFC 5961) is to accept a RST only at the
-  *exact* `RCV.NXT`, and to rate-limit "challenge ACKs" for near-misses. Our day-5 stack doesn't
+  *exact* `RCV.NXT`, and to rate-limit "challenge ACKs" for near-misses. Our doc-5 stack doesn't
   validate incoming RSTs tightly; that's a later hardening.
 - **FIN/NULL/Xmas scans.** Sending a FIN (or no-flags, or FIN+URG+PSH) to a *closed* port elicits a RST
   on many stacks, while an *open* port stays silent — a port-scanning technique (nmap `-sF`). Whether
   your stack replies reveals its state; correct behavior per RFC is to RST a non-SYN to a closed port.
 - **TIME_WAIT assassination (§C).** An injected RST during TIME_WAIT can cut it short, reopening the
-  old-duplicate window; PAWS (Day 16) mitigates.
+  old-duplicate window; PAWS (Doc 16) mitigates.
 - **Resource exhaustion via half-open closes.** An attacker can open many connections and FIN them to
   drive CLOSE_WAIT/LAST_ACK churn; bounded TCB tables and timeouts defend.
 
@@ -12257,7 +12257,7 @@ work adds.
 - **Ephemeral-port exhaustion** caps a client to ~28k–64k concurrent short connections per
   (dst IP, dst port) before ports stuck in TIME_WAIT run out; `tcp_tw_reuse` + timestamps reclaim them.
 - **Close batching / keep-alive.** The cheapest close is the one you don't do: HTTP keep-alive
-  (Day 11) reuses one connection for many requests, amortizing handshake *and* teardown.
+  (Doc 11) reuses one connection for many requests, amortizing handshake *and* teardown.
 - **Our cost** is one state assignment and one `HashMap::remove` per close — O(1), no lingering. The
   honest trade is that we don't *do* the expensive part (TIME_WAIT) because we don't actively close.
 
@@ -12284,7 +12284,7 @@ work adds.
 12. **What is simultaneous close?** Both sides FIN at once → CLOSING → TIME_WAIT (§D).
 13. **Can a segment carry data and FIN together?** Yes; we separate them, real stacks combine.
 14. **How does the TCB get freed?** `main` removes it from the map when state is CLOSED; Rust drops it.
-15. **Is our FIN retransmitted if lost?** Yes — it's queued in the retransmission queue (Day 12).
+15. **Is our FIN retransmitted if lost?** Yes — it's queued in the retransmission queue (Doc 12).
 16. **What ack does our FIN|ACK carry?** `RCV.NXT` = one past the client's FIN.
 17. **What ack must the client's final ACK carry?** Our `SND.NXT` (one past our FIN).
 18. **Why many CLOSE_WAIT sockets in netstat?** An app that received a FIN but never closed (a leak).
@@ -12321,8 +12321,8 @@ Q: Many CLOSE_WAIT sockets usually mean?  A: an app that received a FIN but neve
 
 - **FIN** — the flag/phantom-byte that closes one direction of the stream.
 - **Half-close** — closing one direction (`shutdown(SHUT_WR)`) while keeping the other open.
-- **Passive close** — responding to the peer's FIN (our role at day 5).
-- **Active close** — initiating the close by sending the first FIN (Day 7).
+- **Passive close** — responding to the peer's FIN (our role at doc 5).
+- **Active close** — initiating the close by sending the first FIN (Doc 7).
 - **CLOSE_WAIT** — peer closed; we acked; local app may still send.
 - **LAST_ACK** — we sent our FIN (from CLOSE_WAIT); awaiting its ACK.
 - **FIN_WAIT_1 / FIN_WAIT_2** — active closer: FIN sent / FIN acked, awaiting peer FIN.
@@ -12367,7 +12367,7 @@ Q: Many CLOSE_WAIT sockets usually mean?  A: an app that received a FIN but neve
 ```
 
 > Re-type the FIN/LAST_ACK logic from this chapter, then `cargo test`. You now hold the whole picture:
-> parsing (Day 1), checksums + write (Day 2), handshake (Day 3), data (Day 4), close (Day 5) — a TCP
+> parsing (Doc 1), checksums + write (Doc 2), handshake (Doc 3), data (Doc 4), close (Doc 5) — a TCP
 > connection a real `nc` opens, uses, and closes.
 
 
@@ -12378,14 +12378,14 @@ Q: Many CLOSE_WAIT sockets usually mean?  A: an app that received a FIN but neve
 
 
 
-# Day 6 — TCP, Part 4: Reliability (Retransmission, the Event Loop & the Adaptive RTO)
+# Doc 6 — TCP, Part 4: Reliability (Retransmission, the Event Loop & the Adaptive RTO)
 
 > Goal: make the connection **reliable**. Until now every byte we sent was assumed to arrive. A real
 > network drops packets. So we keep a copy of every segment we send, start a clock, and if its
 > acknowledgement doesn't come back in time we **resend** it. The "in time" part is the subtle one — too
 > eager and we flood the link with needless copies; too patient and a lost segment stalls the connection
 > for a second. So we *measure* the round-trip time and let the timeout track the path. This is the
-> chapter Day 5 §10 promised as "the right Step 6," and it required a structural change: moving off
+> chapter Doc 5 §10 promised as "the right Step 6," and it required a structural change: moving off
 > blocking I/O to an event loop.
 
 This is the day TCP earns the word "reliable." It is also the day the *architecture* changes — a
@@ -12437,7 +12437,7 @@ Volume II — the exhaustive reference
 
 TCP promises the application a **reliable, ordered byte stream** over an **unreliable** packet network.
 The network may drop, duplicate, reorder, or corrupt any packet. Corruption we already catch (the
-checksum, Day 2). Reordering and gaps are a later chapter (Day 9). *Loss* is this one.
+checksum, Doc 2). Reordering and gaps are a later chapter (Doc 9). *Loss* is this one.
 
 The only tool TCP has against loss is **redundancy in time**: send a segment, and if you don't hear
 that it arrived, send it again. Two pieces of machinery fall out of that one sentence:
@@ -12462,7 +12462,7 @@ more about *measurement* than about *resending*.
 
 ## 2. Why the blocking loop could not do this (the design change)
 
-Through Day 5 the main loop was, in essence:
+Through Doc 5 the main loop was, in essence:
 
 ```text
    loop { let n = iface.recv(&mut buf)?;  // BLOCKS until a packet arrives
@@ -12472,7 +12472,7 @@ Through Day 5 the main loop was, in essence:
 `recv()` parks the thread until the kernel hands it a packet. That is fine for a pure request/response
 echo — but a retransmission timer has to fire **when nothing is arriving** (the whole point is that the
 expected ACK *didn't* come). In a blocking loop there is no moment to check a clock: the thread is
-asleep inside `recv()`, possibly forever. This is exactly the "blocker" Day 5 §10 named.
+asleep inside `recv()`, possibly forever. This is exactly the "blocker" Doc 5 §10 named.
 
 The fix is structural, not a patch: switch the interface to **non-blocking** I/O. Now `recv()` returns
 immediately — either a packet, or a `WouldBlock` error meaning "nothing right now." That frees the loop
@@ -12519,7 +12519,7 @@ loop literally could not express.
 
 ## 4. The retransmission queue
 
-`RetxQueue` is a list of segments we've sent but not yet seen acknowledged. The day-6 entry (it grows
+`RetxQueue` is a list of segments we've sent but not yet seen acknowledged. The doc-6 entry (it grows
 two fields later — §12):
 
 ```rust
@@ -12539,7 +12539,7 @@ whole thing is unit-testable without sleeping:
 - **`ack(una, now_ms) -> Option<u64>`** — drop every segment the cumulative ACK now covers, and return
   an RTT sample for one of them (see §5). "Covered" is the wraparound-safe test
   `!seq::before(una, end_seq)` — `una` has reached or passed `end_seq` on the 32-bit circle (that
-  `seq::before` is the modular comparison from Day 3).
+  `seq::before` is the modular comparison from Doc 3).
 - **`due(now_ms, rto_ms) -> Vec<packet>`** — return clones of every segment whose timer has elapsed
   (`now_ms − sent_at_ms ≥ rto_ms`), and for each, **reset its timer and bump `retries`**. Resetting is
   what makes the next resend wait another full RTO instead of firing every tick.
@@ -12579,7 +12579,7 @@ per RTT"). `saturating_sub` guards the degenerate `now < sent_at` (impossible wi
 but free insurance against a 0-stamped test segment).
 
 Karn's *other* half — exponentially backing off the RTO on each retransmit and holding it until a clean
-sample arrives — is the second half of the algorithm, added later as `RttEstimator::back_off` (Day 12 /
+sample arrives — is the second half of the algorithm, added later as `RttEstimator::back_off` (Doc 12 /
 §C). Without it, a path that suddenly slows would retransmit at the old (too-short) RTO repeatedly;
 with it, each timeout doubles the RTO, so the sender stops hammering a congested or stalled path.
 
@@ -12680,7 +12680,7 @@ The data path for one echoed segment, tracing the bytes:
    2. retx.record(SND.NXT, echo_bytes, now)        # remember it, stamp the time
    3. ...time passes, no ACK...
    4. on_tick(now): retx.due(now, rtt.rto())        # now − sent_at ≥ rto? resend, retries++
-   5. peer's ACK arrives, SND.UNA < ACK ≤ SND.NXT   # acceptable (Day 3's seq::between)
+   5. peer's ACK arrives, SND.UNA < ACK ≤ SND.NXT   # acceptable (Doc 3's seq::between)
    6. SND.UNA = ACK; if let Some(r) = retx.ack(SND.UNA, now) { rtt.sample(r) }
            # segment cleared from the queue; if retries==0, r adapts the RTO
 ```
@@ -12716,7 +12716,7 @@ Live (your hands): run the stack, `nc 192.168.0.2 8080`, type a line. Then add l
 | Store for resend | whole packet bytes per segment | a byte buffer + rebuild header (lets you re-segment / refresh ACK & window) |
 | RTO before first sample | fixed 200 ms default | RFC 6298 initial RTO = 1 s until first measurement |
 | `MIN_RTO` | 200 ms (local link) | 1 s (RFC SHOULD), to survive internet jitter |
-| Karn's backoff | sample-suppression at day 6; backoff added Day 12 | suppress **and** double RTO per retransmit, hold until a clean sample |
+| Karn's backoff | sample-suppression at doc 6; backoff added Doc 12 | suppress **and** double RTO per retransmit, hold until a clean sample |
 | Retransmit unit | each segment on its own timer | one timer per connection for the oldest unacked (RFC 6298 §5) |
 | Float vs integer SRTT | integer ms + right-shifts | same in practice — kernels use fixed-point too |
 
@@ -12725,21 +12725,21 @@ Live (your hands): run the stack, `nc 192.168.0.2 8080`, type a line. Then add l
 - **One timer per segment vs one per connection.** RFC 6298 §5 runs a *single* retransmission timer for
   the oldest unacked segment, restarted as ACKs arrive. We give each segment its own deadline — simpler
   to reason about, slightly more timers. Same observable behavior for the common case.
-- **Backoff (Karn's second half) arrived Day 12.** `RttEstimator::back_off` doubles the RTO per
-  consecutive timeout (capped) and holds it until a clean sample clears it (RFC 6298 §5.5). Day 6
-  suppresses samples; Day 12 adds the doubling — needed so we stop hammering a stalled path.
-- **Control segments became reliable on Day 12.** Day 6 queues *data*; a lost SYN-ACK or FIN could
-  still hang the handshake/teardown. Day 12 queues those too.
-- **The `Unacked` struct grew.** Day 18 (SACK) added `start_seq` and a `sacked` flag so loss recovery
-  can skip selectively-acked ranges; Day 6's struct is the four-field original shown in §4.
-- **Fast retransmit (Day 10) beats the RTO.** Waiting a whole RTO is slow; three duplicate ACKs let a
-  sender resend *immediately* without a timeout (RFC 5681). Day 6 is timer-driven only; Day 10 adds the
+- **Backoff (Karn's second half) arrived Doc 12.** `RttEstimator::back_off` doubles the RTO per
+  consecutive timeout (capped) and holds it until a clean sample clears it (RFC 6298 §5.5). Doc 6
+  suppresses samples; Doc 12 adds the doubling — needed so we stop hammering a stalled path.
+- **Control segments became reliable on Doc 12.** Doc 6 queues *data*; a lost SYN-ACK or FIN could
+  still hang the handshake/teardown. Doc 12 queues those too.
+- **The `Unacked` struct grew.** Doc 18 (SACK) added `start_seq` and a `sacked` flag so loss recovery
+  can skip selectively-acked ranges; Doc 6's struct is the four-field original shown in §4.
+- **Fast retransmit (Doc 10) beats the RTO.** Waiting a whole RTO is slow; three duplicate ACKs let a
+  sender resend *immediately* without a timeout (RFC 5681). Doc 6 is timer-driven only; Doc 10 adds the
   ACK-driven path (§F).
 - **No giving up.** We retransmit forever; a real stack caps retries and resets (exercise E1).
 - **Real timers are O(1) wheels.** We scan all connections each tick; kernels use a timer wheel /
   hashed timers to fire in O(1) (§E, §I).
 
-None of these change the day-6 contract (lost data is resent on an adaptive timeout); they are the
+None of these change the doc-6 contract (lost data is resent on an adaptive timeout); they are the
 hardening the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -12758,10 +12758,10 @@ hardening the later days add.
 
 - **E1.** Cap `retries`: after N (say 5) resends of the same segment, give up and `RST` the connection.
   Today an unanswered segment retransmits forever.
-- **E2.** ✅ *Done* (`RttEstimator::back_off`, Day 12): the RTO doubles on each retransmit (capped ×64)
+- **E2.** ✅ *Done* (`RttEstimator::back_off`, Doc 12): the RTO doubles on each retransmit (capped ×64)
   and the backed-off value holds until a fresh, non-retransmitted RTT sample clears it — the second half
   of Karn's algorithm (RFC 6298 §5.5).
-- **E3.** ✅ *Done* (Day 12): retransmit the **SYN-ACK** and **FIN** too — they consume sequence space
+- **E3.** ✅ *Done* (Doc 12): retransmit the **SYN-ACK** and **FIN** too — they consume sequence space
   and can be lost. Queue them in `accept`/`close` and watch the handshake/teardown survive loss.
 - **E4.** Replace the 5 ms sleep with a real `poll()` whose timeout is the nearest segment's deadline,
   so the loop wakes exactly on a packet or a timer (§E).
@@ -12770,9 +12770,9 @@ hardening the later days add.
 
 ## 14. What the next step adds
 
-Day 7 adds the **active close** (our side initiating the FIN) with FIN_WAIT_1/2, CLOSING, and TIME_WAIT
-— now that the event loop exists to drive the 2·MSL timer. Day 8 adds **flow control** (gating
-transmission on the peer's advertised window). Day 9 adds **out-of-order reassembly**. Day 10 adds
+Doc 7 adds the **active close** (our side initiating the FIN) with FIN_WAIT_1/2, CLOSING, and TIME_WAIT
+— now that the event loop exists to drive the 2·MSL timer. Doc 8 adds **flow control** (gating
+transmission on the peer's advertised window). Doc 9 adds **out-of-order reassembly**. Doc 10 adds
 **congestion control** — slow start, AIMD, and *fast retransmit* (the ACK-driven loss detection that
 beats the RTO). Retransmission tells you *that* to resend; congestion control governs *how fast* you may
 send into a shared network — the next big conceptual leap.
@@ -12839,7 +12839,7 @@ Van Jacobson and Michael Karels's 1988 paper "Congestion Avoidance and Control" 
 the **mean deviation** term (RTTVAR) — cheap to compute (no multiply/divide, just shifts and an absolute
 value) and a good proxy for standard deviation. `RTO = SRTT + 4·RTTVAR` tracks both the mean *and* the
 variance, so a jittery path automatically gets a looser timeout. The same paper introduced slow start
-and congestion avoidance (Day 10). This day's estimator is, almost verbatim, the Jacobson/Karels
+and congestion avoidance (Doc 10). This day's estimator is, almost verbatim, the Jacobson/Karels
 algorithm that saved the Internet.
 
 ## C. Karn's algorithm in depth (the two halves)
@@ -12856,8 +12856,8 @@ Phil Karn and Craig Partridge's 1987 algorithm has **two** rules, and both matte
 Why the freeze (rule 2's second clause)? Because rule 1 means you *can't* get a new sample while you're
 retransmitting — every segment in flight is a retransmission. Without the freeze, you'd revert to the
 old (too-short) RTO the instant a cumulative ACK cleared a never-retransmitted segment behind the loss,
-re-triggering the storm. Backoff + freeze together give the path time to recover. Day 6 implements rule
-1; Day 12's `back_off` implements rule 2. The exponential backoff (1×, 2×, 4×, …) is the same shape as
+re-triggering the storm. Backoff + freeze together give the path time to recover. Doc 6 implements rule
+1; Doc 12's `back_off` implements rule 2. The exponential backoff (1×, 2×, 4×, …) is the same shape as
 Ethernet's collision backoff — a general principle for probing a contended resource without piling on.
 
 ## D. The fixed-point arithmetic — why right-shifts, no floats
@@ -12888,8 +12888,8 @@ The progression of I/O models, and where we sit:
 ```text
    model              wakeups                         our analogue
    ────────────────   ─────────────────────────────   ─────────────────────────
-   blocking recv      one thread parked per socket     Day 1–5 (no timers possible)
-   non-blocking+poll  spin or sleep, check readiness    Day 6 (recv + 5 ms nap)
+   blocking recv      one thread parked per socket     Doc 1–5 (no timers possible)
+   non-blocking+poll  spin or sleep, check readiness    Doc 6 (recv + 5 ms nap)
    select/poll        wake on any of N fds, w/ timeout  exercise E4
    epoll/kqueue       O(1) readiness, scalable to 10⁵   real servers
    io_uring           batched async submission/complete  modern Linux high-perf
@@ -12913,20 +12913,20 @@ There are two ways to learn a segment was lost:
 - **Timer-driven (RTO) — this day.** Wait for the deadline; if no ACK, resend. Robust (works even if
   *all* later segments are also lost) but *slow* — you pay a whole RTO (≥ 200 ms here, ≥ 1 s on the
   internet), during which the pipe is idle.
-- **ACK-driven (fast retransmit) — Day 10.** When the receiver gets out-of-order data it sends a
+- **ACK-driven (fast retransmit) — Doc 10.** When the receiver gets out-of-order data it sends a
   *duplicate ACK* (the same cumulative number again). Three duplicate ACKs strongly imply the next
   segment was lost (not merely reordered), so the sender resends it *immediately* — no timeout. This
   recovers a single loss in ~1 RTT instead of ~1 RTO.
 
 A modern stack uses both, plus newer time-based detection (RACK-TLP, §I) that largely replaces the
-3-dup-ACK heuristic. Day 6 builds the RTO floor (always correct, sometimes slow); Day 10 adds the fast
+3-dup-ACK heuristic. Doc 6 builds the RTO floor (always correct, sometimes slow); Doc 10 adds the fast
 path (usually faster, needs enough ACKs to trigger). The RTO is the safety net the fast path falls back
 to.
 
 ## G. A full retransmission episode with backoff, worked numerically
 
 A segment is sent at t=0 with `SRTT=100, RTTVAR=50 → RTO=300`, and the path has gone dark (no ACKs).
-With Karn backoff (Day 12 behavior):
+With Karn backoff (Doc 12 behavior):
 
 ```text
    t=0      send X (retries=0), RTO=300
@@ -12972,7 +12972,7 @@ the ACK answers; the timer and Karn's guard are what make the stack do the right
    initial RTO         1 s (RFC 6298)                             200 ms default
    timers              hashed timer wheel, O(1)                   linear scan per tick
    retransmit timer    one per socket (oldest unacked)            one per segment
-   loss detection      RACK-TLP (time-based) + dupACK + RTO       RTO (Day 6) + 3-dupACK (Day 10)
+   loss detection      RACK-TLP (time-based) + dupACK + RTO       RTO (Doc 6) + 3-dupACK (Doc 10)
    tail loss           Tail Loss Probe (TLP) before RTO           RTO only
    resend granularity  repacketize on retransmit                  resend identical bytes
 ```
@@ -12980,7 +12980,7 @@ the ACK answers; the timer and Karn's guard are what make the stack do the right
 The headline modern change is **RACK-TLP** (RFC 8985): instead of the 3-duplicate-ACK heuristic, mark a
 segment lost if a segment sent *later* has been ACKed and enough time has passed (using per-segment send
 timestamps) — more robust to reordering and small flights. We implement the classical RTO + dupACK
-path; RACK is the natural advanced exercise once timestamps (Day 16) are in place.
+path; RACK is the natural advanced exercise once timestamps (Doc 16) are in place.
 
 ## J. Security — low-rate "shrew" DoS and RTT manipulation
 
@@ -12992,7 +12992,7 @@ path; RACK is the natural advanced exercise once timestamps (Day 16) are in plac
 - **RTT manipulation via forged ACKs.** An on-path attacker (or a lying receiver) can ACK data
   *early* — before it's actually received — to shrink the sender's RTT estimate and RTO, or "ACK
   division"/"optimistic ACKing" to make the sender transmit faster than safe (a congestion-control
-  attack, more relevant on Day 10). Timestamps (Day 16) make the RTT sample harder to forge because the
+  attack, more relevant on Doc 10). Timestamps (Doc 16) make the RTT sample harder to forge because the
   echoed TSecr must match.
 - **Retransmission amplification.** A too-low RTO that retransmits aggressively wastes the sender's own
   bandwidth and can be induced; capping retries (E1) and backoff (§C) bound the damage.
@@ -13006,15 +13006,15 @@ it, validate samples (Karn + timestamps), and bound retransmission.
   have or will get anyway; *goodput* (useful bytes/sec) falls as loss rises. A well-tuned RTO minimizes
   *spurious* retransmissions (resending data that wasn't actually lost), which is why the variance term
   matters.
-- **MIN_RTO too low** → spurious timeouts on a jittery path → retransmission storms and (with Day 10)
+- **MIN_RTO too low** → spurious timeouts on a jittery path → retransmission storms and (with Doc 10)
   needless `cwnd` collapse. **MIN_RTO too high** → a real loss stalls the connection for the whole
-  floor (1 s on the internet) before recovery — which is why fast retransmit (Day 10) exists to avoid
+  floor (1 s on the internet) before recovery — which is why fast retransmit (Doc 10) exists to avoid
   paying the RTO at all for common single losses.
 - **Timer cost.** Our per-tick linear scan is O(connections); at thousands of connections that's real
   CPU. A timer wheel makes expiry O(1). The 5 ms nap also bounds timer *resolution* to ±5 ms, fine for
   a 200 ms RTO, too coarse for sub-ms LAN RTTs (we'd never want a sub-5ms RTO anyway, hence MIN_RTO).
 - **Memory.** The retransmission queue holds whole-packet copies of all unacked data — up to a window's
-  worth. With window scaling (Day 17) that can be megabytes; a real stack stores the data once and
+  worth. With window scaling (Doc 17) that can be megabytes; a real stack stores the data once and
   rebuilds headers to halve the footprint.
 
 ## L. Extended FAQ
@@ -13041,12 +13041,12 @@ it, validate samples (Karn + timestamps), and bound retransmission.
 14. **What is MIN_RTO and why 200 ms here?** The RTO floor; 200 ms suits a LAN (RFC SHOULDs 1 s for the
     internet).
 15. **What's the RTO before the first sample?** 200 ms (our default; RFC uses 1 s).
-16. **What's RTO backoff?** Doubling the RTO on each consecutive timeout (Karn part 2, Day 12).
+16. **What's RTO backoff?** Doubling the RTO on each consecutive timeout (Karn part 2, Doc 12).
 17. **Why freeze the backed-off RTO?** You can't get a clean sample while retransmitting; freezing
     avoids reverting to a too-short RTO.
-18. **Does Day 6 retransmit SYN-ACK/FIN?** No — only data; control-segment retransmission is Day 12.
+18. **Does Doc 6 retransmit SYN-ACK/FIN?** No — only data; control-segment retransmission is Doc 12.
 19. **What is fast retransmit and how does it differ?** ACK-driven (3 dup ACKs) immediate resend; beats
-    the RTO (Day 10).
+    the RTO (Doc 10).
 20. **Why does `on_tick` expire TIME_WAIT before checking `due`?** TIME_WAIT is a clock-only transition;
     do state first, then timers.
 21. **How is the RTO tested without sleeping?** Time is passed in as `now_ms`; tests use synthetic
@@ -13074,7 +13074,7 @@ Q: Why update RTTVAR before SRTT?  A: RTTVAR uses |old SRTT − R|; updating SRT
 Q: α and β gains?  A: 1/8 (SRTT) and 1/4 (RTTVAR) — powers of two → right-shifts, no floats.
 Q: Our MIN_RTO and why?  A: 200 ms for a LAN (RFC SHOULDs 1 s for the internet).
 Q: Whose 1988 algorithm is the RTO?  A: Jacobson/Karels (mean + variance), which fixed congestion collapse.
-Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (fast, Day 10).
+Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (fast, Doc 10).
 ```
 
 ## N. Glossary
@@ -13091,7 +13091,7 @@ Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (f
 - **Non-blocking I/O / `WouldBlock`** — `recv` returns immediately; "nothing ready" is an error value.
 - **`Instant`** — Rust's monotonic clock; the right RTO time source.
 - **Timer wheel** — an O(1) kernel data structure for firing many timers.
-- **Fast retransmit** — ACK-driven (3 dup ACKs) resend that beats the RTO (Day 10).
+- **Fast retransmit** — ACK-driven (3 dup ACKs) resend that beats the RTO (Doc 10).
 
 ## O. Reference tables
 
@@ -13130,21 +13130,21 @@ Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (f
 ```
 
 > Re-type `RetxQueue` and `RttEstimator` from this chapter with the book closed, then `cargo test`. You
-> now hold reliability end to end: parsing (Day 1), checksums (Day 2), handshake (Day 3), data (Day 4),
-> close (Day 5), and now retransmission + the adaptive RTO (Day 6). When the connection survives
+> now hold reliability end to end: parsing (Doc 1), checksums (Doc 2), handshake (Doc 3), data (Doc 4),
+> close (Doc 5), and now retransmission + the adaptive RTO (Doc 6). When the connection survives
 > `netem loss 30%`, you've built the control loop that makes TCP *reliable*.
 
 
 
-# Day 7 — TCP, Part 5: Active Close & TIME_WAIT
+# Doc 7 — TCP, Part 5: Active Close & TIME_WAIT
 
-> Goal: close the connection from **our** side. Day 5 did the *passive* close — the peer sends `FIN`,
+> Goal: close the connection from **our** side. Doc 5 did the *passive* close — the peer sends `FIN`,
 > we react. But a real endpoint also has to *initiate* a close: stop sending, emit our own `FIN`, and
 > walk the active-closer's branch of the state machine — `FIN_WAIT_1 → FIN_WAIT_2 → TIME_WAIT → CLOSED`,
 > with a detour for a simultaneous close. This chapter completes the RFC 9293 teardown and confronts the
 > most over-discussed state in TCP: TIME_WAIT.
 
-The teardown is asymmetric, and the asymmetry is the entire lesson. The passive closer (Day 5) gets off
+The teardown is asymmetric, and the asymmetry is the entire lesson. The passive closer (Doc 5) gets off
 easy — it forgets the connection the moment its FIN is acked. The active closer pays: it must linger for
 minutes in TIME_WAIT. Understanding *why* — the "you can't ACK an ACK" theorem — explains a huge amount
 of real-world server behavior (why busy servers drown in TIME_WAIT, why you push the close onto the
@@ -13191,7 +13191,7 @@ Volume II — the exhaustive reference
 ## 1. The mental model: who says goodbye first
 
 A TCP connection is two independent byte streams, so closing is two **half-closes**, one per direction.
-Whoever sends `FIN` first is the **active closer**; the other is the **passive closer**. Day 5 built the
+Whoever sends `FIN` first is the **active closer**; the other is the **passive closer**. Doc 5 built the
 passive side (the path through `LAST_ACK`). The roles are not symmetric, and the asymmetry is the whole
 lesson of this chapter:
 
@@ -13208,11 +13208,11 @@ active closer pays for it.
 A subtlety worth stating up front: our binary is a passive echo server, so it never *calls* `close()` in
 `main`. The active-close machinery is therefore `#[allow(dead_code)]` in the binary and exercised
 entirely by unit tests — which is fine, because the state machine is the same whether a real app or a
-test drives it (§8). Wiring a socket API that lets an app close arrives on Day 11.
+test drives it (§8). Wiring a socket API that lets an app close arrives on Doc 11.
 
 ## 2. The four states the active closer walks
 
-Day 5's `State` enum gained four variants for the initiator's path (the passive `LAST_ACK` from Day 5
+Doc 5's `State` enum gained four variants for the initiator's path (the passive `LAST_ACK` from Doc 5
 stays):
 
 ```text
@@ -13225,7 +13225,7 @@ stays):
 The RFC's two paths, side by side (we now implement *both* columns):
 
 ```text
-   active close (initiator — new)        passive close (responder — Day 5)
+   active close (initiator — new)        passive close (responder — Doc 5)
    ESTABLISHED                            ESTABLISHED
      │ send FIN                             │ recv FIN, send FIN|ACK
      ▼                                      ▼
@@ -13246,7 +13246,7 @@ pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
     if self.state != State::Established { return None; }
     let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
     self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes one sequence number
-    self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms); // (Day 12)
+    self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms); // (Doc 12)
     self.state = State::FinWait1;
     Some(out)
 }
@@ -13255,8 +13255,8 @@ pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
 Two familiar rules: the FIN carries `ACK` (we acknowledge everything received so far, `RCV.NXT`), and the
 FIN **consumes one sequence number** — so `SND.NXT += 1`, and the peer's ACK of our FIN will carry
 `ack == SND.NXT` (the new value). This is the same "+1 for a flag" from the SYN and the passive FIN. (The
-`retx.record` line is Day 12's addition: our FIN is queued for retransmission so a lost FIN doesn't hang
-the close — §12. The original day-7 `close()` took no `now_ms` and didn't queue.)
+`retx.record` line is Doc 12's addition: our FIN is queued for retransmission so a lost FIN doesn't hang
+the close — §12. The original doc-7 `close()` took no `now_ms` and didn't queue.)
 
 ## 4. FIN_WAIT_1 — the three-way branch point
 
@@ -13343,7 +13343,7 @@ reasons, both consequences of "you can't ACK an ACK":
    4-tuple can host a *new* connection, or they'd be mistaken for fresh data. 2·MSL is one round of "out
    and back" worth of lifetime (§B).
 
-This is the first state change driven purely by **time, not a packet** — which is exactly why Day 6's
+This is the first state change driven purely by **time, not a packet** — which is exactly why Doc 6's
 event loop had to exist. `on_tick` checks it every pass:
 
 ```rust
@@ -13354,7 +13354,7 @@ if self.state == State::TimeWait
 }
 ```
 
-`main`'s loop then drops any `CLOSED` connection from the table (Day 6 §3), freeing the slot. This is the
+`main`'s loop then drops any `CLOSED` connection from the table (Doc 6 §3), freeing the slot. This is the
 classic reason a busy server accumulates thousands of TIME_WAIT sockets: it's the active closer for every
 short-lived client connection, and each one holds a TCB for minutes after the last byte (§J).
 
@@ -13395,12 +13395,12 @@ at `ack=102` (their FIN at 101, +1), and the two `on_tick` calls bracketing the 
   reads the segment, maybe emits a reply, and assigns the next state. No framework, no trait objects —
   the clarity comes from mirroring the RFC's prose one block per state.
 - **Time drives a transition with no packet.** TIME_WAIT → CLOSED happens in `on_tick`, purely from the
-  clock. This is only expressible because Day 6 made time a first-class input (`now_ms` threaded through
+  clock. This is only expressible because Doc 6 made time a first-class input (`now_ms` threaded through
   every entry point). `saturating_sub` keeps the comparison safe if `now_ms < time_wait_ms`.
 
 ## 9. The code, walked end to end
 
-The whole feature lives in `src/tcp.rs` (state machine) and rides Day 6's loop in `src/main.rs`:
+The whole feature lives in `src/tcp.rs` (state machine) and rides Doc 6's loop in `src/main.rs`:
 
 | Piece | Role |
 |---|---|
@@ -13413,7 +13413,7 @@ The whole feature lives in `src/tcp.rs` (state machine) and rides Day 6's loop i
 
 The flow of control for a clean active close: app calls `close()` → we send FIN, go `FIN_WAIT_1` → peer
 ACKs → `FIN_WAIT_2` → peer FINs → we ACK, go `TIME_WAIT`, stamp the clock → 2·MSL later an `on_tick`
-flips us to `CLOSED` → the loop reaps the TCB. The passive `LAST_ACK` path from Day 5 is untouched and
+flips us to `CLOSED` → the loop reaps the TCB. The passive `LAST_ACK` path from Doc 5 is untouched and
 still handles the case where the *peer* closes first.
 
 ## 10. Verification
@@ -13423,31 +13423,31 @@ still handles the case where the *peer* closes first.
 - `active_close_to_timewait_then_closed` — the full §7 trace: `close()` → FIN_WAIT_1, peer ACK →
   FIN_WAIT_2, peer FIN → TIME_WAIT (asserting the ACK's `seq`/`ack` and a valid TCP checksum), then the
   two `on_tick`s proving the 2·MSL expiry to CLOSED.
-- `active_fin_retransmits_until_acked` (Day 12) — our FIN is resent on RTO until the peer ACKs it.
-- `passive_close_via_fin` (Day 5) still passes — the responder path is unchanged.
+- `active_fin_retransmits_until_acked` (Doc 12) — our FIN is resent on RTO until the peer ACKs it.
+- `passive_close_via_fin` (Doc 5) still passes — the responder path is unchanged.
 
 Live (your hands): because the binary is a passive server it won't initiate a close, so this is best seen
 at the *peer*. Connect with `nc`, exchange a line, and let `nc` close — `sudo tcpdump -i tun0 -n` shows
 our `FIN,ACK`, the peer's ACK, its FIN, and our final ACK, with the seq/ack numbers above. To exercise
-*our* active close live you'd need exercise E1 (a socket API or a timed auto-close) — which Day 11's HTTP
+*our* active close live you'd need exercise E1 (a socket API or a timed auto-close) — which Doc 11's HTTP
 server provides (it active-closes after the response).
 
 ## 11. Why this, not that
 
 | Decision | We chose | Real TCP / alternative |
 |---|---|---|
-| Who closes | passive in `main`, active in tests (and HTTP, Day 11) | app decides per socket via a close() API |
+| Who closes | passive in `main`, active in tests (and HTTP, Doc 11) | app decides per socket via a close() API |
 | FIN with data | bare FIN only (echo has nothing left) | a segment may carry final data + FIN together |
 | TIME_WAIT length | 2·MSL with MSL = 2 min (240 s) | OS-tunable; Linux ~60 s; `SO_REUSEADDR` to rebind |
-| Retransmit our FIN | queued (Day 12) | FIN is queued in the retx buffer like data |
+| Retransmit our FIN | queued (Doc 12) | FIN is queued in the retx buffer like data |
 | CLOSE_WAIT | collapsed (echo has no app-write gap) | distinct state while the local app finishes sending |
 | half-close | unsupported (we close both ways at once) | `shutdown(SHUT_WR)` closes one direction, keeps reading |
-| One timer per FIN | per-segment (Day 6 model) | one connection retransmit timer (RFC 6298 §5) |
+| One timer per FIN | per-segment (Doc 6 model) | one connection retransmit timer (RFC 6298 §5) |
 
 ## 12. Honesty: what production does, and what later days added
 
-- **FIN retransmission arrived Day 12.** The original day-7 `close()` didn't queue the FIN, so a lost FIN
-  hung the close forever (day-7 exercise E2). Day 12 added `now_ms` to `close()` and queues the FIN in
+- **FIN retransmission arrived Doc 12.** The original doc-7 `close()` didn't queue the FIN, so a lost FIN
+  hung the close forever (doc-7 exercise E2). Doc 12 added `now_ms` to `close()` and queues the FIN in
   the `RetxQueue`, making teardown reliable — reflected in the §3 code.
 - **No distinct CLOSE_WAIT / half-close.** We collapse CLOSE_WAIT into the FIN|ACK on the passive path
   and don't support `shutdown(SHUT_WR)`. A server that streams a response after the client half-closes
@@ -13455,13 +13455,13 @@ server provides (it active-closes after the response).
 - **No FIN-with-data.** A real final segment may carry the last bytes *and* the FIN; we separate them.
 - **TIME_WAIT length is fixed at 240 s.** Real stacks tune it (Linux ~60 s) and offer `SO_REUSEADDR` /
   `tcp_tw_reuse` to manage the close storm (§C). We always wait the full 2·MSL.
-- **No TIME_WAIT-assassination defense beyond the basics.** RFC 1337 / PAWS (Day 16) harden TIME_WAIT
-  against injected RSTs; our day-7 TIME_WAIT is minimal (§I).
-- **The binary never actively closes (until HTTP).** Day 11's HTTP/1.0 server is the first code path that
+- **No TIME_WAIT-assassination defense beyond the basics.** RFC 1337 / PAWS (Doc 16) harden TIME_WAIT
+  against injected RSTs; our doc-7 TIME_WAIT is minimal (§I).
+- **The binary never actively closes (until HTTP).** Doc 11's HTTP/1.0 server is the first code path that
   calls `close()` for real (it closes after sending the response), finally exercising this machinery in
   the running binary.
 
-None of these change the day-7 contract (we can initiate a clean close and walk to CLOSED through
+None of these change the doc-7 contract (we can initiate a clean close and walk to CLOSED through
 TIME_WAIT); they are the breadth later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -13476,9 +13476,9 @@ TIME_WAIT); they are the breadth later days add.
 
 **Exercises:**
 
-- **E1.** ✅ *Done* (Day 11): the HTTP server calls `close()` after the response, running the active path
+- **E1.** ✅ *Done* (Doc 11): the HTTP server calls `close()` after the response, running the active path
   live — watch TIME_WAIT in `tcpdump`.
-- **E2.** ✅ *Done* (Day 12): queue our FIN in the `RetxQueue` so a lost FIN is retransmitted.
+- **E2.** ✅ *Done* (Doc 12): queue our FIN in the `RetxQueue` so a lost FIN is retransmitted.
 - **E3.** Implement a real `CLOSE_WAIT`: as the passive closer, ACK the peer's FIN immediately but send
   our FIN only on a later tick, modelling an app that's still draining its send buffer (§E).
 - **E4.** Honor `SO_REUSEADDR`/`tcp_tw_reuse` semantics: allow a new connection on a 4-tuple still in
@@ -13487,10 +13487,10 @@ TIME_WAIT); they are the breadth later days add.
 
 ## 14. What the next step adds
 
-The teardown is now complete in both directions. Day 8 adds **flow control** — we already record the
+The teardown is now complete in both directions. Doc 8 adds **flow control** — we already record the
 peer's advertised window (`SND.WND`) and expose `usable_window()`, but a sender must actually *gate* its
-transmission on it so it never overruns a slow receiver. After that: out-of-order reassembly (Day 9) and
-congestion control (Day 10) — the rest of Manual Phases 3–5.
+transmission on it so it never overruns a slow receiver. After that: out-of-order reassembly (Doc 9) and
+congestion control (Doc 10) — the rest of Manual Phases 3–5.
 
 ---
 
@@ -13555,7 +13555,7 @@ The cost of TIME_WAIT (held by the active closer) leads to several knobs, with v
   with new 4-tuples.
 - **`tcp_tw_reuse` (Linux)** — lets a new *outbound* connection reuse a 4-tuple still in TIME_WAIT, *when
   TCP timestamps prove* the new connection's segments can't be confused with the old ones (the timestamp
-  is strictly increasing). Safe *with timestamps* (Day 16). Helps clients making many short connections.
+  is strictly increasing). Safe *with timestamps* (Doc 16). Helps clients making many short connections.
 - **`tcp_tw_recycle` (Linux, removed in 4.12)** — a more aggressive recycling that keyed off per-host
   timestamps. It **broke** clients behind NAT (multiple hosts sharing one IP have unrelated timestamp
   clocks, so the kernel rejected legitimate connections) and was a notorious source of "random connection
@@ -13595,7 +13595,7 @@ finishes and closes do you send *your* FIN (CLOSE_WAIT → LAST_ACK). The gap be
 close" is where the application keeps sending.
 
 Our echo server has no such gap — it has nothing to send once the client closes — so we **collapse**
-CLOSE_WAIT into the FIN|ACK (Day 5) and never model it. The practical consequence: we can't serve a
+CLOSE_WAIT into the FIN|ACK (Doc 5) and never model it. The practical consequence: we can't serve a
 protocol that streams a response *after* a request half-close. (HTTP/1.0 without keep-alive works because
 the client doesn't half-close mid-request; a strict request-then-half-close-then-stream protocol would
 need real CLOSE_WAIT — exercise E3.) Seeing many CLOSE_WAIT sockets in `netstat` on a real server almost
@@ -13654,7 +13654,7 @@ ack 102. Step ⑤ is the packet-less, clock-driven transition unique to TIME_WAI
 ```text
    concept             real systems                                this stack
    ─────────────────   ─────────────────────────────────────────  ──────────────────────────
-   who actively closes  often the CLIENT (to push TIME_WAIT off    HTTP server closes (Day 11);
+   who actively closes  often the CLIENT (to push TIME_WAIT off    HTTP server closes (Doc 11);
                         the busy server)                            echo is passive
    TIME_WAIT length     tunable (~60 s Linux); SO_REUSEADDR/reuse   fixed 240 s, no reuse
    avoiding close       HTTP keep-alive: many requests / one conn   single request then close
@@ -13664,10 +13664,10 @@ ack 102. Step ⑤ is the packet-less, clock-driven transition unique to TIME_WAI
 ```
 
 The headline real-world technique is **HTTP keep-alive** (and HTTP/2 multiplexing): the cheapest close is
-the one you never do. A persistent connection serves many requests, amortizing both the handshake (Day 3)
+the one you never do. A persistent connection serves many requests, amortizing both the handshake (Doc 3)
 and the teardown (this day, including TIME_WAIT). Where a close is unavoidable, well-designed systems
 arrange for the *client* to be the active closer so the *server* doesn't accumulate TIME_WAIT TCBs. Our
-HTTP server (Day 11) actively closes — a deliberate simplification (one request per connection), and thus
+HTTP server (Doc 11) actively closes — a deliberate simplification (one request per connection), and thus
 the first place our binary pays the TIME_WAIT cost.
 
 ## I. Security — TIME_WAIT assassination (RFC 1337) and RST in TIME_WAIT
@@ -13675,7 +13675,7 @@ the first place our binary pays the TIME_WAIT cost.
 - **TIME_WAIT assassination (RFC 1337).** An attacker (or a confused peer) can inject an *old* segment
   that elicits a RST while we're in TIME_WAIT; a naive stack accepts the RST, kills the TIME_WAIT early,
   and reopens the old-duplicate window the wait was meant to close. The defenses: ignore RSTs in
-  TIME_WAIT for already-acknowledged sequence space, and use **PAWS** (Day 16 timestamps) to reject
+  TIME_WAIT for already-acknowledged sequence space, and use **PAWS** (Doc 16 timestamps) to reject
   segments older than the most recent — a timestamp that predates `TS.Recent` is a stale duplicate and is
   dropped regardless of its sequence number.
 - **RST injection generally.** A forged in-window RST tears down a live connection. RFC 5961 tightens RST
@@ -13683,11 +13683,11 @@ the first place our binary pays the TIME_WAIT cost.
   teardown). Our stack doesn't yet validate RSTs this tightly.
 - **Port stealing / 4-tuple reuse.** Without TIME_WAIT (or with an unsafe `tcp_tw_recycle`, §C), an
   attacker who can reuse a 4-tuple might inject data that a new incarnation accepts. TIME_WAIT + random
-  ISNs (Day 3) + PAWS (Day 16) together close this.
+  ISNs (Doc 3) + PAWS (Doc 16) together close this.
 - **Resource exhaustion.** An attacker who induces many active closes can balloon a server's TIME_WAIT
   table; bounded tables and (safe) reuse mitigate.
 
-The theme echoes Day 5's: every control transition is attacker-forgeable, and TIME_WAIT in particular is
+The theme echoes Doc 5's: every control transition is attacker-forgeable, and TIME_WAIT in particular is
 a *time-bounded* defense that injected RSTs try to cut short — which is why PAWS exists.
 
 ## J. Performance — the close storm, port exhaustion, memory
@@ -13703,7 +13703,7 @@ a *time-bounded* defense that injected RSTs try to cut short — which is why PA
   use a compact "TIME_WAIT bucket" struct rather than the full socket — an optimization we don't make
   (we keep the whole `Connection`).
 - **Our cost** is the linear `on_tick` scan to find expired TIME_WAITs plus a `HashMap::remove`. At our
-  scale it's nothing; at server scale you'd want the timer wheel (Day 6 §E) and a TIME_WAIT-specific
+  scale it's nothing; at server scale you'd want the timer wheel (Doc 6 §E) and a TIME_WAIT-specific
   lightweight bucket.
 
 ## K. Extended FAQ
@@ -13730,9 +13730,9 @@ a *time-bounded* defense that injected RSTs try to cut short — which is why PA
 15. **What's a CLOSE_WAIT leak?** An app that got a FIN but never `close()`d; sockets pile up in
     CLOSE_WAIT.
 16. **What triggers TIME_WAIT → CLOSED?** The clock (2·MSL) in `on_tick`, not a packet.
-17. **Why did TIME_WAIT expiry need Day 6's event loop?** It's a packet-less, time-driven transition.
-18. **Is our FIN retransmitted if lost?** Yes, since Day 12 (queued in the RetxQueue).
-19. **Does our binary ever actively close?** Not the echo path; the HTTP server (Day 11) does.
+17. **Why did TIME_WAIT expiry need Doc 6's event loop?** It's a packet-less, time-driven transition.
+18. **Is our FIN retransmitted if lost?** Yes, since Doc 12 (queued in the RetxQueue).
+19. **Does our binary ever actively close?** Not the echo path; the HTTP server (Doc 11) does.
 20. **What's TIME_WAIT assassination?** An injected RST cutting TIME_WAIT short (RFC 1337); PAWS defends.
 21. **Can a FIN carry data?** Yes; we send bare FINs, real stacks may combine.
 22. **What ack does our FIN carry?** `RCV.NXT` (we acknowledge all received data).
@@ -13763,7 +13763,7 @@ Q: CLOSE_WAIT pile-up means?  A: an app that received a FIN but never close()d (
 ## M. Glossary
 
 - **Active close** — initiating teardown by sending the first FIN.
-- **Passive close** — responding to the peer's FIN (Day 5).
+- **Passive close** — responding to the peer's FIN (Doc 5).
 - **FIN_WAIT_1 / FIN_WAIT_2** — active closer: FIN sent / FIN acked, awaiting peer FIN.
 - **CLOSING** — simultaneous close; peer's FIN received before ours was acked.
 - **TIME_WAIT** — the active closer's 2·MSL linger before CLOSED.
@@ -13809,13 +13809,13 @@ Q: CLOSE_WAIT pile-up means?  A: an app that received a FIN but never close()d (
 ```
 
 > Re-type the `FIN_WAIT_1/2`, `CLOSING`, and `TIME_WAIT` transitions from this chapter with the book
-> closed, then `cargo test`. You now hold the entire lifecycle from both sides: open (Day 3), data
-> (Day 4), passive close (Day 5), reliability (Day 6), and active close (Day 7) — and you can explain,
+> closed, then `cargo test`. You now hold the entire lifecycle from both sides: open (Doc 3), data
+> (Doc 4), passive close (Doc 5), reliability (Doc 6), and active close (Doc 7) — and you can explain,
 > from the "you can't ACK an ACK" theorem, exactly why TIME_WAIT must exist.
 
 
 
-# Day 8 — TCP, Part 6: Flow Control (the Sliding Window)
+# Doc 8 — TCP, Part 6: Flow Control (the Sliding Window)
 
 > Goal: stop a fast sender from drowning a slow receiver. Every TCP segment carries a **window**: the
 > receiver's standing offer of "I have room for this many more bytes." The sender must keep its
@@ -13824,7 +13824,7 @@ Q: CLOSE_WAIT pile-up means?  A: an app that received a FIN but never close()d (
 > careful about which window is which, because mixing them up is a classic, silent bug (one we had, and
 > fix here).
 
-Reliability (Day 6) makes bytes *arrive*; flow control makes them arrive *at a survivable rate*. The
+Reliability (Doc 6) makes bytes *arrive*; flow control makes them arrive *at a survivable rate*. The
 mechanism — the sliding window — is one of the most elegant ideas in networking: a single 16-bit field,
 updated on every segment, that lets a receiver continuously throttle a sender end-to-end with no separate
 control channel. The subtlety, and the bug this chapter fixes, is that there are *two* windows sharing
@@ -13851,8 +13851,8 @@ Volume II — the exhaustive reference
 - A. The sliding window, completely (edges, pointers, motion)
 - B. The two windows and `SND.WL1`/`SND.WL2` (stale-update protection)
 - C. Silly Window Syndrome — Clark's receiver fix and Nagle's sender fix
-- D. The zero window and the persist timer (preview of Day 14)
-- E. The bandwidth-delay product and the 64 KB ceiling (preview of Day 17)
+- D. The zero window and the persist timer (preview of Doc 14)
+- E. The bandwidth-delay product and the 64 KB ceiling (preview of Doc 17)
 - F. Flow control vs congestion control — the two limits
 - G. A worked sliding-window animation
 - H. The bug, deep — the `u16` type confusion and how a newtype prevents it
@@ -13870,7 +13870,7 @@ Volume II — the exhaustive reference
 
 ## 1. The mental model: the receiver sets the pace
 
-Reliability (Day 6) guarantees bytes *arrive*; it says nothing about whether the receiver can *keep up*.
+Reliability (Doc 6) guarantees bytes *arrive*; it says nothing about whether the receiver can *keep up*.
 A receiver has a finite buffer between "bytes off the wire" and "bytes the application has read." If the
 sender blasts data faster than the app drains that buffer, the buffer overflows and bytes are dropped —
 which then have to be retransmitted, wasting the very bandwidth that caused the overflow. **Flow control**
@@ -13885,12 +13885,12 @@ must stop and wait for it to reopen.
 Two properties make this beautiful: it needs **no separate channel** (the window rides on the ACKs that
 are already flowing), and it is **self-clocking** — each ACK both frees window *and* paces the next send,
 so the sender naturally transmits at the rate the receiver drains. This is **end-to-end** and
-receiver-driven, and it is distinct from *congestion* control (Day 10), which is *network*-driven. The
+receiver-driven, and it is distinct from *congestion* control (Doc 10), which is *network*-driven. The
 real send limit is `min(receiver's window, congestion window)`. This chapter is the receiver-driven half.
 
 ## 2. The window field, and the *two* windows
 
-The `window` lives in the TCP header — bytes 14–15, the 16-bit field we've parsed since Day 1:
+The `window` lives in the TCP header — bytes 14–15, the 16-bit field we've parsed since Doc 1:
 
 ```text
    byte 14        byte 15
@@ -13921,12 +13921,12 @@ branch: every acceptable segment from the peer refreshes our view of its window.
 ```rust
 // Flow control: track the peer's advertised receive window so we never send more
 // unacknowledged data than it can hold (RFC 9293 §3.4).
-self.send.wnd = th.window;   // (Day 17 widens this: (th.window as u32) << snd_wscale)
+self.send.wnd = th.window;   // (Doc 17 widens this: (th.window as u32) << snd_wscale)
 ```
 
 `SND.WND` is now live — it rises and falls as the peer's buffer drains and fills. (A fuller stack also
 guards against an *old* segment moving the window backwards, using `SND.WL1`/`SND.WL2` sequence checks
-(§B); we take the simpler "latest acceptable wins," which is correct on our in-order link. Day 14 adds a
+(§B); we take the simpler "latest acceptable wins," which is correct on our in-order link. Doc 14 adds a
 "window unchanged" check so a pure window update isn't mistaken for a duplicate ACK.)
 
 ## 4. `usable_window()` — how much we may send right now
@@ -13944,14 +13944,14 @@ pub fn usable_window(&self) -> u32 {
 
 Two deliberate uses of wrapping/saturating arithmetic:
 
-- `wrapping_sub` for `in_flight` — `SND.NXT` and `SND.UNA` are 32-bit sequence numbers that wrap (Day 3);
+- `wrapping_sub` for `in_flight` — `SND.NXT` and `SND.UNA` are 32-bit sequence numbers that wrap (Doc 3);
   their *difference* is the true count even across the 2³² boundary.
 - `saturating_sub` for the result — if in-flight somehow exceeds the window (it shrank under us), we
   report `0` ("send nothing"), never a giant number from unsigned underflow.
 
 A bulk sender gates every transmission on `usable_window()`. The echo path sends tiny 2-byte echoes that
-never approach even a small window, so day 8 *computes* the limit without yet *enforcing* it; Day 11's
-`poll_transmit` enforces it for the HTTP/bulk path. (Day 10 also folds in the congestion window:
+never approach even a small window, so doc 8 *computes* the limit without yet *enforcing* it; Doc 11's
+`poll_transmit` enforces it for the HTTP/bulk path. (Doc 10 also folds in the congestion window:
 `usable = min(SND.WND, cwnd) − FlightSize`.)
 
 ## 5. Advertising *our* window — `RCV.WND` (and the bug we fixed)
@@ -13989,7 +13989,7 @@ The peer advertises a 500-byte window; we trace `usable_window()` as data and AC
 ```
 
 The window **slides**: an ACK that advances `SND.UNA` frees an equal amount of send budget. And the
-zero-window case (`usable = 0`) is where a sender must park — see §D / Day 14.
+zero-window case (`usable = 0`) is where a sender must park — see §D / Doc 14.
 
 And the advertisement side (`advertises_our_receive_window_not_the_peers`):
 
@@ -14001,7 +14001,7 @@ And the advertisement side (`advertises_our_receive_window_not_the_peers`):
 ## 7. The Rust: two `u16`s that mean opposite things, and safe arithmetic
 
 - **The bug was a type-system gap.** `send.wnd` and `recv.wnd` are both `u16` (well, `recv.wnd` is `u16`;
-  Day 17 widens `send.wnd` to `u32`), so the compiler happily let `segment()` read the wrong one. Nothing
+  Doc 17 widens `send.wnd` to `u32`), so the compiler happily let `segment()` read the wrong one. Nothing
   in `u16` says "this is *the peer's* capacity" vs "this is *our* capacity." A **newtype** (`struct
   SndWnd(u16); struct RcvWnd(u16);`) would have made the mistake a compile error (§H). We instead pin it
   with a test and clear field names — the pragmatic fix — but the lesson is real: when two values have
@@ -14011,7 +14011,7 @@ And the advertisement side (`advertises_our_receive_window_not_the_peers`):
   yields 0, not a 4-billion-byte "usable window"). Picking the right overflow discipline per operation is
   a recurring theme in this stack.
 - **`u16` field, wider internal math.** The wire window is 16 bits, but `usable_window` returns `u32` and
-  the internal `SND.WND` becomes `u32` (Day 17) so window scaling can exceed 64 KB. The *advertised* field
+  the internal `SND.WND` becomes `u32` (Doc 17) so window scaling can exceed 64 KB. The *advertised* field
   stays 16 bits by definition; only the *interpreted* value widens.
 
 ## 8. The code, walked end to end
@@ -14037,8 +14037,8 @@ a sender to consult.
 - `tracks_peer_window` — peer advertises 500; with nothing in flight, `usable_window()` is 500.
 - `advertises_our_receive_window_not_the_peers` — even when the peer advertises `0xffff`, our echo's
   window field is `1024` (our `RCV.WND`), proving §5's fix and guarding against its return.
-- (Later) `peer_window_is_left_shifted_by_negotiated_scale` (Day 17) — the window-scaling widening of
-  `SND.WND`; `window_updates_and_zero_windows_are_not_duplicate_acks` (Day 14) — a window change isn't a
+- (Later) `peer_window_is_left_shifted_by_negotiated_scale` (Doc 17) — the window-scaling widening of
+  `SND.WND`; `window_updates_and_zero_windows_are_not_duplicate_acks` (Doc 14) — a window change isn't a
   dup ACK.
 
 Live (your hands): `nc 192.168.0.2 8080`, then `sudo tcpdump -i tun0 -n -v` and read the `win` field —
@@ -14051,32 +14051,32 @@ near zero.
 | Decision | We chose | Real TCP |
 |---|---|---|
 | Our advertised window | constant 1024 | dynamic: shrinks with unread data, grows as the app reads |
-| Enforce `usable_window` | computed at day 8; enforced in `poll_transmit` (Day 11) | sender blocks/segments to fit the window |
+| Enforce `usable_window` | computed at doc 8; enforced in `poll_transmit` (Doc 11) | sender blocks/segments to fit the window |
 | Window-update ordering | latest acceptable wins | `SND.WL1`/`SND.WL2` guard against stale updates (§B) |
-| Zero-window handling | none at day 8; persist timer added Day 14 | persist timer + zero-window probes (§D) |
-| Silly-window syndrome | not addressed | Nagle (sender, Day 13) + receiver SWS avoidance (Clark, §C) |
-| Window scaling | none at day 8; added Day 17 | `WScale` option shifts the window up to ~1 GB |
-| flow vs congestion | flow control only | effective window = `min(SND.WND, cwnd)` (Day 10) |
+| Zero-window handling | none at doc 8; persist timer added Doc 14 | persist timer + zero-window probes (§D) |
+| Silly-window syndrome | not addressed | Nagle (sender, Doc 13) + receiver SWS avoidance (Clark, §C) |
+| Window scaling | none at doc 8; added Doc 17 | `WScale` option shifts the window up to ~1 GB |
+| flow vs congestion | flow control only | effective window = `min(SND.WND, cwnd)` (Doc 10) |
 
 ## 11. Honesty: what production does, and what later days added
 
-- **`SND.WND` widened to `u32` on Day 17.** Window scaling (RFC 7323) multiplies the 16-bit field by a
+- **`SND.WND` widened to `u32` on Doc 17.** Window scaling (RFC 7323) multiplies the 16-bit field by a
   negotiated shift, so the *interpreted* send window can reach ~1 GB; `send.wnd` became `u32` and the
   tracker became `(th.window as u32) << snd_wscale` (§E).
-- **The congestion window joined the limit on Day 10.** `usable_window` became
+- **The congestion window joined the limit on Doc 10.** `usable_window` became
   `min(SND.WND, cwnd) − FlightSize` — flow control caps you at the receiver, congestion control at the
   network, and you obey the smaller.
-- **Enforcement arrived with the send buffer (Day 11).** `poll_transmit` drains an application send buffer
-  into segments bounded by `usable_window()` and the MSS — the day-8 accounting finally *gating* real
+- **Enforcement arrived with the send buffer (Doc 11).** `poll_transmit` drains an application send buffer
+  into segments bounded by `usable_window()` and the MSS — the doc-8 accounting finally *gating* real
   transmission.
-- **Zero-window probes arrived Day 14.** When the peer advertises 0, a naive sender parks forever if the
+- **Zero-window probes arrived Doc 14.** When the peer advertises 0, a naive sender parks forever if the
   window-reopen ACK is lost; the persist timer pokes a 1-byte probe to break the deadlock (§D).
 - **`SND.WL1`/`SND.WL2` not implemented.** We take "latest acceptable wins" rather than the RFC's
   sequence-checked window update; correct on our in-order link, not against a reordering network (§B).
 - **Static receive window / no SWS avoidance.** A real receiver autotunes `RCV.WND` and avoids
   advertising tiny windows (Clark's algorithm, §C). We advertise a flat 1024.
 
-None of these change the day-8 contract (we honor the peer's window and advertise our own honestly); they
+None of these change the doc-8 contract (we honor the peer's window and advertise our own honestly); they
 are the breadth the later days add.
 
 ## 12. Rebuild it yourself — checklist + exercises
@@ -14092,22 +14092,22 @@ are the breadth the later days add.
 
 **Exercises:**
 
-- **E1.** ✅ *Done* (Day 11): a real sender that *enforces* `usable_window()` — queue application data and
+- **E1.** ✅ *Done* (Doc 11): a real sender that *enforces* `usable_window()` — queue application data and
   emit only up to the window, deferring the rest until ACKs slide it open.
 - **E2.** Make `RCV.WND` dynamic: track a receive buffer, shrink the advertised window as unread bytes
   accumulate, grow it (with a window-update ACK) as the app reads — and avoid silly-window syndrome (§C).
-- **E3.** ✅ *Done* (Day 14): handle a **zero window** with a persist timer and a 1-byte probe so a lost
+- **E3.** ✅ *Done* (Doc 14): handle a **zero window** with a persist timer and a 1-byte probe so a lost
   window-update can't deadlock the connection.
-- **E4.** ✅ *Done* (Day 17): add **window scaling** (RFC 7323) — negotiate `WScale` in the SYN and shift
+- **E4.** ✅ *Done* (Doc 17): add **window scaling** (RFC 7323) — negotiate `WScale` in the SYN and shift
   the window, lifting the 64 KB ceiling.
 - **E5.** Implement `SND.WL1`/`SND.WL2` so a stale (reordered) segment can't move `SND.WND` backwards
   (§B).
 
 ## 13. What the next step adds
 
-Day 9 adds **out-of-order reassembly** — a receive buffer that holds gaps until they fill, so a reordered
-or retransmitted segment is delivered in order rather than dropped (the receiver-side complement to Day 6
-and the foundation for SACK, Day 18). Then Day 10 adds **congestion control** — capping the sender at what
+Doc 9 adds **out-of-order reassembly** — a receive buffer that holds gaps until they fill, so a reordered
+or retransmitted segment is delivered in order rather than dropped (the receiver-side complement to Doc 6
+and the foundation for SACK, Doc 18). Then Doc 10 adds **congestion control** — capping the sender at what
 the *network* can carry (slow start, AIMD, fast retransmit/recovery), making the real send limit
 `min(SND.WND, cwnd)`. Flow control is the receiver's half of pacing; congestion control is the network's.
 
@@ -14173,15 +14173,15 @@ by *either* end:
   increase until it can offer a "useful" amount — at least one MSS or half the buffer. It keeps the
   window closed (or unchanged) and only re-opens it in worthwhile chunks.
 - **Sender-caused.** An application writes one byte at a time; a naive sender ships each as its own
-  segment. **Nagle's algorithm (RFC 896, Day 13):** while there's unacknowledged data outstanding, hold a
+  segment. **Nagle's algorithm (RFC 896, Doc 13):** while there's unacknowledged data outstanding, hold a
   small (sub-MSS) write and coalesce it with later writes, sending only when a full segment accumulates or
   the outstanding data is acked. `TCP_NODELAY` opts out for latency-sensitive traffic.
 
 Together, Clark (receiver) and Nagle (sender) keep the window moving in efficient chunks. We implement
-Nagle (Day 13) but not Clark (our window is a flat 1024, never tiny). The famous gotcha is the
-Nagle + delayed-ACK interaction (Day 4 §B): a Nagle-held write waiting on a delayed ACK → a ~40 ms stall.
+Nagle (Doc 13) but not Clark (our window is a flat 1024, never tiny). The famous gotcha is the
+Nagle + delayed-ACK interaction (Doc 4 §B): a Nagle-held write waiting on a delayed ACK → a ~40 ms stall.
 
-## D. The zero window and the persist timer (preview of Day 14)
+## D. The zero window and the persist timer (preview of Doc 14)
 
 When the receiver's buffer fills, it advertises `window = 0` — "stop sending." The sender parks. The
 hazard: the window reopens via an ACK ("I have room now"), but **a pure ACK is not retransmitted**, so if
@@ -14192,11 +14192,11 @@ The fix is the **persist timer**: when the window is zero and we have data to se
 periodically sends a **zero-window probe** — a 1-byte segment into the closed window. The receiver
 responds with its current window (an ACK), so even if the original window-update was lost, the probe
 elicits a fresh one and breaks the deadlock. The probe interval backs off exponentially (like the RTO).
-We add this on Day 14 (`persist_ms`); day 8 simply computes `usable = 0` and would stall without it. This
+We add this on Doc 14 (`persist_ms`); doc 8 simply computes `usable = 0` and would stall without it. This
 is the one place flow control *requires* the sender to keep poking, because silence is ambiguous between
 "no room" and "lost the reopen."
 
-## E. The bandwidth-delay product and the 64 KB ceiling (preview of Day 17)
+## E. The bandwidth-delay product and the 64 KB ceiling (preview of Doc 17)
 
 The window must be at least one **bandwidth-delay product (BDP)** to keep a pipe full: to have data
 arriving continuously, a sender must have `bandwidth × RTT` bytes in flight before the first ACK returns.
@@ -14210,10 +14210,10 @@ But the window *field* is 16 bits → max 65,535 bytes. On that 1 Gbit/s × 80 m
 throughput at `64 KB / 80 ms ≈ 6.5 Mbit/s` — **0.6 %** of the link. The field, sized in 1981, is the
 bottleneck on any modern "long fat network."
 
-**Window scaling (RFC 7323, Day 17)** fixes it without changing the field: both ends negotiate a shift
+**Window scaling (RFC 7323, Doc 17)** fixes it without changing the field: both ends negotiate a shift
 `S` (0–14) in the SYN, and thereafter a window value `W` means `W << S`. With `S = 14`, a full field of
-65,535 means ~1 GB — plenty for any BDP. This is why `SND.WND` becomes `u32` (Day 17): the *interpreted*
-window exceeds 16 bits even though the wire field doesn't. Flow control (day 8) sets up the machinery;
+65,535 means ~1 GB — plenty for any BDP. This is why `SND.WND` becomes `u32` (Doc 17): the *interpreted*
+window exceeds 16 bits even though the wire field doesn't. Flow control (doc 8) sets up the machinery;
 window scaling lifts its ceiling.
 
 ## F. Flow control vs congestion control — the two limits
@@ -14223,8 +14223,8 @@ Two independent limits bound how fast a sender may transmit, and the sender obey
 ```text
    limit                bounds against        set by             our field
    ──────────────────   ───────────────────   ────────────────   ──────────────
-   flow control         receiver overflow      the receiver       SND.WND  (Day 8)
-   congestion control   network overflow       the sender (infer) cwnd     (Day 10)
+   flow control         receiver overflow      the receiver       SND.WND  (Doc 8)
+   congestion control   network overflow       the sender (infer) cwnd     (Doc 10)
 
    effective window = min(SND.WND, cwnd) − FlightSize
 ```
@@ -14232,8 +14232,8 @@ Two independent limits bound how fast a sender may transmit, and the sender obey
 They answer different questions: flow control asks "can the *receiver* hold more?"; congestion control
 asks "can the *network* carry more?" A connection can be flow-limited (slow receiver, fast network) or
 congestion-limited (fast receiver, congested network). Conflating them is a classic confusion: a large
-receive window does *not* mean you may blast — `cwnd` may be tiny after a loss. Day 8 builds the first
-limit; Day 10 builds the second and the `min`.
+receive window does *not* mean you may blast — `cwnd` may be tiny after a loss. Doc 8 builds the first
+limit; Doc 10 builds the second and the `min`.
 
 ## G. A worked sliding-window animation
 
@@ -14286,12 +14286,12 @@ same-typed values mean opposite things (sequence-space "ours vs theirs," port "l
    aspect              real kernel (Linux)                       this stack
    ─────────────────   ───────────────────────────────────────  ─────────────────────
    receive window      autotuned (tcp_rmem), grows to BDP         flat 1024
-   send buffer         autotuned (tcp_wmem)                       Day 11 send_buf
-   SWS avoidance       Clark (receiver) + Nagle (sender)          Nagle only (Day 13)
+   send buffer         autotuned (tcp_wmem)                       Doc 11 send_buf
+   SWS avoidance       Clark (receiver) + Nagle (sender)          Nagle only (Doc 13)
    stale updates       SND.WL1/WL2 checks                         "latest wins" (no WL)
-   zero window         persist timer + probes                     Day 14
-   window scaling      on by default (RFC 7323)                   Day 17
-   effective limit     min(rwnd, cwnd)                            min(SND.WND, cwnd) (Day 10)
+   zero window         persist timer + probes                     Doc 14
+   window scaling      on by default (RFC 7323)                   Doc 17
+   effective limit     min(rwnd, cwnd)                            min(SND.WND, cwnd) (Doc 10)
 ```
 
 The big real-world feature we lack is **receive-window autotuning**: Linux starts with a modest window
@@ -14312,7 +14312,7 @@ finds the sweet spot per connection. Our flat 1024 is fine for an echo server, w
   number could inject a segment that moves `SND.WND` (e.g. shrink it to stall, or grow it to provoke an
   overrun). The `SND.WL1/WL2` checks (§B) and small windows + random ISNs reduce the target; RFC 5961
   adds further validation.
-- **Optimistic ACK / window manipulation for congestion (Day 10).** A lying receiver can ACK data early
+- **Optimistic ACK / window manipulation for congestion (Doc 10).** A lying receiver can ACK data early
   or advertise a huge window to make a sender transmit faster than safe — more a congestion-control
   attack, but it rides the same fields.
 
@@ -14333,7 +14333,7 @@ bounds the resources a flow-blocked connection can hold.
   (a big ACK freeing a lot at once), which pacing (a real-stack feature) smooths.
 - **Our cost** is one field update per segment and one subtraction in `usable_window` — negligible. The
   performance *limitation* is the flat 1024 window, which caps bulk throughput; that's by design for an
-  echo server and lifted conceptually by Days 10/11/17.
+  echo server and lifted conceptually by Docs 10/11/17.
 
 ## L. Extended FAQ
 
@@ -14343,7 +14343,7 @@ bounds the resources a flow-blocked connection can hold.
    capacity, what we advertise).
 3. **Which window does an *incoming* segment's field update?** `SND.WND`.
 4. **Which window does an *outgoing* segment's field carry?** `RCV.WND`.
-5. **What was the day-8 bug?** `segment()` advertised `send.wnd` (the peer's window) instead of
+5. **What was the doc-8 bug?** `segment()` advertised `send.wnd` (the peer's window) instead of
    `recv.wnd` (ours).
 6. **Why did the bug hide for so long?** Both windows were the constant 1024 until `send.wnd` started
    tracking the peer.
@@ -14354,7 +14354,7 @@ bounds the resources a flow-blocked connection can hold.
 9. **Why `saturating_sub` for the result?** A shrunk window must yield 0, not an underflowed huge number.
 10. **Does the window bound total or in-flight data?** In-flight (`SND.NXT − SND.UNA`).
 11. **What makes the window "slide"?** An ACK advancing `SND.UNA` frees an equal amount of send budget.
-12. **What is a zero window?** `window = 0` — "stop sending"; handled with a persist timer (Day 14).
+12. **What is a zero window?** `window = 0` — "stop sending"; handled with a persist timer (Doc 14).
 13. **What deadlock does the persist timer prevent?** A lost window-reopen ACK leaving both sides waiting
     forever.
 14. **What is Silly Window Syndrome?** Tiny window increments causing many small segments; fixed by Clark
@@ -14366,9 +14366,9 @@ bounds the resources a flow-blocked connection can hold.
     `min`.
 18. **What's the BDP?** Bandwidth × RTT — the window needed to keep a pipe full (§E).
 19. **Why is 64 KB sometimes too small?** On a long fat network the BDP exceeds the 16-bit field; window
-    scaling (Day 17) fixes it.
-20. **When did we *enforce* the window?** Day 11's `poll_transmit` (day 8 only computes it).
-21. **When did `SND.WND` become `u32`?** Day 17 (window scaling).
+    scaling (Doc 17) fixes it.
+20. **When did we *enforce* the window?** Doc 11's `poll_transmit` (doc 8 only computes it).
+21. **When did `SND.WND` become `u32`?** Doc 17 (window scaling).
 22. **Can the peer shrink its window?** It can (the RFC discourages moving the right edge left); our
     saturating math stays safe.
 23. **What's bufferbloat?** Over-large network buffers inflating latency; flow control alone can't see it
@@ -14390,12 +14390,12 @@ Q: Why wrapping_sub for in-flight?  A: sequence numbers wrap; the difference is 
 Q: Why saturating_sub for usable?  A: a shrunk window must give 0, not an underflowed huge value.
 Q: Does the window bound total or in-flight data?  A: in-flight.
 Q: What makes the window slide?  A: an ACK advancing SND.UNA frees equal send budget.
-Q: The day-8 bug?  A: advertising send.wnd (peer's) instead of recv.wnd (ours).
-Q: Zero-window deadlock fix?  A: persist timer + 1-byte probe (Day 14).
+Q: The doc-8 bug?  A: advertising send.wnd (peer's) instead of recv.wnd (ours).
+Q: Zero-window deadlock fix?  A: persist timer + 1-byte probe (Doc 14).
 Q: Silly Window Syndrome fixes?  A: Clark (receiver) + Nagle (sender).
 Q: Flow vs congestion control?  A: receiver-imposed SND.WND vs network-imposed cwnd; obey the min.
 Q: BDP?  A: bandwidth × RTT — the window needed to keep the pipe full.
-Q: Why 64KB caps a fast/long path?  A: 16-bit window < BDP; window scaling (Day 17) lifts it.
+Q: Why 64KB caps a fast/long path?  A: 16-bit window < BDP; window scaling (Doc 17) lifts it.
 ```
 
 ## N. Glossary
@@ -14406,7 +14406,7 @@ Q: Why 64KB caps a fast/long path?  A: 16-bit window < BDP; window scaling (Day 
 - **In-flight / FlightSize** — sent-but-unacked data, `SND.NXT − SND.UNA`.
 - **Usable window** — `SND.WND − FlightSize`; bytes we may send now.
 - **Self-clocking** — each ACK paces the next send and frees window.
-- **Zero window** — `window = 0`; handled with the persist timer (Day 14).
+- **Zero window** — `window = 0`; handled with the persist timer (Doc 14).
 - **Silly Window Syndrome** — tiny window increments → many small segments; Clark + Nagle avoid it.
 - **`SND.WL1` / `SND.WL2`** — last-window-update seq/ack, for rejecting stale updates.
 - **BDP (bandwidth-delay product)** — bandwidth × RTT; the window needed to fill a pipe.
@@ -14443,25 +14443,25 @@ Q: Why 64KB caps a fast/long path?  A: 16-bit window < BDP; window scaling (Day 
 ```
 
 > Re-type the window accounting from this chapter with the book closed, then `cargo test`. You now hold
-> the receiver's half of pacing: open (Day 3), data (Day 4), close (Day 5), reliability (Day 6), active
-> close (Day 7), and flow control (Day 8). When you can say which window each segment's field means
+> the receiver's half of pacing: open (Doc 3), data (Doc 4), close (Doc 5), reliability (Doc 6), active
+> close (Doc 7), and flow control (Doc 8). When you can say which window each segment's field means
 > *without thinking*, the §5 bug will never be yours.
 
 
 
-# Day 9 — TCP, Part 7: Out-of-Order Reassembly
+# Doc 9 — TCP, Part 7: Out-of-Order Reassembly
 
 > Goal: deliver a **contiguous, in-order** byte stream even when segments arrive jumbled. Until now we
 > accepted data only when `seq == RCV.NXT` and dropped everything else — so a single reordered or
 > gap-leaving segment stalled the connection. This chapter adds a receive buffer that holds out-of-order
-> data until the gap fills, then releases the unbroken run. It's the receive-side twin of Day 6's
+> data until the gap fills, then releases the unbroken run. It's the receive-side twin of Doc 6's
 > retransmission, and it's what finally lets a real file cross a lossy, reordering link.
 
 The network is allowed to scramble your packets, and TCP is obliged to un-scramble them. The receiver
 becomes a little sorting buffer: it accepts data that arrives early, parks it, and releases bytes to the
 application only as an unbroken run. The two recurring subtleties — keeping order across the sequence-wrap,
 and what to *say* when you can't deliver (the duplicate ACK) — are where this chapter earns its depth, and
-where SACK (Day 18) and fast retransmit (Day 10) both plug in.
+where SACK (Doc 18) and fast retransmit (Doc 10) both plug in.
 
 **Contents**
 
@@ -14486,7 +14486,7 @@ Volume II — the exhaustive reference
 - B. The four cases of a segment vs `RCV.NXT`, exhaustively
 - C. The sequence-wrap problem in full (offsets, the 2³¹ assumption, PAWS)
 - D. Duplicate ACKs and fast retransmit (the 3-dupACK heuristic and reordering)
-- E. Generating SACK blocks from the reassembler (the Day 18 connection)
+- E. Generating SACK blocks from the reassembler (the Doc 18 connection)
 - F. Buffer management and the advertised window
 - G. A worked multi-gap reassembly trace
 - H. Comparison to real stacks — the out-of-order queue and collapse
@@ -14512,7 +14512,7 @@ The rule is precise: bytes are *delivered* to the application (and acknowledged 
 they form an **unbroken run starting at `RCV.NXT`**. Anything beyond a gap is held in a buffer,
 contributing nothing to `RCV.NXT`, until the missing bytes arrive and bridge it.
 
-This is the mirror image of Day 6. There, the *sender* kept unacknowledged data so it could resend. Here,
+This is the mirror image of Doc 6. There, the *sender* kept unacknowledged data so it could resend. Here,
 the *receiver* keeps early-arriving data so it can reorder. Together they make a lossy, reordering network
 look like a clean pipe to the application above — the core illusion TCP sells.
 
@@ -14520,13 +14520,13 @@ look like a clean pipe to the application above — the core illusion TCP sells.
 
 Don't confuse two things that both sound like "the window":
 
-- The **advertised receive window** (`RCV.WND`, Day 8) — a *number* we put in outgoing segments saying "I
+- The **advertised receive window** (`RCV.WND`, Doc 8) — a *number* we put in outgoing segments saying "I
   can accept this many more bytes." It throttles the sender.
 - The **reassembly buffer** — the actual *storage* holding out-of-order bytes until they're contiguous.
   Its occupancy is what *should* drive the advertised window down.
 
 In a full stack they're linked: `RCV.WND = buffer_capacity − buffered_bytes` (§F). We keep `RCV.WND` a
-constant 1024 (Day 8's simplification — our echo server drains instantly), so the link is loose here, but
+constant 1024 (Doc 8's simplification — our echo server drains instantly), so the link is loose here, but
 the reassembly buffer is now real. We do enforce one consequence of the window: data that arrives more
 than `MAX_AHEAD` past `RCV.NXT` is *outside any window we'd advertise* and is discarded (RFC 9293
 §3.10.7.4), which also bounds how much we'll ever buffer (a hostile peer can't make us hoard unbounded
@@ -14595,7 +14595,7 @@ Over a connection these offsets grow monotonically from 0, so plain integer orde
 no modular reasoning needed in the map. The one assumption is that a single connection moves fewer than
 2³¹ bytes *while a gap is open*, so offsets never themselves wrap into ambiguity. That holds for any
 realistic transfer; a production stack tracks the wrap explicitly and uses RFC 7323 timestamps (PAWS,
-Day 16) to disambiguate an ancient wrapped duplicate from current data (§C).
+Doc 16) to disambiguate an ancient wrapped duplicate from current data (§C).
 
 `base` is known the moment we reach ESTABLISHED: it's `IRS + 1` (the SYN consumed `IRS`). For a passive
 open we set it in `accept`; for an active open we don't learn the peer's ISN until the SYN-ACK, so we
@@ -14607,12 +14607,12 @@ When data arrives out of order, we deliver nothing — but we must not stay sile
 **duplicate ACK**: a bare ACK re-advertising the *same* `RCV.NXT` we sent before. To the sender, repeated
 identical ACKs are a signal: "I'm still missing the byte at `RCV.NXT`, but segments after it are reaching
 me." Three of these in a row is TCP's **fast-retransmit** trigger — the sender resends the presumed-lost
-segment immediately, without waiting for its RTO (Day 10).
+segment immediately, without waiting for its RTO (Doc 10).
 
 The duplicate ACK is the receiver's *only* way to say "I have a hole" with cumulative ACKs alone — it
-can't say *which* later bytes it has. That limitation is exactly what **SACK** (Day 18) fixes: the SACK
+can't say *which* later bytes it has. That limitation is exactly what **SACK** (Doc 18) fixes: the SACK
 option attached to the dup ACK names the buffered ranges, so the sender knows precisely what to resend.
-The reassembler's buffered fragments *are* the SACK blocks (§E) — this day builds the structure that Day 18
+The reassembler's buffered fragments *are* the SACK blocks (§E) — this day builds the structure that Doc 18
 reads out.
 
 ## 7. Worked example
@@ -14655,16 +14655,16 @@ the "bc" and delivers just "XY" (the four cases are enumerated in §B).
 
 | Piece | Role |
 |---|---|
-| `src/reassembly.rs` | the `Reassembler`: `recv()` (trim/buffer/drain) + `sack_blocks()` (Day 18) |
+| `src/reassembly.rs` | the `Reassembler`: `recv()` (trim/buffer/drain) + `sack_blocks()` (Doc 18) |
 | `Connection.reasm` | one reassembler per connection; rebased on SYN-ACK for active open |
 | `on_segment` data branch | feeds every data segment to `reasm`; ACKs delivered bytes, else dup-ACKs |
 
 The control flow in `on_segment`'s ESTABLISHED branch: a non-empty payload goes to
 `self.reasm.recv(th.seq, payload, self.recv.nxt)`. If it returns bytes, we advance `RCV.NXT` by their
-length and deliver them into the receive buffer (the app reads via `take_received`, Day 11). If it returns
+length and deliver them into the receive buffer (the app reads via `take_received`, Doc 11). If it returns
 empty (out-of-order or duplicate), `RCV.NXT` is untouched. Either way we send an ACK carrying the current
 `RCV.NXT` — a fresh ACK for in-order data, a duplicate ACK for a hole (now also carrying SACK blocks when
-negotiated, Day 18). In-order data behaves exactly as before — the reassembler returns it immediately with
+negotiated, Doc 18). In-order data behaves exactly as before — the reassembler returns it immediately with
 an empty buffer.
 
 ## 10. Verification
@@ -14672,7 +14672,7 @@ an empty buffer.
 `cargo test` proves reassembly offline. Coverage:
 
 - `reassembly::*` — in-order passthrough; out-of-order buffer then gap-fill; duplicate of delivered data;
-  partial overlap trimming; multiple gaps filled in any order; far-out-of-window discard; (Day 18) SACK
+  partial overlap trimming; multiple gaps filled in any order; far-out-of-window discard; (Doc 18) SACK
   blocks reported, coalesced, and empty when in order.
 - `tcp::reassembles_out_of_order_data` — end-to-end: the second chunk arrives first and draws a duplicate
   ACK (RCV.NXT unmoved), then the first chunk flushes both and we deliver/echo the contiguous "helo" with
@@ -14692,14 +14692,14 @@ it with `sudo tc qdisc del dev tun0 root`.
 | Overlapping fragments | assume disjoint future frags; trim vs delivered only | full byte-interval merge of arbitrary overlaps |
 | Advertised window vs buffer | window constant 1024, buffer real | `RCV.WND = capacity − buffered`, dynamically |
 | Out-of-window data | discard beyond `MAX_AHEAD` | discard beyond `RCV.WND`, exactly |
-| SACK | day 9: cumulative ACK + dup-ACKs only | day 18 adds RFC 2018 blocks from this buffer |
-| Outgoing segmentation | echo a run in one segment (day 9); MSS-split Day 11/15 | split to MSS, respecting the send window |
+| SACK | doc 9: cumulative ACK + dup-ACKs only | doc 18 adds RFC 2018 blocks from this buffer |
+| Outgoing segmentation | echo a run in one segment (doc 9); MSS-split Doc 11/15 | split to MSS, respecting the send window |
 
 ## 12. Honesty: what production does, and what later days added
 
-- **SACK reads this buffer (Day 18).** The reassembler's buffered fragments are precisely the data a SACK
-  option reports; Day 18 added `Reassembler::sack_blocks()` to coalesce them into `(left, right)` ranges
-  for the ACK (§E). Day 9 builds the structure; Day 18 makes the receiver *tell* the sender about the
+- **SACK reads this buffer (Doc 18).** The reassembler's buffered fragments are precisely the data a SACK
+  option reports; Doc 18 added `Reassembler::sack_blocks()` to coalesce them into `(left, right)` ranges
+  for the ACK (§E). Doc 9 builds the structure; Doc 18 makes the receiver *tell* the sender about the
   holes.
 - **No overlapping-fragment merge.** We assume future fragments are disjoint (true for our sender). A
   general receiver must merge arbitrary overlapping byte intervals — and do it *carefully*, because naive
@@ -14708,12 +14708,12 @@ it with `sudo tc qdisc del dev tun0 root`.
   reassembly buffer throttles the sender (§F); ours is a flat 1024.
 - **No buffer "collapse."** Under memory pressure Linux *collapses* the out-of-order queue (merges
   adjacent skbs, prunes) rather than dropping; we just bound by `MAX_AHEAD` (§H).
-- **Outgoing segmentation came later.** Day 9 echoes a delivered run as one segment; MSS-bounded
-  segmentation arrives with the send buffer (Day 11) and MSS negotiation (Day 15).
+- **Outgoing segmentation came later.** Doc 9 echoes a delivered run as one segment; MSS-bounded
+  segmentation arrives with the send buffer (Doc 11) and MSS negotiation (Doc 15).
 - **The 2³¹ offset assumption.** We assume a gap never spans > 2 GB; a production stack handles the full
   wrap with timestamps/PAWS (§C).
 
-None of these change the day-9 contract (reordered data is delivered in order, duplicates dropped); they
+None of these change the doc-9 contract (reordered data is delivered in order, duplicates dropped); they
 are the breadth the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -14725,25 +14725,25 @@ are the breadth the later days add.
       `RCV.NXT` advances by the *delivered* length, not the segment length.
 - [ ] Why offsets-from-base, not raw sequence numbers, key the buffer (the wrap).
 - [ ] What a duplicate ACK means and why three of them matter to the sender.
-- [ ] Why the reassembler's fragments are the SACK blocks (Day 18).
+- [ ] Why the reassembler's fragments are the SACK blocks (Doc 18).
 
 **Exercises:**
 
 - **E1.** Make `RCV.WND` dynamic: advertise `capacity − buffered_bytes` so a stalled reassembly buffer
-  actually throttles the sender (ties Day 8 to this chapter; §F).
-- **E2.** ✅ *Done* (Day 18): report the buffered byte ranges as **SACK** blocks (RFC 2018) so the sender
+  actually throttles the sender (ties Doc 8 to this chapter; §F).
+- **E2.** ✅ *Done* (Doc 18): report the buffered byte ranges as **SACK** blocks (RFC 2018) so the sender
   retransmits only the true gaps.
 - **E3.** Handle arbitrary **overlapping** fragments by merging byte intervals, then prove it with a test
   that feeds overlapping retransmissions — and think about the overlap attack (§I).
-- **E4.** ✅ *Done* (Days 11/15): segment **outgoing** data to a negotiated MSS so a large delivered run
+- **E4.** ✅ *Done* (Docs 11/15): segment **outgoing** data to a negotiated MSS so a large delivered run
   echoes as multiple MTU-sized segments, each queued for retransmission.
 - **E5.** Implement buffer **collapse**: when buffered bytes near the cap, merge adjacent fragments and
   prune, rather than discarding new arrivals (§H).
 
 ## 14. What the next step adds
 
-The receiver can now reorder; the sender can now retransmit (Day 6) and respect the receiver's window
-(Day 8). The missing governor is **congestion control** (Day 10) — limiting the sender by what the
+The receiver can now reorder; the sender can now retransmit (Doc 6) and respect the receiver's window
+(Doc 8). The missing governor is **congestion control** (Doc 10) — limiting the sender by what the
 *network* can carry: slow start, congestion avoidance (AIMD), and **fast retransmit / fast recovery**
 driven by the very duplicate ACKs we started emitting here. The effective send limit becomes
 `min(SND.WND, cwnd)`.
@@ -14755,7 +14755,7 @@ driven by the very duplicate ACKs we started emitting here. The effective send l
 ## A. Reassembly data-structure choices (BTreeMap, interval tree, list)
 
 The reassembler must support: insert a fragment, find the fragment at/after a given offset, remove a
-fragment, and (Day 18) iterate fragments in order. Options:
+fragment, and (Doc 18) iterate fragments in order. Options:
 
 ```text
    structure              insert    "next ≥ x"    in-order iter   notes
@@ -14807,7 +14807,7 @@ their *offset* comparison ambiguous too). For any real transfer a gap closes in 
 The remaining hazard a production stack must handle is an **old wrapped duplicate**: on a very fast,
 long-lived connection the *sequence space itself* wraps (4 GB), and an ancient delayed segment could carry
 a sequence number that lands in the current window — looking valid. **PAWS** (Protect Against Wrapped
-Sequences, RFC 7323 §5, Day 16) defends with timestamps: every segment carries a timestamp, and one whose
+Sequences, RFC 7323 §5, Doc 16) defends with timestamps: every segment carries a timestamp, and one whose
 timestamp predates the most recent (`TS.Recent`) is rejected as a stale duplicate regardless of its
 sequence number. Reassembly correctness on the open internet ultimately rests on timestamps; our offset
 trick is the LAN-correct version.
@@ -14823,17 +14823,17 @@ is missing."
 **not** a loss — the missing segment is right behind. Two could still be mild reordering. The designers
 chose **three** dup-ACKs (`DupThresh = 3`) as the threshold that strongly implies loss rather than
 reordering, balancing fast recovery against false positives. The sender then **fast-retransmits** the
-segment at `RCV.NXT` immediately (Day 10), recovering in ~1 RTT instead of ~1 RTO.
+segment at `RCV.NXT` immediately (Doc 10), recovering in ~1 RTT instead of ~1 RTO.
 
 The heuristic's weakness is exactly reordering: a path that reorders by 3+ positions triggers spurious
-fast retransmits. Modern stacks add **RACK** (time-based loss detection, RFC 8985) and **D-SACK** (Day 18
-§B) to detect and undo these. Day 9 *generates* the dup-ACKs; Day 10 *acts* on them; Day 18's SACK makes
+fast retransmits. Modern stacks add **RACK** (time-based loss detection, RFC 8985) and **D-SACK** (Doc 18
+§B) to detect and undo these. Doc 9 *generates* the dup-ACKs; Doc 10 *acts* on them; Doc 18's SACK makes
 them precise.
 
-## E. Generating SACK blocks from the reassembler (the Day 18 connection)
+## E. Generating SACK blocks from the reassembler (the Doc 18 connection)
 
 The reassembler's `frags` are, by construction, the set of received-out-of-order byte ranges — which is
-*exactly* what a SACK option reports. Day 18 added:
+*exactly* what a SACK option reports. Doc 18 added:
 
 ```rust
 pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
@@ -14850,11 +14850,11 @@ pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
 }
 ```
 
-Two day-9 design choices pay off here: the **`BTreeMap` order** means the blocks come out ascending for
+Two doc-9 design choices pay off here: the **`BTreeMap` order** means the blocks come out ascending for
 free, and **disjoint fragments** mean each is a clean range (only *adjacent* ones need coalescing). The
-single most valuable thing about building a real reassembly buffer at day 9 — rather than the day-4 "drop
+single most valuable thing about building a real reassembly buffer at doc 9 — rather than the doc-4 "drop
 out-of-order" hack — is that it becomes the source of truth SACK reads from. This is why the curriculum
-puts reassembly (Day 9) before SACK (Day 18): you can't *report* holes you don't *track*.
+puts reassembly (Doc 9) before SACK (Doc 18): you can't *report* holes you don't *track*.
 
 ## F. Buffer management and the advertised window
 
@@ -14867,13 +14867,13 @@ In a full stack the reassembly buffer and the advertised window are two ends of 
 When out-of-order data piles up (a persistent gap), `bytes_currently_buffered` rises, so `RCV.WND` falls,
 so the *sender slows down* — flow control automatically backs off a sender whose data the receiver can't
 yet deliver. When the gap fills and the buffer drains to the app, `RCV.WND` reopens. This coupling is why
-flow control (Day 8) and reassembly (Day 9) are really one system: the buffer is the physical thing; the
+flow control (Doc 8) and reassembly (Doc 9) are really one system: the buffer is the physical thing; the
 window is its advertised free space.
 
 We decouple them (flat 1024 window, real buffer bounded by `MAX_AHEAD`) because our echo server drains
 instantly, so the buffer is almost always empty. A bulk receiver *must* couple them, or it either drops
 data (window too big for the buffer) or stalls throughput (window too small). Exercise E1 makes the
-coupling real; §C of day 8 covers the silly-window pitfall of doing it carelessly.
+coupling real; §C of doc 8 covers the silly-window pitfall of doing it carelessly.
 
 ## G. A worked multi-gap reassembly trace
 
@@ -14901,7 +14901,7 @@ a single lost segment can stall a whole window's worth of received data from rea
    overlap handling   trims/merges arbitrary overlaps          disjoint-only (+ trim vs delivered)
    memory pressure    "collapse": merge adjacent, then prune   bound by MAX_AHEAD, discard far data
    window coupling    RCV.WND = free buffer (autotuned)        flat 1024
-   SACK generation    from the OoO tree                        from frags (Day 18)
+   SACK generation    from the OoO tree                        from frags (Doc 18)
    delivery           wake reader when in-order prefix grows   recv_buf + take_received
 ```
 
@@ -14972,7 +14972,7 @@ reassembler bounds the memory and makes the overlap policy explicit and inspecti
 14. **How would overlapping fragments be handled?** Byte-interval merging (E3) — carefully, it's an
     evasion vector (§I).
 15. **How do the fragments become SACK blocks?** `sack_blocks()` reads them as ascending coalesced ranges
-    (Day 18, §E).
+    (Doc 18, §E).
 16. **Why build a real buffer if SACK is far off?** Because SACK *needs* a buffer to report from; you
     can't report holes you don't track.
 17. **What couples the buffer to `RCV.WND`?** `RCV.WND = capacity − buffered` (§F) — ours is decoupled
@@ -14983,7 +14983,7 @@ reassembler bounds the memory and makes the overlap policy explicit and inspecti
 21. **Does in-order data hit the buffer?** It passes straight through (drain returns it immediately, empty
     buffer).
 22. **What is the 2³¹ assumption?** A gap never spans > 2 GB, so offsets stay unambiguous (§C).
-23. **What handles a wrapped ancient duplicate?** PAWS/timestamps (Day 16), not the offset trick.
+23. **What handles a wrapped ancient duplicate?** PAWS/timestamps (Doc 16), not the offset trick.
 24. **Can a buffer-exhaustion attack hurt us?** Bounded by `MAX_AHEAD` per connection (§I).
 25. **What's the receive-side twin of retransmission?** Reassembly — sender keeps to resend, receiver
     keeps to reorder.
@@ -15000,12 +15000,12 @@ Q: What does a duplicate ACK signal?  A: "missing RCV.NXT, but later segments ar
 Q: Why three dup-ACKs for fast retransmit?  A: one/two can be reordering; three implies loss.
 Q: What bounds how much we buffer?  A: MAX_AHEAD (out-of-window data discarded).
 Q: Disjoint-fragment assumption?  A: future fragments don't overlap each other (true for our sender).
-Q: How do reassembler fragments become SACK blocks?  A: ascending coalesced (left,right) ranges (Day 18).
+Q: How do reassembler fragments become SACK blocks?  A: ascending coalesced (left,right) ranges (Doc 18).
 Q: Why build the buffer before SACK?  A: you can't report holes you don't track.
 Q: What is head-of-line blocking?  A: arrived bytes blocked by an earlier missing segment.
 Q: What protocol removes HOLB?  A: QUIC/HTTP-3 (independent per-stream reassembly).
-Q: PAWS defends what here?  A: an ancient wrapped duplicate landing in the current window (Day 16).
-Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to reorder).
+Q: PAWS defends what here?  A: an ancient wrapped duplicate landing in the current window (Doc 16).
+Q: Receive-side twin of Doc 6 retransmission?  A: reassembly (keep early data to reorder).
 ```
 
 ## M. Glossary
@@ -15016,11 +15016,11 @@ Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to
 - **Trim / buffer / drain** — the three steps of `recv`.
 - **Duplicate ACK** — an ACK acknowledging no new data; signals a hole; 3 → fast retransmit.
 - **`MAX_AHEAD`** — the cap on how far past `RCV.NXT` we buffer (out-of-window).
-- **SACK block** — a `(left, right)` range of buffered out-of-order data (Day 18), read from the
+- **SACK block** — a `(left, right)` range of buffered out-of-order data (Doc 18), read from the
   reassembler.
 - **Collapse** — merging/pruning the out-of-order queue under memory pressure (real stacks).
 - **Head-of-line blocking (HOLB)** — arrived data delayed by an earlier missing segment.
-- **PAWS** — timestamp-based defense against wrapped-sequence duplicates (Day 16).
+- **PAWS** — timestamp-based defense against wrapped-sequence duplicates (Doc 16).
 
 ## N. Reference tables
 
@@ -15056,8 +15056,8 @@ Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to
 ```
 
 > Re-type the `Reassembler` from this chapter with the book closed, then `cargo test`. You now hold both
-> halves of reliable, ordered delivery: retransmission on the send side (Day 6) and reassembly on the
-> receive side (Day 9) — and you've built the buffer that SACK (Day 18) will one day read its truth from.
+> halves of reliable, ordered delivery: retransmission on the send side (Doc 6) and reassembly on the
+> receive side (Doc 9) — and you've built the buffer that SACK (Doc 18) will one day read its truth from.
 
 
 
@@ -15067,9 +15067,9 @@ Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to
 
 
 
-# Day 10 — TCP, Part 8: Congestion Control (Slow Start, AIMD, Fast Recovery)
+# Doc 10 — TCP, Part 8: Congestion Control (Slow Start, AIMD, Fast Recovery)
 
-> Goal: keep the sender from overwhelming the **network**. Flow control (Day 8) bounds the sender by the
+> Goal: keep the sender from overwhelming the **network**. Flow control (Doc 8) bounds the sender by the
 > receiver's buffer; congestion control bounds it by the *path* — the routers and links in between, which
 > the receiver's window knows nothing about. The sender carries a second window, `cwnd`, that grows while
 > ACKs flow and collapses on loss. That feedback loop — AIMD — is one of the most consequential control
@@ -15157,8 +15157,8 @@ Two variables drive everything (`src/congestion.rs`):
   It starts "infinite" (we use 65535) and is pulled down to roughly half the in-flight data every time loss
   is detected — that's the "multiplicative decrease" half of AIMD.
 
-`MSS` (maximum segment size) is the unit of growth. At day 10 we use a fixed 1460 (typical Ethernet
-payload); Day 15 negotiates it from the peer's SYN. Measuring `cwnd` in *bytes* but growing it in *MSS
+`MSS` (maximum segment size) is the unit of growth. At doc 10 we use a fixed 1460 (typical Ethernet
+payload); Doc 15 negotiates it from the peer's SYN. Measuring `cwnd` in *bytes* but growing it in *MSS
 units* keeps the algorithm packet-oriented (the network congests on packets/queues, roughly per-segment),
 which is what RFC 5681 specifies.
 
@@ -15202,7 +15202,7 @@ an arbitrary choice — it is the *unique* increase/decrease rule that converges
 TCP infers loss two ways, and they mean different things:
 
 - **Three duplicate ACKs** — the receiver got segments *after* a gap (it keeps re-acking the byte it's
-  missing; those dup-ACKs are exactly what Day 9 made us emit). Data is still flowing, so the network isn't
+  missing; those dup-ACKs are exactly what Doc 9 made us emit). Data is still flowing, so the network isn't
   badly congested → a *mild* signal. Response: **fast retransmit + fast recovery** (halve, keep going).
 - **Retransmission timeout (RTO)** — silence; not even dup-ACKs came back. The pipe may be severely
   congested or broken → a *strong* signal. Response: collapse `cwnd` to 1 MSS and restart slow start.
@@ -15251,9 +15251,9 @@ pub fn on_ack(&mut self, acked: u32) {
 ```
 
 On our side, `Connection` detects a duplicate ACK (acks no new data, `th.ack == SND.UNA`, data still
-outstanding, empty payload, window unchanged — the four-part test hardened on Day 14) and, when
+outstanding, empty payload, window unchanged — the four-part test hardened on Doc 14) and, when
 `on_dup_ack` returns `true`, resends the oldest unacked segment via `RetxQueue::fast_retransmit` — which
-also bumps that segment's retry count so Karn's algorithm (Day 6) correctly refuses to time it. (Day 18's
+also bumps that segment's retry count so Karn's algorithm (Doc 6) correctly refuses to time it. (Doc 18's
 SACK makes fast_retransmit resend the first *un-SACKed* hole rather than blindly the oldest.)
 
 ## 7. Worked numbers (what the tests assert)
@@ -15303,7 +15303,7 @@ bytes — far less than a full MSS (`congestion_avoidance_grows_sub_linearly`). 
 | `usable_window()` | now `min(SND.WND, cwnd) − FlightSize` |
 | `on_segment` ACK branch | new-data ACK → `on_ack` (grow); duplicate ACK → `on_dup_ack` → maybe fast-retransmit |
 | `on_tick` | RTO fired (`retx.due` non-empty) → `on_timeout` (collapse + slow start) |
-| `RetxQueue::fast_retransmit` | resend the oldest unacked (un-SACKed, Day 18) segment, reset timer, count retry |
+| `RetxQueue::fast_retransmit` | resend the oldest unacked (un-SACKed, Doc 18) segment, reset timer, count retry |
 
 The connection now distinguishes three kinds of ACK in ESTABLISHED: one that **advances** `SND.UNA` (grow
 cwnd), a **duplicate** (no new data, data outstanding → count toward fast retransmit), and everything else
@@ -15318,9 +15318,9 @@ harmlessly.
 
 So why build it now? Because the **algorithm** is the lesson, and it's fully exercised by unit tests that
 drive the state machine directly. The piece that makes it *bind* in practice is a real **send buffer** and
-an application that writes in bulk — precisely the socket API of Day 11, whose `poll_transmit` gates every
-send on `usable_window()`. Building the controller first means Day 11's sender has a correct window to obey
-on day one. (Same pattern as the RTT estimator in Day 6: a clean, tested module wired in ahead of the load
+an application that writes in bulk — precisely the socket API of Doc 11, whose `poll_transmit` gates every
+send on `usable_window()`. Building the controller first means Doc 11's sender has a correct window to obey
+on day one. (Same pattern as the RTT estimator in Doc 6: a clean, tested module wired in ahead of the load
 that will exercise it.)
 
 ## 11. Verification
@@ -15332,10 +15332,10 @@ that will exercise it.)
   slow-start resumption.
 - `tcp::three_dup_acks_fast_retransmit_the_oldest_segment` — end-to-end: we echo "hi", then three duplicate
   ACKs arrive; the first two do nothing, the third returns the echo bytes for immediate resend.
-- `tcp::bulk_send_is_gated_by_the_congestion_window` (Day 11) — a real backlog clamped by `cwnd`.
+- `tcp::bulk_send_is_gated_by_the_congestion_window` (Doc 11) — a real backlog clamped by `cwnd`.
 
 Live, you can't easily *see* `cwnd` bind on the echo path (§10). The honest demonstration is the unit tests
-plus, with Day 11's bulk sender, an `iperf3`-style transfer under `tc netem loss 5%` showing the sawtooth —
+plus, with Doc 11's bulk sender, an `iperf3`-style transfer under `tc netem loss 5%` showing the sawtooth —
 the Manual's Week 8 milestone.
 
 ## 12. Why this, not that
@@ -15344,17 +15344,17 @@ the Manual's Week 8 milestone.
 |---|---|---|
 | Algorithm | RFC 5681 Reno (AIMD + fast recovery) | CUBIC (Linux default), BBR (model-based), etc. (§G) |
 | Initial cwnd | 1 MSS (visible ramp) | 10 MSS (RFC 6928) |
-| MSS | fixed 1460 at day 10 | negotiated via the MSS option in the SYN (Day 15) |
+| MSS | fixed 1460 at doc 10 | negotiated via the MSS option in the SYN (Doc 15) |
 | Loss signal | 3 dup-ACKs + RTO | + ECN (§F), RACK-TLP (time-based) |
 | Recovery | basic fast recovery | NewReno / SACK-based per-segment recovery (§E) |
-| Where it binds | nowhere at day 10 (echo server) | gates every send from a real send buffer (Day 11) |
+| Where it binds | nowhere at doc 10 (echo server) | gates every send from a real send buffer (Doc 11) |
 
 ## 13. Honesty: what production does (NewReno, CUBIC, BBR, ECN)
 
 - **Reno → NewReno → SACK recovery.** Our fast recovery is basic Reno. **NewReno** (RFC 6582) stays in
   recovery until *all* data outstanding at the time of loss is acked, retransmitting on each *partial* ACK
   — fixing Reno's poor handling of multiple losses in one window. **SACK-based recovery** (RFC 6675, our
-  Day 18 building blocks) uses the scoreboard to retransmit exactly the holes while keeping the pipe full.
+  Doc 18 building blocks) uses the scoreboard to retransmit exactly the holes while keeping the pipe full.
   We implement classic Reno; the upgrades are exercises E2/E5.
 - **CUBIC is the Linux default (§G).** Reno's linear additive-increase is too slow to fill modern long-fat
   pipes; CUBIC grows as a cubic function of time-since-loss, ramping fast far from the last loss and gently
@@ -15362,14 +15362,14 @@ the Manual's Week 8 milestone.
 - **ECN avoids loss as the signal (§F).** Explicit Congestion Notification lets routers *mark* packets
   instead of dropping them; the sender reacts to a mark as a (gentler, lossless) congestion signal. We
   don't implement ECN.
-- **MSS is fixed at day 10.** The controller uses a 1460 constant; Day 15 negotiates the real MSS, and the
+- **MSS is fixed at doc 10.** The controller uses a 1460 constant; Doc 15 negotiates the real MSS, and the
   congestion module derives its `MSS` from the same source so the two agree.
 - **No pacing.** Real stacks *pace* `cwnd` worth of data smoothly across the RTT rather than bursting it on
   each ACK; we'd burst (if we had a backlog). Pacing reduces queue spikes.
 - **Appropriate Byte Counting, hystart, etc.** Many refinements (RFC 3465 ABC, HyStart slow-start exit) are
   out of scope.
 
-None of these change the day-10 contract (the sender obeys `min(SND.WND, cwnd)` and runs AIMD); they are
+None of these change the doc-10 contract (the sender obeys `min(SND.WND, cwnd)` and runs AIMD); they are
 the decades of refinement layered on Jacobson's core.
 
 ## 14. Rebuild it yourself — checklist + exercises
@@ -15385,14 +15385,14 @@ the decades of refinement layered on Jacobson's core.
 
 **Exercises:**
 
-- **E1.** ✅ *Done* (Day 11): a real send buffer + bulk write so `usable_window()` actually clamps
+- **E1.** ✅ *Done* (Doc 11): a real send buffer + bulk write so `usable_window()` actually clamps
   transmission; watch `cwnd` sawtooth under `tc netem loss`.
 - **E2.** Implement **NewReno**: stay in recovery until *all* data outstanding at the time of loss is acked,
   retransmitting on each partial ACK (§E).
 - **E3.** Add **ECN**: react to a congestion mark in the IP/TCP headers as a gentler loss signal, halving
   without a retransmit (§F).
 - **E4.** Swap Reno for **CUBIC**'s cubic growth and compare ramp-up on a high-BDP path (§G).
-- **E5.** Wire Day 18's SACK scoreboard into recovery (RFC 6675 `pipe`/`IsLost`) so recovery retransmits
+- **E5.** Wire Doc 18's SACK scoreboard into recovery (RFC 6675 `pipe`/`IsLost`) so recovery retransmits
   holes while keeping the pipe full.
 
 ## 15. What the next step adds
@@ -15400,7 +15400,7 @@ the decades of refinement layered on Jacobson's core.
 We now have every internal mechanism of TCP: handshake, reliable in-order transfer, retransmission with an
 adaptive RTO, teardown, flow control, reassembly, and congestion control. What's missing is the
 **interface**: a socket-style API (`write`/`take_received`/`poll_transmit`) with a send buffer, so a real
-application — a tiny HTTP server — can drive the stack instead of a hard-coded echo. That API (Day 11) is
+application — a tiny HTTP server — can drive the stack instead of a hard-coded echo. That API (Doc 11) is
 also what finally gives congestion control something to push against.
 
 ---
@@ -15411,13 +15411,13 @@ also what finally gives congestion control something to push against.
 
 In October 1986, the throughput between Lawrence Berkeley Lab and UC Berkeley — 400 yards apart, connected
 through a few IMPs — dropped from 32 kbit/s to **40 bit/s**, a factor of 1000. The cause: under load, RTTs
-rose, RFC 793's variance-blind RTO (Day 6 §B) fired too early, senders retransmitted, the extra traffic
+rose, RFC 793's variance-blind RTO (Doc 6 §B) fired too early, senders retransmitted, the extra traffic
 raised load further, and the network entered **congestion collapse** — a stable state where the link is
 busy but almost no *useful* data gets through (it's nearly all retransmissions of data already delivered or
 about to be).
 
 Van Jacobson's 1988 paper "Congestion Avoidance and Control" diagnosed it and added three mechanisms, all
-in this curriculum: the **variance-based RTO** (Day 6), **slow start**, and **congestion avoidance** (this
+in this curriculum: the **variance-based RTO** (Doc 6), **slow start**, and **congestion avoidance** (this
 day). The unifying principle he articulated is **conservation of packets**: a connection "in equilibrium"
 should put a new packet into the network only when an old one leaves (an ACK arrives) — the **ACK clock**.
 Slow start *reaches* equilibrium; congestion avoidance *maintains* it; the RTO and dup-ACKs detect when
@@ -15513,9 +15513,9 @@ The evolution of fast recovery, each fixing the last's weakness with multiple lo
   ACK (acks some but not all of it) means another loss; NewReno immediately retransmits the next hole and
   *stays* in recovery until all of `recover` is acked. Handles multiple losses in `~1 RTT each` without an
   RTO.
-- **SACK-based recovery (RFC 6675).** With SACK (Day 18) the receiver *names* the holes, so the sender
+- **SACK-based recovery (RFC 6675).** With SACK (Doc 18) the receiver *names* the holes, so the sender
   retransmits exactly them while a `pipe` estimator keeps the network as full as `cwnd` allows — the best
-  loss recovery, retransmitting only genuine holes and never stalling. Our Day 18 builds the SACK
+  loss recovery, retransmitting only genuine holes and never stalling. Our Doc 18 builds the SACK
   scoreboard; wiring 6675's `pipe`/`IsLost` is exercise E5.
 
 ```text
@@ -15600,7 +15600,7 @@ the congestion-avoidance sawtooth unless an RTO collapses it back to `cwnd = 1` 
    recovery          SACK + RACK-TLP + PRR                Reno fast recovery
    ECN               supported (DCTCP for datacenters)     none
    pacing            fq/pacing qdisc, BBR paces            none (would burst)
-   MSS               negotiated + PMTU discovery           negotiated (Day 15)
+   MSS               negotiated + PMTU discovery           negotiated (Doc 15)
 ```
 
 The instructive gap is **PRR** (Proportional Rate Reduction, RFC 6937), Linux's modern replacement for the
@@ -15623,7 +15623,7 @@ Congestion control trusts ACKs, and a lying or forged ACK stream can manipulate 
 - **Forged dup-ACKs / RST.** An off-path attacker who guesses the connection can inject dup-ACKs to trigger
   spurious fast retransmits and `cwnd` halving (a throughput DoS), or an in-window RST to kill the flow.
   RFC 5961 validation + random ISNs raise the bar.
-- **Low-rate "shrew" DoS (Day 6 §J).** Bursts timed to the RTO force repeated timeouts → `cwnd` collapse,
+- **Low-rate "shrew" DoS (Doc 6 §J).** Bursts timed to the RTO force repeated timeouts → `cwnd` collapse,
   starving a victim flow with low average attacker rate.
 
 The theme: `cwnd` is a quantity an adversary on either end (lying receiver) or off-path (injected ACKs)
@@ -15632,7 +15632,7 @@ reactions.
 
 ## K. Performance — BDP, fairness, bufferbloat, incast
 
-- **The BDP target.** To fill a path, `cwnd` must reach the bandwidth-delay product (Day 8 §E). Reno's
+- **The BDP target.** To fill a path, `cwnd` must reach the bandwidth-delay product (Doc 8 §E). Reno's
   linear growth takes `~BDP/MSS` RTTs to recover after each loss — on a 10 Gbit/s × 100 ms path (BDP
   ≈ 83k segments) that's *minutes* per recovery, which is why Reno can't fill long-fat networks and CUBIC/BBR
   exist (§G).
@@ -15667,7 +15667,7 @@ reactions.
 12. **Why `+3·MSS` on entering recovery?** Three dup-ACKs prove three segments left the network.
 13. **Why does `on_timeout` set `cwnd = 1 MSS`?** A timeout is the strong signal; restart slow start.
 14. **Where does the RTO get wired?** `on_tick` when `retx.due` is non-empty → `on_timeout`.
-15. **Does congestion control bind on the echo server?** No — no backlog; it binds with Day 11's send
+15. **Does congestion control bind on the echo server?** No — no backlog; it binds with Doc 11's send
     buffer (§10).
 16. **What is the TCP sawtooth?** Linear climb + halve-on-loss in congestion avoidance (§D).
 17. **What's the throughput formula?** ≈ `MSS/(RTT·√p)` — inverse RTT, inverse √(loss) (§D).
@@ -15675,7 +15675,7 @@ reactions.
     loss (§K); CUBIC fixes it.
 19. **What is NewReno?** Stays in recovery handling multiple losses via partial ACKs (§E).
 20. **What is SACK-based recovery?** Retransmit exactly the SACK-named holes, pipe-driven (RFC 6675;
-    Day 18).
+    Doc 18).
 21. **What is ECN?** Routers *mark* congestion instead of dropping; sender halves without a loss (§F).
 22. **What is CUBIC?** Cubic, RTT-independent growth — Linux's default (§G).
 23. **What is BBR?** Models bandwidth + RTT, paces to the BDP, ignores loss as the signal (§G).
@@ -15752,21 +15752,21 @@ Q: What did Jacobson 1988 add?  A: variance RTO, slow start, congestion avoidanc
    ─────────   ──────────────   ───────────────   ──────────────────
    Reno        loss             linear            implemented (RFC 5681)
    NewReno     loss             linear + partial  exercise E2
-   SACK/6675   loss + SACK      pipe-driven       Day 18 blocks; E5
+   SACK/6675   loss + SACK      pipe-driven       Doc 18 blocks; E5
    CUBIC       loss             cubic(time)       exercise E4
    BBR         bandwidth+RTT    paced to BDP      —
 ```
 
 > Re-type the `CongestionControl` state machine from this chapter with the book closed, then `cargo test`.
-> You now hold TCP's three control loops: reliability (Day 6), flow control (Day 8), and congestion control
-> (Day 10) — the trio that turns IP's best-effort packets into a stream you can trust on a shared network,
+> You now hold TCP's three control loops: reliability (Doc 6), flow control (Doc 8), and congestion control
+> (Doc 10) — the trio that turns IP's best-effort packets into a stream you can trust on a shared network,
 > and the algorithm that keeps the internet from melting.
 
 
 
-# Day 11 — TCP, Part 9: The Socket API & a Tiny HTTP Server
+# Doc 11 — TCP, Part 9: The Socket API & a Tiny HTTP Server
 
-> Goal: turn the machinery into something an **application** can use. Everything through Day 10 was
+> Goal: turn the machinery into something an **application** can use. Everything through Doc 10 was
 > internal plumbing — handshake, reliability, windows, congestion. None of it was reachable by a program
 > that just wants to "send these bytes and read those." This chapter adds the interface: a send buffer, a
 > receive buffer, and a `write` / `take_received` / `poll_transmit` API — then drives it with two real
@@ -15820,7 +15820,7 @@ Volume II — the exhaustive reference
 
 A TCP implementation has two faces. *Inward*, it talks to the network: parse segments, ACK, retransmit,
 slide windows. *Outward*, it talks to the application: "here are the bytes that arrived, in order" and
-"please send these bytes, reliably, when you can." Days 1–10 built the inward face. The outward face is
+"please send these bytes, reliably, when you can." Docs 1–10 built the inward face. The outward face is
 two byte buffers and three verbs:
 
 - **`write(bytes)`** — the app hands us bytes to send. They join a **send buffer**.
@@ -15844,7 +15844,7 @@ window and chopped to the MSS**:
 while !self.send_buf.is_empty() {
     let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
     if n == 0 { break; }                                   // window full — wait for an ACK
-    // (Nagle, Day 13: hold a sub-MSS tail while data is in flight, unless TCP_NODELAY)
+    // (Nagle, Doc 13: hold a sub-MSS tail while data is in flight, unless TCP_NODELAY)
     let payload: Vec<u8> = self.send_buf.drain(..n).collect();
     let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
     self.send.nxt = self.send.nxt.wrapping_add(n as u32);
@@ -15854,15 +15854,15 @@ while !self.send_buf.is_empty() {
 ```
 
 This single loop ties together everything: `usable_window()` is `min(SND.WND, cwnd) − FlightSize` (flow
-control + congestion control), `mss` is the segmentation unit (negotiated on Day 15), and every segment is
-recorded for retransmission (Day 6). With `cwnd` starting at 1 MSS, a 5 KB `write` leaves as *one* segment,
+control + congestion control), `mss` is the segmentation unit (negotiated on Doc 15), and every segment is
+recorded for retransmission (Doc 6). With `cwnd` starting at 1 MSS, a 5 KB `write` leaves as *one* segment,
 and the rest waits — slow start, finally *visible* and *binding* (`bulk_send_is_gated_by_the_congestion_window`).
-This is the moment Day 10's congestion control stopped being theoretical: it now actually clamps a real
+This is the moment Doc 10's congestion control stopped being theoretical: it now actually clamps a real
 backlog.
 
 ## 3. The receive buffer and `take_received`
 
-Symmetrically, in-order bytes from the reassembler (Day 9) are appended to a receive buffer instead of
+Symmetrically, in-order bytes from the reassembler (Doc 9) are appended to a receive buffer instead of
 being echoed inline:
 
 ```rust
@@ -15881,7 +15881,7 @@ pub fn take_received(&mut self) -> Vec<u8> { std::mem::take(&mut self.recv_buf) 
 
 ## 4. Receive split from send: why the handler stopped echoing
 
-Through Day 10, receiving data *was* sending data — `on_segment` built and returned the echo inline. That
+Through Doc 10, receiving data *was* sending data — `on_segment` built and returned the echo inline. That
 conflates two responsibilities and only works for an echo server. The refactor separates them:
 
 - **Receiving** (`on_segment`): reassemble → buffer → return a **bare ACK**. It never decides *what* to
@@ -15918,7 +15918,7 @@ and a one-line body; anything else falls through to echo. (A real server buffers
 ## 6. Closing after the response
 
 HTTP/1.0 with `Connection: close` means the **server** closes once the response is sent — and the
-active-close path from Day 7 is exactly what we need:
+active-close path from Doc 7 is exactly what we need:
 
 ```rust
 if serving_http {
@@ -15927,10 +15927,10 @@ if serving_http {
 ```
 
 `close()` is valid from ESTABLISHED, sends `FIN|ACK` at `SND.NXT` (after the response bytes `poll_transmit`
-already advanced past), queues the FIN for retransmission (Day 12), and moves us into `FIN_WAIT_1`. The
+already advanced past), queues the FIN for retransmission (Doc 12), and moves us into `FIN_WAIT_1`. The
 client's ACK and FIN then drive us through `FIN_WAIT_2 → TIME_WAIT → CLOSED`, and the event loop reaps the
 TCB. The whole lifecycle — open, transfer, close — runs for every `curl`, and this is the **first** code
-path where our binary actively closes (Day 7's machinery, finally exercised live).
+path where our binary actively closes (Doc 7's machinery, finally exercised live).
 
 ## 7. The event loop, end to end
 
@@ -15940,7 +15940,7 @@ path where our binary actively closes (Day 7's machinery, finally exercised live
    loop:
      now = clock.elapsed()
      for each connection:                      # timers
-         send any retransmissions (on_tick)    # RTO fired → also signals congestion (Day 10)
+         send any retransmissions (on_tick)    # RTO fired → also signals congestion (Doc 10)
          reap if CLOSED                         # TIME_WAIT expired
      recv one packet (non-blocking):
          ICMP  → echo reply
@@ -15959,12 +15959,12 @@ retransmission, the adaptive RTO, both windows, congestion control, and teardown
 ```text
    curl http://192.168.0.2:8080/
 
-    SYN                → SYN-ACK → ACK                     (handshake, Day 3)
+    SYN                → SYN-ACK → ACK                     (handshake, Doc 3)
     PSH "GET / HTTP/1.0\r\n…\r\n\r\n"
                        → ACK (bare, acknowledges the request)        (§3)
     app: take_received() sees "GET …" → http_response() → write(200 OK)
                        → PSH "HTTP/1.0 200 OK… Hello…"   (poll_transmit, window-gated)
-                       → FIN|ACK                          (close(), Day 7)
+                       → FIN|ACK                          (close(), Doc 7)
     ACK, FIN|ACK       → ACK → TIME_WAIT → (2·MSL) → CLOSED → TCB reaped
 ```
 
@@ -15998,18 +15998,18 @@ tests pin offline. (§F traces it byte by byte.)
 | `on_segment` (data branch) | reassemble → buffer → bare ACK (no inline echo) |
 | `main.rs` app loop | `take_received` → echo or `http_response` → `write` → `poll_transmit` |
 | `http_response` | canned HTTP/1.0 200 OK for a request line |
-| `conn.close(now_ms)` | active close after the HTTP response (Day 7) |
+| `conn.close(now_ms)` | active close after the HTTP response (Doc 7) |
 
 ## 11. Verification
 
-`cargo test` proves the API offline. The Day-11 coverage:
+`cargo test` proves the API offline. The Doc-11 coverage:
 
 - `bulk_send_is_gated_by_the_congestion_window` — a 5 KB write leaves one MSS segment under cwnd=1·MSS;
   after an ACK grows cwnd to 2·MSS, two segments go. Slow start, demonstrated and *binding*.
 - `established_delivers_data_then_app_echoes` — data → bare ACK + `take_received()` returns it; the app
   `write`s it back and `poll_transmit` produces the echo segment with the right seq/ack.
 - The Nagle tests (`nagle_holds_small_write_until_prior_data_acked`, `nodelay_sends_small_write_immediately`,
-  Day 13) exercise `poll_transmit`'s hold logic.
+  Doc 13) exercise `poll_transmit`'s hold logic.
 - All the reassembly / retransmission / dup-ACK / window tests, updated to the write/poll_transmit API,
   still pass — the control logic is unchanged, only the *interface* moved.
 
@@ -16037,13 +16037,13 @@ veneer is optional sugar.
 ## 13. Honesty: the final status
 
 Eleven days in (and now eighteen), the stack does the **whole TCP lifecycle, reliably, over a real link**,
-driven by a real application. The status, *updated* for everything Days 12–18 added since this chapter was
+driven by a real application. The status, *updated* for everything Docs 12–18 added since this chapter was
 first written:
 
-- **Done since day 11:** SYN/SYN-ACK/FIN retransmission (Day 12), exponential RTO backoff (Day 12), Nagle +
-  `TCP_NODELAY` (Day 13), zero-window probes / persist timer (Day 14), TCP options framework + MSS
-  negotiation (Day 15), timestamps + RTTM + PAWS (Day 16), window scaling (Day 17), and SACK (Day 18). The
-  original day-11 "not done" list has largely been *done*.
+- **Done since doc 11:** SYN/SYN-ACK/FIN retransmission (Doc 12), exponential RTO backoff (Doc 12), Nagle +
+  `TCP_NODELAY` (Doc 13), zero-window probes / persist timer (Doc 14), TCP options framework + MSS
+  negotiation (Doc 15), timestamps + RTTM + PAWS (Doc 16), window scaling (Doc 17), and SACK (Doc 18). The
+  original doc-11 "not done" list has largely been *done*.
 - **Still genuinely missing:** RFC 5961 in-window RST/SYN validation, a distinct CLOSE_WAIT + half-close,
   modern congestion control (NewReno/CUBIC — we ship Reno), SACK-based loss recovery's full RFC 6675
   scoreboard, and a blocking `TcpListener`/`TcpStream` veneer with multi-request/keep-alive HTTP.
@@ -16074,7 +16074,7 @@ correct core; the remainder is breadth and robustness, not a missing heart.
 - **E2.** Make `http_response` buffer until `\r\n\r\n`, parse the path, and serve different bodies (and a
   404) (§H).
 - **E3.** Support HTTP keep-alive: don't close after the response; handle a second request on the same
-  connection (§C) — and note this avoids the TIME_WAIT cost (Day 7).
+  connection (§C) — and note this avoids the TIME_WAIT cost (Doc 7).
 - **E4.** Add real backpressure: when `poll_transmit` can't drain `send_buf` (window full), have the app
   stop producing until an ACK opens it — the real meaning of a blocking `write` (§D).
 - **E5.** Add request smuggling defenses: reject conflicting `Content-Length`/`Transfer-Encoding`, cap
@@ -16084,8 +16084,8 @@ correct core; the remainder is breadth and robustness, not a missing heart.
 
 The lifecycle is complete and application-driven. The remaining days are **hardening** — making the stack
 robust against loss and a hostile network, and speaking TCP's full option vocabulary: control-segment
-retransmission (Day 12), Nagle (Day 13), zero-window probes (Day 14), MSS negotiation (Day 15), timestamps
-(Day 16), window scaling (Day 17), and SACK (Day 18). Each builds directly on the socket API and event loop
+retransmission (Doc 12), Nagle (Doc 13), zero-window probes (Doc 14), MSS negotiation (Doc 15), timestamps
+(Doc 16), window scaling (Doc 17), and SACK (Doc 18). Each builds directly on the socket API and event loop
 assembled here.
 
 ---
@@ -16106,13 +16106,13 @@ Mapping them:
    connect()           active open                              Connection::connect (tests)
    write()/send()      queue bytes to send                      write() → send_buf
    read()/recv()       read received bytes                      take_received()
-   close()             graceful close                           close() → FIN (Day 7)
-   shutdown(SHUT_WR)   half-close one direction                 (unsupported; Day 5 §E)
-   setsockopt(NODELAY) disable Nagle                            set_nodelay() (Day 13)
+   close()             graceful close                           close() → FIN (Doc 7)
+   shutdown(SHUT_WR)   half-close one direction                 (unsupported; Doc 5 §E)
+   setsockopt(NODELAY) disable Nagle                            set_nodelay() (Doc 13)
 ```
 
 The two BSD ideas we *don't* model are the **listening socket** (a passive endpoint that spawns a new
-connected socket per `accept`, with backlog queues — Day 3 §I) and **blocking semantics** (a `read` that
+connected socket per `accept`, with backlog queues — Doc 3 §I) and **blocking semantics** (a `read` that
 sleeps until data arrives — §B). Our event loop collapses the listener into "any SYN makes a TCB" and
 replaces blocking with polling. The functional behavior (queue bytes, read bytes, close) is identical; the
 *shape* differs.
@@ -16148,16 +16148,16 @@ Our server speaks minimal HTTP/1.0. The lineage, and what each version asks of T
    ───────   ────   ───────────────────────────────   ───────────────────────────────────
    HTTP/1.0  1996   one request/response per conn      open → req → resp → close (our model)
    HTTP/1.1  1997   keep-alive, chunked, pipelining    persistent conn (avoid handshake/TIME_WAIT)
-   HTTP/2    2015   multiplexed streams over one conn   one TCP conn; suffers TCP HOLB (Day 9 §J)
+   HTTP/2    2015   multiplexed streams over one conn   one TCP conn; suffers TCP HOLB (Doc 9 §J)
    HTTP/3    2022   over QUIC (UDP)                     abandons TCP for per-stream reassembly
 ```
 
 HTTP/1.0's **close-delimited body** is what lets our server be so simple: with `Connection: close`, the
 body ends when the connection closes, so we don't even need `Content-Length` to be correct (though we send
 it) — `curl` reads until EOF. HTTP/1.1 keep-alive (E3) reuses one connection for many requests, amortizing
-the Day-3 handshake and the Day-7 TIME_WAIT (the close-storm fix, Day 7 §J) — which is why it became the
+the Doc-3 handshake and the Doc-7 TIME_WAIT (the close-storm fix, Doc 7 §J) — which is why it became the
 default. HTTP/2 multiplexes streams but still rides one TCP connection, so a single packet loss head-of-line
-blocks *all* streams (Day 9 §J); HTTP/3 moves to QUIC over UDP precisely to escape that. The arc:
+blocks *all* streams (Doc 9 §J); HTTP/3 moves to QUIC over UDP precisely to escape that. The arc:
 application protocols kept pushing against TCP's one-ordered-stream model until HTTP/3 left it.
 
 ## D. Send/receive buffer design and backpressure
@@ -16171,7 +16171,7 @@ lives:
   appends), so an app could queue unbounded data; E4 adds the real backpressure. `SO_SNDBUF` sizes this in
   a real stack.
 - **Receive buffer (`recv_buf`).** Data arrives faster than the app `read`s; it queues here, and its
-  occupancy *should* shrink the advertised `RCV.WND` (Day 8 §F, Day 9 §F) — the receiver-side backpressure
+  occupancy *should* shrink the advertised `RCV.WND` (Doc 8 §F, Doc 9 §F) — the receiver-side backpressure
   that throttles the *sender*. We keep a flat window, so our receive buffer doesn't push back. `SO_RCVBUF`
   sizes it; autotuning grows it to the BDP.
 
@@ -16186,17 +16186,17 @@ one loop:
 
 ```text
    n = min( usable_window(),    ←── flow control (SND.WND) ∧ congestion control (cwnd) ∧ −FlightSize
-            mss,                ←── segmentation (Day 15 negotiated MSS)
+            mss,                ←── segmentation (Doc 15 negotiated MSS)
             send_buf.len() )    ←── how much the app actually queued
    if n == 0: stop              ←── window full → wait for an ACK to slide it open
-   if Nagle && n<mss && in-flight: stop   ←── Nagle (Day 13): coalesce small writes
-   build PSH|ACK segment        ←── header + timestamps (Day 16) [+ checksums, Day 3]
-   advance SND.NXT by n         ←── sequence-space accounting (Day 3)
-   retx.record(...)             ←── reliability (Day 6): keep it for retransmission
+   if Nagle && n<mss && in-flight: stop   ←── Nagle (Doc 13): coalesce small writes
+   build PSH|ACK segment        ←── header + timestamps (Doc 16) [+ checksums, Doc 3]
+   advance SND.NXT by n         ←── sequence-space accounting (Doc 3)
+   retx.record(...)             ←── reliability (Doc 6): keep it for retransmission
 ```
 
-Reading this loop top to bottom is reading the whole curriculum: Day 3's sequence numbers, Day 6's
-retransmission, Day 8's flow control, Day 10's congestion control, Day 13's Nagle, Day 15's MSS, Day 16's
+Reading this loop top to bottom is reading the whole curriculum: Doc 3's sequence numbers, Doc 6's
+retransmission, Doc 8's flow control, Doc 10's congestion control, Doc 13's Nagle, Doc 15's MSS, Doc 16's
 timestamps. That convergence is *why* the socket API is the right capstone: it's the first code that has to
 honor every mechanism at once, and the place each one finally earns its keep against a real backlog.
 
@@ -16205,7 +16205,7 @@ honor every mechanism at once, and the place each one finally earns its keep aga
 A full `curl http://192.168.0.2:8080/`, our ISS 0, client ISN 100, abbreviated headers. `C`=client, `U`=us.
 
 ```text
-   ① C→U  SYN  seq=100  <mss,ws,ts,sackOK>          handshake (Days 3,15–18)
+   ① C→U  SYN  seq=100  <mss,ws,ts,sackOK>          handshake (Docs 3,15–18)
    ② U→C  SYN,ACK seq=0 ack=101 <mss,ws,ts,sackOK>
    ③ C→U  ACK  seq=101 ack=1
       —— ESTABLISHED, RCV.NXT=101, SND.NXT=1 ——
@@ -16243,7 +16243,7 @@ The **C10K problem** (handling 10,000 concurrent connections) is exactly the blo
 (§B): thread-per-connection collapses under 10k threads (context-switch and memory overhead), so scalable
 servers use an event loop over `epoll` — *our* architecture, just with a scalable readiness primitive
 instead of poll+sleep. Our stack is structurally a C10K-style server (one loop, never block); what it lacks
-for scale is `epoll` (Day 6 §E), zero-copy buffers, and TLS — not a different *shape*.
+for scale is `epoll` (Doc 6 §E), zero-copy buffers, and TLS — not a different *shape*.
 
 ## H. Security — HTTP parsing as attack surface
 
@@ -16265,7 +16265,7 @@ relevant — and our deliberately naive parser illustrates the hazards by *not* 
   rejected — normalize and confine paths.
 
 We serve a canned response, so most of these are latent, but the lesson is real: **the HTTP parser is an
-attack surface as much as the TCP parser** (Day 1's discipline — validate length, never trust input —
+attack surface as much as the TCP parser** (Doc 1's discipline — validate length, never trust input —
 applies one layer up), and request *framing* in particular (Content-Length vs chunked vs close-delimited)
 is where the subtle, high-impact bugs live.
 
@@ -16273,7 +16273,7 @@ is where the subtle, high-impact bugs live.
 
 - **The extra ACK.** Splitting receive from send (§4) means a request now draws a *bare ACK* and then,
   separately, the response — two segments where the inline echo sent one. On a request/response workload
-  that's one extra packet per exchange. Real stacks reclaim it with **delayed ACK** (Day 4 §B): hold the
+  that's one extra packet per exchange. Real stacks reclaim it with **delayed ACK** (Doc 4 §B): hold the
   bare ACK briefly so it can *piggyback* on the response, collapsing back to one segment. We ACK
   immediately, so we pay the extra packet — a deliberate simplicity-for-clarity trade.
 - **Copies.** `write` copies app bytes into `send_buf`; `poll_transmit`'s `drain(..n).collect()` copies them
@@ -16281,11 +16281,11 @@ is where the subtle, high-impact bugs live.
   out (the one *non*-copy, via `mem::take`). A zero-copy stack would reference buffers instead; we copy for
   clarity.
 - **Segmentation cost.** `poll_transmit` builds one segment per MSS chunk — N syscalls/allocations for N
-  segments. Real stacks use TSO/GSO (Day 6 §K) to hand the NIC one big buffer it splits. We emit each
+  segments. Real stacks use TSO/GSO (Doc 6 §K) to hand the NIC one big buffer it splits. We emit each
   segment individually.
 - **The win that matters:** congestion control finally *binds* (§2) — a bulk `write` is correctly paced by
   `cwnd`, so the stack behaves on a shared, lossy network. Correctness under load, not raw speed, is the
-  day-11 performance story.
+  doc-11 performance story.
 
 ## J. Extended FAQ
 
@@ -16328,9 +16328,9 @@ is where the subtle, high-impact bugs live.
     advanced past the response bytes (§F ⑦).
 22. **What mechanisms meet in the event loop?** All of them — parse, checksum, handshake, reassembly, retx,
     RTO, windows, congestion, teardown (§7).
-23. **What's still missing after day 11?** RFC 5961, distinct CLOSE_WAIT/half-close, NewReno/CUBIC, a
+23. **What's still missing after doc 11?** RFC 5961, distinct CLOSE_WAIT/half-close, NewReno/CUBIC, a
     blocking veneer (§13).
-24. **What did Days 12–18 add?** Control-seg retransmission, Nagle, zero-window probes, MSS, timestamps,
+24. **What did Docs 12–18 add?** Control-seg retransmission, Nagle, zero-window probes, MSS, timestamps,
     window scaling, SACK (§13).
 25. **Is this a complete TCP?** A complete, tested *core* that real clients interoperate with; the rest is
     breadth/robustness (§13).
@@ -16346,13 +16346,13 @@ Q: What does take_received() do?  A: moves all in-order received bytes to the ap
 Q: Why did on_segment stop echoing inline?  A: to split receiving (ACK) from sending (app-driven) → non-echo apps possible.
 Q: How does congestion control finally bind?  A: a bulk write exceeds cwnd, so poll_transmit paces it.
 Q: HTTP/1.0 close-delimited body means?  A: the body ends when the connection closes (no length needed).
-Q: Who actively closes for HTTP/1.0?  A: the server, after the response (close() → Day 7).
+Q: Who actively closes for HTTP/1.0?  A: the server, after the response (close() → Doc 7).
 Q: VecDeque vs Vec for the buffers?  A: VecDeque (FIFO drain-front) for send; Vec (append/take-all) for receive.
 Q: Why no blocking TcpListener?  A: it needs a thread/async layer; our verbs already ARE the stream ops.
 Q: The C10K problem is solved by?  A: an event loop over epoll (our shape), not thread-per-connection.
 Q: What is backpressure?  A: buffer fullness signaling "slow down" (write blocks / RCV.WND shrinks).
 Q: What is HTTP request smuggling?  A: conflicting Content-Length/Transfer-Encoding desyncing proxy and server.
-Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, zero-window probes, MSS, timestamps, wscale, SACK.
+Q: What did Docs 12–18 add to doc 11's status?  A: control-seg retx, Nagle, zero-window probes, MSS, timestamps, wscale, SACK.
 ```
 
 ## L. Glossary
@@ -16383,10 +16383,10 @@ Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, ze
    take_received()   stack → app    recv_buf      nothing (takes all)
 ```
 
-**M.2 — Inline echo (≤Day 10) vs split API (Day 11)**
+**M.2 — Inline echo (≤Doc 10) vs split API (Doc 11)**
 
 ```text
-                      ≤ Day 10 (echo)              Day 11 (split)
+                      ≤ Doc 10 (echo)              Doc 11 (split)
    ────────────────   ──────────────────────────  ──────────────────────────────
    data arrives       on_segment builds the echo   on_segment buffers + bare ACK
    who decides reply  the protocol handler         the application (take_received → write)
@@ -16406,15 +16406,15 @@ Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, ze
 ```
 
 > Re-type the send/receive buffers and `poll_transmit` with the book closed, then `cargo test`. You have now
-> built TCP end to end: from a raw IPv4 packet (Day 1) to an application serving HTTP over your own reliable,
-> congestion-controlled byte stream (Day 11). That is the whole arc — and `poll_transmit` is the one function
+> built TCP end to end: from a raw IPv4 packet (Doc 1) to an application serving HTTP over your own reliable,
+> congestion-controlled byte stream (Doc 11). That is the whole arc — and `poll_transmit` is the one function
 > where every day of it meets.
 
 
 
-# Day 12 — TCP, Part 10: Retransmitting the Control Segments (SYN, SYN-ACK, FIN)
+# Doc 12 — TCP, Part 10: Retransmitting the Control Segments (SYN, SYN-ACK, FIN)
 
-> Goal: close the first robustness gap left open at the end of Day 11. Through Day 11 the retransmission
+> Goal: close the first robustness gap left open at the end of Doc 11. Through Doc 11 the retransmission
 > queue protected only **data**. The three control segments that open and close a connection — `SYN`,
 > `SYN-ACK`, and `FIN` — were sent exactly once. If any is dropped, the connection wedges: a lost SYN-ACK
 > leaves the server stuck in `SYN_RCVD` forever; a lost FIN leaves a half-finished teardown. This chapter
@@ -16424,7 +16424,7 @@ Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, ze
 
 The insight is small and beautiful: SYN and FIN occupy sequence numbers exactly like data bytes, so they
 can be acknowledged exactly like data — and anything that can be acknowledged can be lost and resent by the
-*same* queue. Day 6 built that queue for data; today we drop the control segments into it and reuse every
+*same* queue. Doc 6 built that queue for data; today we drop the control segments into it and reuse every
 line. The only genuinely new mechanism is RTO backoff.
 
 **Contents**
@@ -16479,14 +16479,14 @@ number each, as if they were a phantom byte:
 Because SYN and FIN sit *in* the sequence space, the receiver acknowledges them exactly the way it
 acknowledges data: by advancing its ACK number past them. And the moment a segment can be acknowledged, it
 can also be **lost and resent** — the sender just keeps a copy until the ACK covers it. That is the entire
-idea of Day 12: the retransmission queue from Day 6 already does this for data; we simply put the SYN,
+idea of Doc 12: the retransmission queue from Doc 6 already does this for data; we simply put the SYN,
 SYN-ACK, and FIN into the same queue.
 
 ```text
               consumes a seq number?     can be ACKed?     must be retransmittable?
    SYN              yes                     yes                  yes   ← new today
    FIN              yes                     yes                  yes   ← new today
-   data             yes (len bytes)         yes                  yes   (Day 6)
+   data             yes (len bytes)         yes                  yes   (Doc 6)
    pure ACK         no                      no                   no
    RST              no                      no                   no
 ```
@@ -16515,8 +16515,8 @@ acknowledged. We already do that for data; today we extend it to the three contr
 
 ## 3. The mechanism: record on send, clear on ack
 
-The retransmission queue (`RetxQueue`, Day 6) stores `Unacked { start_seq, end_seq, packet, sent_at_ms,
-retries, sacked }` (the `start_seq`/`sacked` fields were added by Day 18's SACK; day 12 used the original
+The retransmission queue (`RetxQueue`, Doc 6) stores `Unacked { start_seq, end_seq, packet, sent_at_ms,
+retries, sacked }` (the `start_seq`/`sacked` fields were added by Doc 18's SACK; doc 12 used the original
 four). Two operations matter:
 
 - **`record(start_seq, end_seq, packet, now)`** — remember a segment we just put on the wire. `end_seq` is
@@ -16525,7 +16525,7 @@ four). Two operations matter:
 - **`ack(una, now)`** — drop every queued segment that `una` now covers (`end_seq` at or before `una`,
   modulo 2³²).
 
-Day 12 adds exactly four `record` calls and a handful of `ack` calls:
+Doc 12 adds exactly four `record` calls and a handful of `ack` calls:
 
 | Segment | Recorded in | `end_seq` | Cleared when |
 |---|---|---|---|
@@ -16561,11 +16561,11 @@ That is identical to how data is recorded, which is exactly the point: control a
 
 Clearing uses `ack(una, now)` with the wrapping comparison `seq::before(una, end_seq)`: a segment is "still
 unacked" while `una` is strictly before its `end_seq`. When `una == end_seq` (the ack lands exactly on the
-boundary) the segment is dropped. Same modular arithmetic as Day 3, so it is correct across the 2³² wrap.
+boundary) the segment is dropped. Same modular arithmetic as Doc 3, so it is correct across the 2³² wrap.
 
 ## 5. RTO backoff — Karn's second half
 
-Day 6 implemented the first half of Karn's algorithm (don't sample a retransmitted segment). Day 12 adds the
+Doc 6 implemented the first half of Karn's algorithm (don't sample a retransmitted segment). Doc 12 adds the
 **second half**: when a retransmission timeout fires, **double the RTO** and hold the doubled value until a
 clean sample arrives. `RttEstimator::back_off`:
 
@@ -16587,7 +16587,7 @@ is `200 → 400 → 800 → 1600 …`, capped at 60 s. Why double, and why freez
   un-retransmitted segment behind the loss, restarting the storm. The backed-off RTO holds until the first
   *new*, never-retransmitted segment gives a clean sample, which resets the estimator.
 
-Together with Day 6's sample-suppression, this completes RFC 6298 §5.5 / Karn & Partridge 1987 (§B has the
+Together with Doc 6's sample-suppression, this completes RFC 6298 §5.5 / Karn & Partridge 1987 (§B has the
 full treatment).
 
 ## 6. Why the handshake yields no RTT sample
@@ -16669,7 +16669,7 @@ All changes are in `src/tcp.rs` (plus two call-site updates in `src/main.rs`).
 - **`on_tick`** calls `self.rtt.back_off()` when `retx.due()` resent something (§5).
 - **`main.rs`** passes `now_ms` into `accept(…)` and `close(…)`.
 
-Nothing in `RetxQueue`'s resend logic changed — the payoff of the Day 6 design: time is an argument,
+Nothing in `RetxQueue`'s resend logic changed — the payoff of the Doc 6 design: time is an argument,
 resending is type-agnostic, so extending coverage is purely additive.
 
 ## 10. Verification
@@ -16703,18 +16703,18 @@ not over-fire.
   `R2` retransmissions (Linux `tcp_retries2` ≈ 15, ~15 minutes) and RST the connection, with an earlier
   `R1` (~3) that triggers a routing-recheck. We never abort (exercise E1, §C). A hung connection therefore
   lingers in our stack until the process dies.
-- **`Unacked` grew on Day 18.** Day 12's record stored four fields; Day 18 (SACK) added `start_seq` (to
+- **`Unacked` grew on Doc 18.** Doc 12's record stored four fields; Doc 18 (SACK) added `start_seq` (to
   match SACK blocks) and `sacked`, so the §3 struct shows six. The control-segment recording adapted to the
   new `record(start_seq, end_seq, …)` signature.
 - **SYN-ACK retry limits matter for SYN floods.** A real server caps SYN-ACK retransmissions tightly (or
-  uses SYN cookies, Day 3 §E) precisely so a flood of never-completed handshakes can't make it retransmit
+  uses SYN cookies, Doc 3 §E) precisely so a flood of never-completed handshakes can't make it retransmit
   forever. Our uncapped resend would amplify a flood (§H).
 - **We don't sample the handshake RTT.** RFC 6298 permits it (it would give an RTT estimate one round trip
   earlier); we forgo it for test determinism (§6).
 - **No TCP Fast Open.** A real modern stack can carry data *in* the SYN (TFO, RFC 7413) to save a round
   trip; ours doesn't (§I).
 
-None of these change the day-12 contract (every sequence-consuming segment is now resent until acked); they
+None of these change the doc-12 contract (every sequence-consuming segment is now resent until acked); they
 are the breadth a production stack adds.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -16731,7 +16731,7 @@ are the breadth a production stack adds.
 
 - **E1.** Add a retransmission cap: after `R2` resends of a segment with no progress, abort the connection
   (send a RST, go to `CLOSED`). Mirror it for data (RFC 9293 §3.8.3; §C).
-- **E2.** Make the active-open SYN carry an MSS option (Day 15) and confirm the resent copy still includes
+- **E2.** Make the active-open SYN carry an MSS option (Doc 15) and confirm the resent copy still includes
   it byte-for-byte.
 - **E3.** Write a test where the *final ACK* of the handshake is itself lost, the client's data arrives, and
   confirm our SYN-ACK is no longer in flight by the time the data is processed.
@@ -16741,7 +16741,7 @@ are the breadth a production stack adds.
 
 ## 14. What the next step adds
 
-Day 13 turns from **reliability** to **efficiency**: **Nagle's algorithm** (RFC 896). A chatty application
+Doc 13 turns from **reliability** to **efficiency**: **Nagle's algorithm** (RFC 896). A chatty application
 that writes one byte at a time would flood the link with 41-byte packets (40 bytes of header for 1 byte of
 data). Nagle coalesces those small writes — *hold a sub-MSS segment while earlier data is still
 unacknowledged* — and a `TCP_NODELAY` switch turns it off for latency-sensitive traffic. It's a three-line
@@ -16760,15 +16760,15 @@ space (so it can be acknowledged). The full accounting:
 ```text
    carries                consumes seq?   "length" in seq space   retransmit?
    ────────────────────   ─────────────   ─────────────────────   ───────────
-   data (len bytes)       yes             len                     yes (Day 6)
-   SYN                    yes             1                       yes (Day 12)
-   FIN                    yes             1                       yes (Day 12)
+   data (len bytes)       yes             len                     yes (Doc 6)
+   SYN                    yes             1                       yes (Doc 12)
+   FIN                    yes             1                       yes (Doc 12)
    SYN + data (TFO)       yes             1 + len                 yes
    FIN + data             yes             len + 1                 yes
    pure ACK               no              0                       no (nothing to ack)
    RST                    no              0                       no (abortive, not reliable)
    window update (bare)   no              0                       no
-   zero-window probe      yes             1 (one byte)            yes (Day 14)
+   zero-window probe      yes             1 (one byte)            yes (Doc 14)
 ```
 
 The "length in sequence space" (RFC 9293 calls it `SEG.LEN` including the SYN/FIN) is what the receiver's
@@ -16778,11 +16778,11 @@ supersedes it). This is why the retransmission queue holds exactly "things that 
 
 ## B. RTO exponential backoff in full
 
-Karn & Partridge's 1987 algorithm has two rules; Day 6 did rule 1, Day 12 does rule 2:
+Karn & Partridge's 1987 algorithm has two rules; Doc 6 did rule 1, Doc 12 does rule 2:
 
 ```text
-   rule 1 (Day 6):  ignore RTT samples from retransmitted segments (ambiguous ACK).
-   rule 2 (Day 12): on each retransmission timeout, RTO ← min(2·RTO, MAX_RTO),
+   rule 1 (Doc 6):  ignore RTT samples from retransmitted segments (ambiguous ACK).
+   rule 2 (Doc 12): on each retransmission timeout, RTO ← min(2·RTO, MAX_RTO),
                     and HOLD that value until a fresh, unambiguous sample is taken.
 ```
 
@@ -16826,10 +16826,10 @@ SYN-ACK retries specially:
 - **Why retransmit a SYN-ACK at all?** A lost SYN-ACK on an active-open-from-a-minimal-peer would deadlock
   (§2); resending rescues it.
 - **Why limit it tightly?** Each half-open connection (in `SYN_RCVD`, awaiting the final ACK) holds a TCB.
-  A **SYN flood** (Day 3 §E) creates many half-opens that never complete; if the server retransmits each
+  A **SYN flood** (Doc 3 §E) creates many half-opens that never complete; if the server retransmits each
   SYN-ACK several times with backoff, it spends bandwidth and holds TCBs *longer*, amplifying the attack.
 
-The production resolution is **SYN cookies** (Day 3 §E): under flood, don't allocate a TCB or queue a
+The production resolution is **SYN cookies** (Doc 3 §E): under flood, don't allocate a TCB or queue a
 SYN-ACK retransmission at all — encode the state in the ISN and reconstruct it from the final ACK. So a real
 stack retransmits SYN-ACKs normally when the SYN queue is healthy, and switches to stateless cookies (no
 retransmission) when it overflows. Our uncapped, always-stateful SYN-ACK retransmission is the wrong choice
@@ -16849,7 +16849,7 @@ Active close (we send the first FIN), our FIN lost once. ISS context: `SND.NXT =
    t=...   peer FIN → we ACK → TIME_WAIT → (2·MSL) → CLOSED
 ```
 
-Without Day 12, the FIN dropped at t=0 would never be resent: we'd sit in FIN_WAIT_1 forever, the peer never
+Without Doc 12, the FIN dropped at t=0 would never be resent: we'd sit in FIN_WAIT_1 forever, the peer never
 learning we'd closed. With it, the teardown self-heals in one RTO — and the backoff means if the path is
 genuinely down, we probe at 200, 400, 800… rather than flooding it. The same shape protects the *passive*
 FIN (in LAST_ACK) and the SYN/SYN-ACK at open.
@@ -16905,7 +16905,7 @@ tighter bound. Implementing `R2` (E1) is the first step toward this.
   tuning is genuinely adversarial.
 - **Resource exhaustion via never-completing handshakes.** Without a cap, every half-open from a SYN flood
   retransmits SYN-ACKs indefinitely, holding bandwidth and TCBs — the amplified SYN flood. Bounded retries +
-  cookies are the defense (Day 3 §E).
+  cookies are the defense (Doc 3 §E).
 
 The theme: control-segment retransmission is necessary for reliability but is an *attacker-exploitable
 resource* (each resend costs the server bandwidth and a held TCB), so production stacks cap it tightly for
@@ -16938,7 +16938,7 @@ version omits.
    ACK.
 2. **Why does that matter for retransmission?** Only sequence-consuming segments can be acked, hence lost
    and resent.
-3. **What hangs if a SYN-ACK is lost (pre-Day-12)?** The server sits in SYN_RCVD; the client waits — a
+3. **What hangs if a SYN-ACK is lost (pre-Doc-12)?** The server sits in SYN_RCVD; the client waits — a
    deadlock unless the client resends its SYN.
 4. **What hangs if a FIN is lost?** The teardown stalls in LAST_ACK/FIN_WAIT; the peer never sends the final
    ACK.
@@ -16966,14 +16966,14 @@ version omits.
 19. **Why are SYN-ACK retries limited tightly in real stacks?** SYN-flood amplification — uncapped retries
     worsen it (§D/§H).
 20. **How does this interact with SYN cookies?** Cookies are stateless (no TCB, no SYN-ACK retransmission)
-    under flood (Day 3 §E).
+    under flood (Doc 3 §E).
 21. **What is the latency cost of a lost SYN?** A full initial RTO (1 s real / 200 ms us) before resend —
     setup-dominating for short flows (§I).
 22. **What is TCP Fast Open?** Data in the SYN (cookie-validated) saving a round trip; `SYN+data` consumes
     `1+len` (§A/§I).
 23. **Does the resent segment differ from the original?** No — byte-for-byte identical (we store the whole
     packet).
-24. **Did `Unacked` change later?** Yes — Day 18 added `start_seq` and `sacked` (SACK), so `record` gained
+24. **Did `Unacked` change later?** Yes — Doc 18 added `start_seq` and `sacked` (SACK), so `record` gained
     a `start_seq` arg.
 25. **What's the most important next robustness step?** Implement `R2` to abort a hung connection (E1).
 
@@ -17039,7 +17039,7 @@ Q: TCP Fast Open?  A: data in the SYN (cookie-validated), saving a round trip; S
    data (len)         len                       yes
    SYN / FIN          1                         yes
    SYN+data           1 + len                   yes (TFO)
-   zero-window probe  1                         yes (Day 14)
+   zero-window probe  1                         yes (Doc 14)
    pure ACK / RST     0                         no
 ```
 
@@ -17055,7 +17055,7 @@ Q: TCP Fast Open?  A: data in the SYN (cookie-validated), saving a round trip; S
 
 
 
-# Day 13 — TCP, Part 11: Nagle's Algorithm (and the `TCP_NODELAY` Escape Hatch)
+# Doc 13 — TCP, Part 11: Nagle's Algorithm (and the `TCP_NODELAY` Escape Hatch)
 
 > Goal: stop a chatty application from flooding the link with runt packets. If a program writes one byte at
 > a time — a classic telnet session, a game sending keystrokes — a naive stack puts each byte in its own
@@ -17303,7 +17303,7 @@ so existing send behavior is unchanged.
   has a short Nagle/cork timer so held data isn't stuck if no ACK or packet arrives. On our cooperative link
   an ACK always comes; on a one-way bulk push you'd want a small flush timer.
 
-None of these change the day-13 contract (sub-MSS writes coalesce while data is unacked, `TCP_NODELAY`
+None of these change the doc-13 contract (sub-MSS writes coalesce while data is unacked, `TCP_NODELAY`
 overrides); they are refinements and the missing receiver-side half.
 
 ## 12. Rebuild it yourself — checklist + exercises
@@ -17328,7 +17328,7 @@ overrides); they are refinements and the missing receiver-side half.
 
 ## 13. What the next step adds
 
-Day 14 closes a *correctness* hole that flow control left open: **zero-window probes** (the persist timer,
+Doc 14 closes a *correctness* hole that flow control left open: **zero-window probes** (the persist timer,
 RFC 9293 §3.8.6.1). When the peer advertises a window of 0, our sender correctly stops — but if the later
 "window re-opened" ACK is lost, both sides wait forever: a deadlock. The persist timer breaks it by
 periodically sending a 1-byte probe into the closed window, forcing the peer to re-ack its current window.
@@ -17344,7 +17344,7 @@ insists on sending one *anyway*, because silence would be fatal.
 John Nagle wrote RFC 896 ("Congestion Control in IP/TCP Internetworks", January 1984) while at Ford
 Aerospace, which ran an internal internet connected to the ARPANET. He observed two distinct pathologies:
 the **small-packet problem** (tinygrams from interactive traffic swamping the network with header overhead)
-and **congestion collapse** (which Jacobson later solved more fully, Day 10 §A). His fix for the first — the
+and **congestion collapse** (which Jacobson later solved more fully, Doc 10 §A). His fix for the first — the
 algorithm now bearing his name — was elegantly minimal: a connection may have *at most one* small,
 unacknowledged segment outstanding. Everything else waits to be coalesced or sent full-sized.
 
@@ -17418,7 +17418,7 @@ Nagle's elegance is that it needs *no timer and no tuning* — it paces itself t
 - **On a slow/loaded link:** the ACK is delayed (queueing, congestion), so more writes accumulate before
   release. Coalescing is aggressive — which is correct, because a loaded link must not be fed tinygrams.
 
-The "clock" is the ACK stream itself (the same self-clocking idea as congestion control, Day 10 §A): the
+The "clock" is the ACK stream itself (the same self-clocking idea as congestion control, Doc 10 §A): the
 rate at which held data is released equals the rate at which ACKs return, which equals the rate the network
 can sustain. No threshold to tune, no timer to misconfigure — the network's own feedback sets the coalescing
 level. This is why a fixed-byte-threshold or timer-based small-packet rule (§10's alternatives) is *worse*:
@@ -17552,7 +17552,7 @@ latency-attack surface for middleboxes.
     (§D).
 19. **Does our receiver delay ACKs?** No (we ack every segment), so we can't stall ourselves — but a peer
     could.
-20. **Is the day-13 change big?** No — one field, one setter, a three-line guard; no new wire format.
+20. **Is the doc-13 change big?** No — one field, one setter, a three-line guard; no new wire format.
 21. **Does Nagle break full-segment bulk transfer?** No — full segments are never held; bulk runs at line
     rate.
 22. **What's the overhead of a tinygram?** 40 header bytes per packet; 1-byte payload = 2.4% efficiency.
@@ -17633,9 +17633,9 @@ Q: Why is Nagle "self-clocking"?  A: held data releases at the ACK rate, which t
 
 
 
-# Day 14 — TCP, Part 12: Zero-Window Probes (the Persist Timer)
+# Doc 14 — TCP, Part 12: Zero-Window Probes (the Persist Timer)
 
-> Goal: fix the one deadlock that flow control quietly created. Day 8 taught the sender to obey the
+> Goal: fix the one deadlock that flow control quietly created. Doc 8 taught the sender to obey the
 > receiver's advertised window: when the peer says "my window is 0," we stop. Correct — but incomplete. The
 > signal that the window has *re-opened* travels in a pure ACK, and pure ACKs are not retransmitted. Lose
 > that one ACK and both sides wait forever: the receiver thinks it told us to resume, the sender is still
@@ -17688,7 +17688,7 @@ Volume II — the exhaustive reference
 ## 1. The mental model: a silence that kills
 
 Flow control is a promise: "I, the receiver, will accept up to `RCV.WND` more bytes." When the receiver's
-buffer fills, it advertises `window = 0`, and a well-behaved sender (ours, since Day 8) stops dead —
+buffer fills, it advertises `window = 0`, and a well-behaved sender (ours, since Doc 8) stops dead —
 `usable_window()` is 0, so `poll_transmit` emits nothing. Later the application drains the buffer and the
 receiver sends a fresh ACK: "window = 4000, you may resume." That update is the *only* thing that unblocks
 the sender.
@@ -17716,7 +17716,7 @@ isn't — so the responsibility to break the silence falls on the *sender*, whic
 
 Your first instinct (mine too) is "just let the retransmission timer resend something." But there is
 *nothing in the retransmission queue*: the sender stopped before putting any of the blocked bytes on the
-wire, precisely because the window was 0. `FlightSize == 0`. The retransmission machinery from Day 6/12 only
+wire, precisely because the window was 0. `FlightSize == 0`. The retransmission machinery from Doc 6/12 only
 resends what was already sent; here, by construction, nothing was. So liveness needs a *new* action:
 deliberately send something into a window we've been told is closed. That deliberate, slightly-rude poke is
 the zero-window probe.
@@ -17753,7 +17753,7 @@ the queue is empty and there is no other source of liveness.
 
 A subtle, satisfying simplification: the persist timer only needs to fire **once**. After the first probe is
 sent, `FlightSize` becomes 1 — there is now an unacknowledged segment in the queue. From that moment, the
-**ordinary RTO retransmission** (Day 6) resends that same one-byte segment on its own timer, with the usual
+**ordinary RTO retransmission** (Doc 6) resends that same one-byte segment on its own timer, with the usual
 exponential backoff. That *is* the persist repeat. So:
 
 - persist timer → sends the **first** probe (because the queue was empty);
@@ -17762,11 +17762,11 @@ exponential backoff. That *is* the persist repeat. So:
 We disarm the persist timer the instant a probe is outstanding (`FlightSize > 0`), and re-arm only if we
 somehow return to "window 0, data pending, nothing in flight." This reuses machinery instead of duplicating
 a backoff loop, and it keeps the probe spacing consistent with the connection's RTO. It's the same
-design-economy as Day 12 (control segments ride the existing queue): build the *trigger*, reuse the *engine*.
+design-economy as Doc 12 (control segments ride the existing queue): build the *trigger*, reuse the *engine*.
 
 ## 6. The companion fix: a window update is not a duplicate ACK
 
-Adding zero-window handling exposes a latent bug in the Day 10 duplicate-ACK logic. RFC 5681 §2 defines a
+Adding zero-window handling exposes a latent bug in the Doc 10 duplicate-ACK logic. RFC 5681 §2 defines a
 duplicate ACK by **four** conditions, all of which must hold:
 
 1. the ACK number equals `SND.UNA` (acknowledges no new data),
@@ -17783,7 +17783,7 @@ produce an ACK with `ack == SND.UNA` and no data:
 Without condition 4, three of these in a row would trip *fast retransmit* and needlessly halve the
 congestion window — treating a flow-control event as packet loss. So we now record the previous window and
 require `th.window == prev_wnd` **and** `th.window != 0` before counting a duplicate ACK. A changed window is
-an update; a zero window is the receiver being full; neither is congestion. (With window scaling, Day 17,
+an update; a zero window is the receiver being full; neither is congestion. (With window scaling, Doc 17,
 the comparison is on the *scaled* values — §D.)
 
 ## 7. The Rust: one field, one branch in `on_tick`
@@ -17817,7 +17817,7 @@ if self.state == State::Established
 The four-part `&&` is the exact "we are stalled and only a probe can save us" condition. The `else` disarms
 the moment any clause stops holding (window opened, buffer drained, or a probe is already outstanding) — so
 the timer is self-resetting, no explicit teardown. The dup-ACK fix is two extra `&&` clauses in `on_segment`.
-That is the whole feature. (`record`'s `start_seq` argument is Day 18's; day 14 used the four-arg form.)
+That is the whole feature. (`record`'s `start_seq` argument is Doc 18's; doc 14 used the four-arg form.)
 
 ## 8. Worked example: shut, probe, reopen
 
@@ -17844,7 +17844,7 @@ All in `src/tcp.rs`:
 
 - **Struct / constructors**: `persist_ms: u64`, initialized `0`.
 - **`on_segment`** (ESTABLISHED): capture `prev_wnd` before overwriting `send.wnd`; add
-  `th.window == prev_wnd && th.window != 0` (scaled, Day 17) to the duplicate-ACK condition.
+  `th.window == prev_wnd && th.window != 0` (scaled, Doc 17) to the duplicate-ACK condition.
 - **`on_tick`**: the persist branch above. It appends the probe to the same `Vec` the RTO retransmissions go
   into, so the event loop sends it with no special casing.
 
@@ -17879,17 +17879,17 @@ All in `src/tcp.rs`:
   tiny increments (or our probe would chase a 1-byte window, sending runts) — RFC 9293 §3.8.6.2 / Clark's
   algorithm says only advertise a re-opened window once it grows by ≥ 1 MSS or ½ the buffer. Our receiver
   has a flat window and never shrinks it, so this doesn't arise here, but a real receive buffer needs it
-  (Day 8 §C, exercise E2).
-- **`record` gained `start_seq` (Day 18).** The probe is recorded with the SACK-aware `record(start_seq,
-  end_seq, …)` now; day 14 used the four-arg form.
-- **Window-update comparison is scaled (Day 17).** The dup-ACK condition compares *scaled* windows once
+  (Doc 8 §C, exercise E2).
+- **`record` gained `start_seq` (Doc 18).** The probe is recorded with the SACK-aware `record(start_seq,
+  end_seq, …)` now; doc 14 used the four-arg form.
+- **Window-update comparison is scaled (Doc 17).** The dup-ACK condition compares *scaled* windows once
   window scaling is negotiated, so a scaled-window change still isn't mistaken for a dup.
 - **Probe data choice.** We send the next *real* buffered byte; some stacks send a byte *below* `SND.UNA`
   (guaranteed-old, definitely rejected) to avoid advancing the stream if the window is genuinely shut. Both
   force an ACK; the real-byte approach is simpler and the byte is never wasted (it's data we wanted to send
   anyway).
 
-None of these change the day-14 contract (a stalled connection always recovers when the window reopens, and
+None of these change the doc-14 contract (a stalled connection always recovers when the window reopens, and
 a window event is never mistaken for loss); they are hardening and the receiver-side complement.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -17917,8 +17917,8 @@ a window event is never mistaken for loss); they are hardening and the receiver-
 
 ## 14. What the next step adds
 
-Day 15 begins the **TCP options** era. So far every segment we build has a bare 20-byte header; we have
-ignored the options field on the way in and never written one on the way out. Day 15 adds the machinery to
+Doc 15 begins the **TCP options** era. So far every segment we build has a bare 20-byte header; we have
+ignored the options field on the way in and never written one on the way out. Doc 15 adds the machinery to
 *parse* and *emit* options, and uses it for the most fundamental one: **MSS negotiation** (RFC 9293
 §3.7.1) — read the peer's Maximum Segment Size from its SYN, advertise our own, and segment outgoing data to
 the negotiated value instead of a hardcoded 1460. That option framework is the foundation the next several
@@ -17944,7 +17944,7 @@ receiver has nothing to ACK (no data is arriving — it told the sender to stop)
 might be the *only* ACK for a long time, with no successor to supersede it if lost. The general rule — *don't
 depend on an unacknowledged segment for liveness* — is violated, and the persist probe restores it by
 manufacturing a reason for the receiver to ACK (a byte it must respond to), turning "no next ACK" into "an
-ACK on demand." It's the same flavor as the Two Generals' Problem (Day 7 §F): you can't be *sure* your
+ACK on demand." It's the same flavor as the Two Generals' Problem (Doc 7 §F): you can't be *sure* your
 message arrived, so you keep asking until you get a reply.
 
 ## B. The persist timer vs the retransmission timer
@@ -17975,7 +17975,7 @@ window" (persist).
 The persist probe has a failure mode if the *receiver* is naive: if the receiver reopens its window one byte
 at a time (because its app reads one byte at a time), each probe elicits "window = 1," the sender sends one
 byte, the receiver advertises "window = 1" again — a stream of 1-byte segments, the **Silly Window Syndrome**
-(SWS, Day 8 §C). The fix is **receiver-side SWS avoidance** (RFC 9293 §3.8.6.2 / Clark's algorithm): the
+(SWS, Doc 8 §C). The fix is **receiver-side SWS avoidance** (RFC 9293 §3.8.6.2 / Clark's algorithm): the
 receiver must *not* advertise a re-opened window until it can offer a "useful" amount — at least one MSS or
 half the receive buffer, whichever is smaller. Until then it keeps advertising 0 (and keeps absorbing
 probes), then jumps the window open in a worthwhile chunk.
@@ -18008,7 +18008,7 @@ that condition 4 alone misses: while the window sits at 0, successive re-acks ha
 (0 == 0, satisfying condition 4) and no data and ack == UNA — so without the extra clause, three zero-window
 re-acks would be counted as duplicates and trip fast retransmit, halving `cwnd` over a *flow-control* stall
 that has nothing to do with congestion. Excluding `window == 0` keeps a full-receiver event from ever looking
-like loss. (Under window scaling, Day 17, conditions compare the *scaled* window so the same logic holds for
+like loss. (Under window scaling, Doc 17, conditions compare the *scaled* window so the same logic holds for
 windows > 64 KB.)
 
 ## E. A worked stall-and-recover trace (hex)
@@ -18093,7 +18093,7 @@ with a "but eventually give up" bound, which our teaching version omits and a pr
 
 ## I. Extended FAQ
 
-1. **What deadlock does day 14 fix?** A lost window-reopen ACK leaving sender and receiver both waiting
+1. **What deadlock does doc 14 fix?** A lost window-reopen ACK leaving sender and receiver both waiting
    forever.
 2. **Why can't the RTO fix it?** The blocked bytes were never sent (window was 0), so the retransmission
    queue is empty.
@@ -18209,7 +18209,7 @@ Q: Efficiency or correctness day?  A: correctness — it removes a deadlock (Nag
 
 
 
-# Day 15 — TCP, Part 13: TCP Options and MSS Negotiation
+# Doc 15 — TCP, Part 13: TCP Options and MSS Negotiation
 
 > Goal: open the door we have kept shut for fourteen days. Every segment we have built carries a bare
 > 20-byte TCP header, and every segment we received, we parsed only the fixed 20 bytes and *skipped* whatever
@@ -18217,7 +18217,7 @@ Q: Efficiency or correctness day?  A: correctness — it removes a deadlock (Nag
 > timestamps, SACK. This chapter builds the **machinery to parse and emit options**, then uses it for the
 > most fundamental one: **Maximum Segment Size** (RFC 9293 §3.7.1). We read the peer's MSS from its SYN,
 > advertise our own, and finally segment outgoing data to the *negotiated* size instead of a hardcoded 1460.
-> That framework is the foundation Days 16–18 (timestamps, window scaling, SACK) all build on.
+> That framework is the foundation Docs 16–18 (timestamps, window scaling, SACK) all build on.
 
 This is an *infrastructure* day: the single feature (MSS) is modest, but the **option-parsing and
 option-emitting machinery** it forces us to build is what the next three days stand on. Get the defensive
@@ -18282,7 +18282,7 @@ jumping over any options the peer sent. That was fine for a stack with no option
 something to say (our MSS) and something to hear (the peer's), so we must both **write** an option into our
 SYN/SYN-ACK and **read** one out of theirs. The 4-bit data-offset cap is the quiet constraint behind every
 option-design tradeoff: there are only 40 bytes, and every feature competes for them (the budget arithmetic
-that decides "3 SACK blocks with timestamps" is §A, and Day 18 §5).
+that decides "3 SACK blocks with timestamps" is §A, and Doc 18 §5).
 
 ## 2. The option wire format (kind / length / value, NOP, EOL)
 
@@ -18294,10 +18294,10 @@ Options are a sequence of TLV-ish entries. Two are special single-byte forms; th
 | 0 | End of Option List | 1 byte | stop parsing; pad the rest with zeros |
 | 1 | No-Operation (NOP) | 1 byte | filler, used to 4-byte-align the next option |
 | 2 | Maximum Segment Size | `[2, 4, hi, lo]` | the sender's receive MSS (SYN only) |
-| 3 | Window Scale | `[3, 3, shift]` | (Day 17) |
-| 4 | SACK-Permitted | `[4, 2]` | (Day 18) |
-| 5 | SACK | `[5, len, …]` | (Day 18) |
-| 8 | Timestamps | `[8, 10, …]` | (Day 16) |
+| 3 | Window Scale | `[3, 3, shift]` | (Doc 17) |
+| 4 | SACK-Permitted | `[4, 2]` | (Doc 18) |
+| 5 | SACK | `[5, len, …]` | (Doc 18) |
+| 8 | Timestamps | `[8, 10, …]` | (Doc 16) |
 
 For the length-prefixed kinds, **the length byte counts the kind and length bytes themselves**. So MSS is
 `length = 4`: one kind byte + one length byte + two value bytes. The whole options area must end on a 4-byte
@@ -18315,7 +18315,7 @@ Crucially:
   mid-connection).
 - Each side advertises its *own* receive MSS. So the peer's MSS option tells **us** the biggest segment **we**
   may send; our MSS option tells the peer the biggest it may send us. (Same per-direction asymmetry as the
-  window, Day 8, and window scaling, Day 17.)
+  window, Doc 8, and window scaling, Doc 17.)
 - The value is the link MTU minus 40 (20 IP + 20 TCP). On our 1500-byte TUN that is **1460**.
 
 If a SYN carries no MSS option, RFC 9293 §3.7.1 says assume 536 for IPv4. Real peers always send one, so in
@@ -18350,7 +18350,7 @@ The two guards that matter: `len < 2` rejects a zero/one length (a hostile `len 
 advance `i` — an infinite loop), and `i + len > opts.len()` rejects a length that claims more bytes than
 exist. Unknown kinds are skipped by their length, exactly as a real stack must, so adding timestamps/SACK
 later is just another `if kind == …` arm. `TcpOptions` starts with one field, `mss: Option<u16>`, and grows
-over the next three days into the multi-field struct Day 18 finishes (§14).
+over the next three days into the multi-field struct Doc 18 finishes (§14).
 
 ## 5. Emitting: generalizing `build_packet` and the data offset
 
@@ -18419,9 +18419,9 @@ noise. Instead:
   `&TcpOptions::default()`, so its ~30 existing test callers are untouched.
 
 `main` parses the options off the wire once (`&l4[20..data_offset]`) and calls `on_segment` / `accept` with
-them. This keeps the diff focused, and it is the right seam for Day 16: timestamps ride on *every* segment,
+them. This keeps the diff focused, and it is the right seam for Doc 16: timestamps ride on *every* segment,
 and `on_segment` is exactly where they will be read. (This is the same "evolve the API by adding a wrapper"
-move as Day 12's `_at` constructors — §10.)
+move as Doc 12's `_at` constructors — §10.)
 
 ## 9. Worked example: a handshake with options
 
@@ -18446,10 +18446,10 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
   The `len < 2` check is subtle but vital: `len` includes the kind+length bytes, so the minimum legal value
   is 2; a hostile `len = 0` or `1` would advance `i` by less than the bytes consumed (or not at all),
   risking an infinite loop. Slicing `&opts[i+2 .. i+len]` is only reached after both bounds are proven, so it
-  can't panic. This is the Day-1 parser discipline (validate length, never trust the wire) applied to the
+  can't panic. This is the Doc-1 parser discipline (validate length, never trust the wire) applied to the
   option layer.
 - **`TcpOptions` beside `TcpHeader` is a deliberate decoupling.** Keeping options out of the header struct
-  means the ~40 test `TcpHeader { … }` literals never change as options accumulate (Days 16–18 add four more
+  means the ~40 test `TcpHeader { … }` literals never change as options accumulate (Docs 16–18 add four more
   fields to `TcpOptions`, zero to `TcpHeader`). The parsed options flow as a separate `&TcpOptions` argument
   — a clean seam that also makes "this segment had no options" expressible as `TcpOptions::default()` without
   a sentinel.
@@ -18485,7 +18485,7 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
 
 | Decision | Alternative | Why |
 |---|---|---|
-| `TcpOptions` beside `TcpHeader` | Add `options` field to `TcpHeader` | Avoids editing ~40 literal test headers; `on_segment` is the right seam for per-segment options (Day 16). |
+| `TcpOptions` beside `TcpHeader` | Add `options` field to `TcpHeader` | Avoids editing ~40 literal test headers; `on_segment` is the right seam for per-segment options (Doc 16). |
 | Default send MSS = `OUR_MSS` | RFC's 536 for a missing option | Real peers always advertise; the default only affects option-less test SYNs, where full-size segmentation keeps tests honest. Documented. |
 | `send_mss` separate from cwnd's MSS | One shared MSS everywhere | Different limits — a per-segment size cap vs a bytes-in-flight budget; conflating them breaks when a peer advertises a small MSS. |
 | Derive `OUR_MSS` from `congestion::MSS` | Repeat the literal `1460` | One source of truth for the link's segment size; no drift. |
@@ -18493,10 +18493,10 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
 
 ## 14. Honesty: what production does, and what later days added
 
-- **The framework was built to grow, and did.** `TcpOptions` gained `timestamps` (Day 16), `window_scale`
-  (Day 17), and `sack_permitted` + `sack_blocks` + `sack_block_count` (Day 18). `parse_options` gained an
+- **The framework was built to grow, and did.** `TcpOptions` gained `timestamps` (Doc 16), `window_scale`
+  (Doc 17), and `sack_permitted` + `sack_blocks` + `sack_block_count` (Doc 18). `parse_options` gained an
   arm per option; the builders (`ws_option`, `ts_option`, `sack_perm_option`, `sack_option`) mirror
-  `mss_option`. Day 15's defensive walker and `is_multiple_of` alignment are exactly what made those
+  `mss_option`. Doc 15's defensive walker and `is_multiple_of` alignment are exactly what made those
   additions one-arm-each. This day's real product is that extensibility.
 - **No Path MTU Discovery (PMTUD).** We learn the MSS from the SYN but never *discover* the true path MTU
   (which can be smaller than either end's link MTU due to tunnels/VPNs). A real stack does PMTUD (or
@@ -18510,7 +18510,7 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
   IPv4; IPv6 subtracts 60 (40 IPv6 + 20 TCP), and IP/TCP options shrink it further. We assume the clean
   1500−40 = 1460 case.
 
-None of these change the day-15 contract (we parse/emit options and segment to the negotiated MSS); they are
+None of these change the doc-15 contract (we parse/emit options and segment to the negotiated MSS); they are
 the path-awareness and hardening a production stack adds.
 
 ## 15. Rebuild it yourself — checklist + exercises
@@ -18530,14 +18530,14 @@ the path-awareness and hardening a production stack adds.
   explicit MSS so existing full-size tests still pass.
 - **E3.** Emit a NOP-padded option list (e.g. MSS + a 2-byte option) and confirm `data_offset` and the
   checksum are still correct (§E).
-- **E4.** ✅ *Done* (Days 16–18): add `parse_options` arms for timestamps, window scale, and SACK, and
+- **E4.** ✅ *Done* (Docs 16–18): add `parse_options` arms for timestamps, window scale, and SACK, and
   unit-test the walker against a real Linux SYN's option bytes (§F).
 - **E5.** Add a **minimum MSS floor** (e.g. 256): clamp a peer's tiny MSS up, defending against the
   tiny-MSS DoS (§H).
 
 ## 16. What the next step adds
 
-Day 16 spends the new framework on **TCP timestamps** (RFC 7323 §3–4). A timestamp option on every segment
+Doc 16 spends the new framework on **TCP timestamps** (RFC 7323 §3–4). A timestamp option on every segment
 lets us (a) measure RTT on *every* ACK instead of one sample per window, sharpening the RTO, and (b)
 implement **PAWS** — Protect Against Wrapped Sequences — which rejects an old duplicate that has wrapped
 around the 32-bit sequence space on a fast, long-lived connection. It is the first option that rides on
@@ -18570,7 +18570,7 @@ their sizes (padded to alignment):
 The **40-byte ceiling** (60-byte max header − 20 fixed) is the hard constraint everything competes for. A
 typical modern SYN carries MSS(4) + SACK-Perm(4) + Timestamps(12) + Window Scale(4) = 24 bytes, leaving 16.
 A data/ACK segment with Timestamps(12) leaves 28 — which is exactly why SACK is capped at 3 blocks once
-timestamps are present (28 = 4 + 8·3, Day 18 §5). This budget arithmetic — *which options coexist in 40
+timestamps are present (28 = 4 + 8·3, Doc 18 §5). This budget arithmetic — *which options coexist in 40
 bytes* — is the recurring constraint of the whole options era, and it's why the order options were added to
 TCP (MSS first, then window scale and timestamps co-designed to share space, then SACK sized to fit
 alongside) is no accident.
@@ -18639,10 +18639,10 @@ it lives. The hazards our guards prevent:
    huge option count             unbounded work                      bounded by opts.len() (≤ 40)
 ```
 
-Real-world option-parser bugs are legion: the **SACK Panic** (Day 18 §G) abused SACK *processing* (not
+Real-world option-parser bugs are legion: the **SACK Panic** (Doc 18 §G) abused SACK *processing* (not
 parsing) to overflow retransmit-queue arithmetic; older stacks had option-parser overflows and infinite
 loops on crafted lengths. The discipline — *validate the length before you trust it, and bound every loop by
-the actual buffer* — is the same one Day 1 drilled for the IP header, applied to a variable-length, nested
+the actual buffer* — is the same one Doc 1 drilled for the IP header, applied to a variable-length, nested
 structure where it matters even more (the length is attacker-chosen at every step). Our walker is total
 (terminates on any input) and panic-free (every index is bounds-checked), which is the correctness bar a
 wire parser must clear.
@@ -18668,7 +18668,7 @@ and `sack_option` prepend two NOPs to make 12 / 4+8N), so concatenating any set 
 construction — which is why `segment_opts` can just join them and the `debug_assert!(len % 4 == 0)` always
 holds. The alternative (a global NOP/EOL pad at the end) works too and is what the EOL (kind 0) is for —
 "stop, pad the rest with zeros to the word boundary" — but per-option self-alignment composes more cleanly
-when multiple options stack (Days 16–18). The cost is a couple of wasted NOP bytes per option; the benefit is
+when multiple options stack (Docs 16–18). The cost is a couple of wasted NOP bytes per option; the benefit is
 that adding an option never disturbs another's alignment.
 
 ## F. A worked option-parse trace (a real Linux SYN)
@@ -18679,16 +18679,16 @@ A typical Linux SYN's option bytes, decoded by our walker. `tcpdump -v` would pr
 ```text
    bytes:  02 04 05 b4 | 04 02 | 08 0a [TSval×4] [TSecr×4] | 01 | 03 03 07
    i=0:    kind 2 (MSS),  len 4 → value 0x05b4 = 1460     → out.mss = Some(1460); i += 4
-   i=4:    kind 4 (SACK-Perm), len 2 → (no data)          → out.sack_permitted = true; i += 2   (Day 18)
-   i=6:    kind 8 (Timestamps), len 10 → TSval, TSecr     → out.timestamps = Some((v,e)); i += 10 (Day 16)
+   i=4:    kind 4 (SACK-Perm), len 2 → (no data)          → out.sack_permitted = true; i += 2   (Doc 18)
+   i=6:    kind 8 (Timestamps), len 10 → TSval, TSecr     → out.timestamps = Some((v,e)); i += 10 (Doc 16)
    i=16:   kind 1 (NOP) → i += 1                          (alignment filler before wscale)
-   i=17:   kind 3 (Window Scale), len 3 → shift 7         → out.window_scale = Some(7); i += 3   (Day 17)
+   i=17:   kind 3 (Window Scale), len 3 → shift 7         → out.window_scale = Some(7); i += 3   (Doc 17)
    i=20:   i == opts.len() → done
 ```
 
-At day 15 only the MSS arm exists, so the walker reads `mss = 1460` and *skips* the rest by their lengths
+At doc 15 only the MSS arm exists, so the walker reads `mss = 1460` and *skips* the rest by their lengths
 (the `i += len` in the `kind =>` branch) — which is exactly the "unknown kinds are skipped gracefully"
-property that lets a day-15 stack interoperate with a fully-featured Linux peer. By Day 18 every arm exists
+property that lets a doc-15 stack interoperate with a fully-featured Linux peer. By Doc 18 every arm exists
 and the whole line decodes. The NOP at i=16 is the alignment filler Linux inserts so window-scale (3 bytes)
 lands on a clean boundary after the 10-byte timestamps option (§E).
 
@@ -18710,7 +18710,7 @@ understand — historically window-scale and SACK got stripped, silently degradi
 of why new TCP options are hard to deploy and QUIC moved to UDP), and **option-order sensitivity** (buggy
 middleboxes that only recognize options in a specific order). Our endpoints fully control both ends and the
 TUN passes options untouched, so neither bites — but they're why the modern internet is "ossified" against
-new TCP options, a major motivation for QUIC (Day 9 §J, Day 11 §C).
+new TCP options, a major motivation for QUIC (Doc 9 §J, Doc 11 §C).
 
 ## H. Security — tiny-MSS DoS and the option parser
 
@@ -18727,7 +18727,7 @@ new TCP options, a major motivation for QUIC (Day 9 §J, Day 11 §C).
   SACK-permitted, timestamps, their order) is a reliable OS fingerprint (nmap, p0f use it). Not a
   vulnerability per se, but a privacy/recon consideration — our fixed option set is identifiable.
 - **MSS-based evasion.** A tiny MSS forces tiny segments that can split application-layer keywords across
-  packets, evading naive IDS signature matching (the segment-overlap evasion lineage, Day 9 §I). Floors and
+  packets, evading naive IDS signature matching (the segment-overlap evasion lineage, Doc 9 §I). Floors and
   reassembly-before-inspection defend.
 
 The theme: the MSS is an attacker-influenced *amplification* knob (tiny MSS → many packets) and the option
@@ -18737,11 +18737,11 @@ walker — the floor being the one defense our teaching version omits.
 ## I. Performance — MSS too small vs too big
 
 - **MSS too small** → more segments for the same data → more headers (overhead) and more packets (the
-  per-packet costs of Day 13 §I) → lower throughput and higher CPU. A 536-MSS connection on a 1500-MTU link
+  per-packet costs of Doc 13 §I) → lower throughput and higher CPU. A 536-MSS connection on a 1500-MTU link
   wastes ~63% more packets than a 1460-MSS one for the same bytes.
 - **MSS too big (bigger than the path MTU)** → IP fragmentation (if DF clear) or black-holing (if DF set and
   PMTUD fails, §C). Fragmentation is a performance and reliability disaster: one lost fragment loses the
-  whole packet, and fragment reassembly is slow and a security hazard (Day 9 §I). This is *worse* than too
+  whole packet, and fragment reassembly is slow and a security hazard (Doc 9 §I). This is *worse* than too
   small — hence the conservative "advertise your link MTU, discover the path" approach.
 - **The sweet spot is the path MTU minus 40** — as large as possible without fragmenting. PMTUD/clamping
   exist to find it. Jumbo frames (9000-byte MTU) push it higher on controlled datacenter links, cutting
@@ -18783,7 +18783,7 @@ walker — the floor being the one defense our teaching version omits.
     arm/builder.
 23. **Does MSS count headers?** No — payload only; an MSS-1460 segment is a 1500-byte packet.
 24. **Can MSS change mid-connection?** No — SYN-only; it's fixed at the handshake.
-25. **What's the real product of day 15?** The extensible, defensive option layer the rest of modern TCP
+25. **What's the real product of doc 15?** The extensible, defensive option layer the rest of modern TCP
     stands on.
 
 ## K. Anki starter deck
@@ -18860,9 +18860,9 @@ Q: What is the tiny-MSS DoS and its defense?  A: a tiny MSS → many tiny segmen
 
 
 
-# Day 16 — TCP, Part 14: Timestamps, RTT Measurement, and PAWS (RFC 7323)
+# Doc 16 — TCP, Part 14: Timestamps, RTT Measurement, and PAWS (RFC 7323)
 
-> Goal: spend the Day 15 options framework on the first option that rides on *every* segment — the
+> Goal: spend the Doc 15 options framework on the first option that rides on *every* segment — the
 > **Timestamps** option (RFC 7323 §3). One 12-byte option, two payoffs. First, **RTTM**: by stamping each
 > segment with our clock and having the peer echo it back, we can measure the round-trip time on *every* ACK
 > — not one sample per window, and without Karn's "don't time a retransmission" caveat. Second, **PAWS**
@@ -18874,7 +18874,7 @@ One option, two unrelated-seeming problems, both dissolved by the same idea: **a
 every segment.** RTTM gets dense, Karn-free samples because the peer echoes the timestamp of exactly the data
 it's acking; PAWS gets a wrap-proof "is this segment old?" test because an ancient segment carries an ancient
 timestamp no matter what its recycled sequence number says. Timestamps are also the quiet prerequisite for
-several later real-world features (safe TIME_WAIT reuse, Day 7; RACK loss detection, Day 6).
+several later real-world features (safe TIME_WAIT reuse, Doc 7; RACK loss detection, Doc 6).
 
 **Contents**
 
@@ -18915,7 +18915,7 @@ Volume II — the exhaustive reference
 
 ## 1. The mental model: two problems, one option
 
-By Day 6 our RTO adapted to a measured RTT, but the measurement was coarse: one sample per window (time the
+By Doc 6 our RTO adapted to a measured RTT, but the measurement was coarse: one sample per window (time the
 oldest unacked segment when its ACK lands), and **suppressed entirely for retransmitted data** (Karn's
 algorithm — you can't tell which copy an ACK answers). On a connection with one segment in flight that is
 fine; on a fat pipe it is one sample per round trip when you could have dozens.
@@ -18951,7 +18951,7 @@ putting the option in its SYN. Timestamps are used **only if both SYNs carried t
 Once enabled, the option appears on **every** segment for the life of the connection — data, pure ACKs, FIN,
 even the zero-window probe. This is the first per-segment option (MSS/window-scale/SACK-permitted are
 SYN-only), which is why it cost 12 of our 40 option bytes on every segment and shaped the SACK budget
-(Day 18 §5).
+(Doc 18 §5).
 
 ## 3. RTTM: an RTT sample on every ACK
 
@@ -18965,7 +18965,7 @@ acknowledges it. When that ACK arrives, the round-trip time is simply:
 No queue bookkeeping, no Karn exclusion: the echoed value pins the measurement to a specific send, even if
 that data was retransmitted, because the peer echoes the timestamp of the segment it *actually received*. So
 with timestamps on, we feed the estimator from TSecr on every data-acking ACK and let the queue's own
-(Karn-limited) sample lapse. Without timestamps we keep the Day 6 behavior. The code is a clean fork:
+(Karn-limited) sample lapse. Without timestamps we keep the Doc 6 behavior. The code is a clean fork:
 
 ```rust
 if self.ts_enabled {
@@ -18979,14 +18979,14 @@ if self.ts_enabled {
 ```
 
 The density matters: on a fat pipe with 50 segments in flight, timestamps give ~50 RTT samples per round
-trip vs Day 6's one — so SRTT/RTTVAR track a changing path far faster, and the RTO is both tighter and more
+trip vs Doc 6's one — so SRTT/RTTVAR track a changing path far faster, and the RTO is both tighter and more
 responsive (§B).
 
 ## 4. PAWS: rejecting a wrapped old duplicate
 
 `TS.Recent` holds the newest TSval we have accepted from the peer. PAWS (RFC 7323 §5) says: a segment whose
 TSval is **older** than `TS.Recent` is an old duplicate — drop it (but send an ACK so the peer re-syncs).
-"Older" is the wrapping serial comparison from Day 3, so it is correct across the timestamp clock's own
+"Older" is the wrapping serial comparison from Doc 3, so it is correct across the timestamp clock's own
 32-bit wrap:
 
 ```rust
@@ -19030,7 +19030,7 @@ time-aware entry point — `on_segment`, `on_tick`, `poll_transmit`, `close`, an
 `now_ms as u32` (milliseconds) gives a clock that advances steadily, which is all RFC 7323 requires; real
 stacks often use a coarser tick (and a *randomized per-connection offset* for privacy, §H), but ms is fine
 here and makes the RTT samples read in real units. The "refresh one field at each `&mut` entry point" pattern
-is the same trick as the persist timer (Day 14): keep the clock in state, refresh at the boundaries, so
+is the same trick as the persist timer (Doc 14): keep the clock in state, refresh at the boundaries, so
 `&self` builders can read it.
 
 ## 7. The Rust
@@ -19045,7 +19045,7 @@ is the same trick as the persist timer (Day 14): keep the clock in state, refres
   ESTABLISHED; RTTM in the new-data-acked branch.
 
 Nothing changes for a connection that didn't negotiate timestamps — `ts_enabled` is false, so every segment
-is byte-identical to Day 15 and all prior tests pass untouched. The `Option<(u32, u32)>` for `timestamps`
+is byte-identical to Doc 15 and all prior tests pass untouched. The `Option<(u32, u32)>` for `timestamps`
 encodes "present or not" in the type (like MSS's `Option<u16>`), so "no timestamp on this segment" is `None`,
 not a sentinel value.
 
@@ -19076,7 +19076,7 @@ alone could not tell them apart.
 - `on_segment` refreshes `ts_val`, enables timestamps when the SYN-ACK confirms, applies PAWS, keeps
   `TS.Recent`, and samples RTT from TSecr.
 - `segment()` carries the option on every outgoing segment when enabled.
-- `main.rs` already parses options and routes through `on_segment` (Day 15), so it needs no change beyond the
+- `main.rs` already parses options and routes through `on_segment` (Doc 15), so it needs no change beyond the
   progress note.
 
 ## 10. Verification
@@ -19118,9 +19118,9 @@ alone could not tell them apart.
   E2).
 - **Clock resolution.** Ms is fine for our RTTs; RFC 7323 §5.4 requires the clock tick between 1 ms and
   1 s and to wrap no faster than the MSL — ms satisfies both. A sub-ms LAN RTT can read as 0 ms, which our
-  MIN_RTO floor (200 ms, Day 6) absorbs.
+  MIN_RTO floor (200 ms, Doc 6) absorbs.
 
-None of these change the day-16 contract (per-ACK RTT, wrapped-duplicate rejection); they are privacy and
+None of these change the doc-16 contract (per-ACK RTT, wrapped-duplicate rejection); they are privacy and
 corner-case hardening.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -19139,14 +19139,14 @@ corner-case hardening.
   precisely (store the last ack you sent rather than approximating with `RCV.NXT`).
 - **E2.** Sample RTT from the SYN-ACK's TSecr to seed `SRTT` before the first data exchange.
 - **E3.** Implement the PAWS 24-day outdated-`TS.Recent` reset (RFC 7323 §5.5) for an idle connection.
-- **E4.** ✅ *Done* (Days 17–18): verify against a real Linux peer — capture its SYN options with
+- **E4.** ✅ *Done* (Docs 17–18): verify against a real Linux peer — capture its SYN options with
   `tcpdump -v` and confirm `parse_options` reads MSS, window-scale, SACK-permitted, and timestamps.
 - **E5.** Add a **random per-connection timestamp offset** (RFC 7323 §5.4) so TSval leaks neither uptime nor
   cross-connection identity (§H).
 
 ## 14. What the next step adds
 
-Day 17 adds the other half of RFC 7323: the **Window Scale** option. Our advertised receive window is a
+Doc 17 adds the other half of RFC 7323: the **Window Scale** option. Our advertised receive window is a
 16-bit field — at most 64 KB, far too small for a fast, high-latency "long fat" path. Window scaling
 negotiates a left-shift (0–14) applied to the window field, stretching the effective window to as much as
 ~1 GB. It is, like timestamps, negotiated once in the SYN exchange, and it forces `SND.WND` to widen from
@@ -19185,10 +19185,10 @@ enabling.
 
 ## B. RTTM in depth — why per-ACK samples beat Karn
 
-Day 6's RTT measurement had two limits, both removed by timestamps:
+Doc 6's RTT measurement had two limits, both removed by timestamps:
 
 ```text
-   limit (Day 6)                              timestamps fix
+   limit (Doc 6)                              timestamps fix
    ────────────────────────────────────────  ─────────────────────────────────────────
    one sample per window (time oldest unacked) one sample PER ACK (TSecr dates each one)
    Karn: NO sample from a retransmitted segment ANY ACK gives a sample (TSecr disambiguates
@@ -19205,7 +19205,7 @@ do this; timestamps make it unnecessary.
 The *density* win is large on fat pipes: with `W` segments in flight, you get ~`W` samples per RTT instead of
 1, so SRTT/RTTVAR converge in a fraction of the round trips and track a changing path (a route flap, a
 congestion onset) almost immediately. This sharper RTO is the difference between a stack that spuriously
-retransmits on a jittery path and one that rides it out. Timestamps also underpin **RACK** (Day 6 §F):
+retransmits on a jittery path and one that rides it out. Timestamps also underpin **RACK** (Doc 6 §F):
 per-segment send times (which timestamps provide) let a sender detect loss by *time* ("a later segment was
 acked and enough time passed") rather than by 3-dup-ACK counting — more robust to reordering.
 
@@ -19230,7 +19230,7 @@ a segment but cannot make it *younger*. So a wrapped old duplicate carries a tim
 The assumption that makes it sound: within the time it takes the sequence space to wrap (4 GiB / bandwidth),
 the timestamp clock advances by at least one tick (so a wrapped duplicate is reliably "older"). RFC 7323 §5.2
 formalizes this: the timestamp clock must tick at most once per `2³¹` bytes of the fastest expected send rate
-— ms resolution satisfies this for any realistic link. Without PAWS, window scaling (Day 17) would be
+— ms resolution satisfies this for any realistic link. Without PAWS, window scaling (Doc 17) would be
 *dangerous*: a bigger window means more in-flight data means faster wrapping means more chances for a wrapped
 duplicate to land in-window. This is why RFC 7323 packages timestamps and window scaling together — scaling
 *needs* PAWS to be safe on a long-fat network.
@@ -19249,7 +19249,7 @@ RFC 7323 §5.4 constrains the timestamp clock:
 ```
 
 Our `now_ms as u32` ticks every millisecond, wraps every ~49.7 days (far slower than the MSL), and is
-monotonic (from `Instant`, Day 6) — satisfying the first three. It does **not** add a random offset, so our
+monotonic (from `Instant`, Doc 6) — satisfying the first three. It does **not** add a random offset, so our
 TSval is essentially the host's milliseconds-since-start, which is the privacy problem of §H. Real stacks use
 a coarser tick (Linux historically 1 ms via jiffies, now finer) plus a per-connection random offset, so the
 value is monotonic *within* a connection (PAWS works) but reveals nothing *across* connections or about
@@ -19272,7 +19272,7 @@ The danger threshold is when the wrap time approaches the **MSL** (~2 minutes, t
 at 10 Gbit/s the space wraps in 3.4 s, so a segment delayed even a few seconds can reappear with an in-window
 (wrapped) sequence number while a *different* segment legitimately occupies that number now. Below ~17 Mbit/s
 the wrap takes longer than the MSL and the problem can't occur (an old segment dies before its number is
-reused). Above it, PAWS is mandatory — which is exactly the regime window scaling (Day 17) targets (fast,
+reused). Above it, PAWS is mandatory — which is exactly the regime window scaling (Doc 17) targets (fast,
 long-fat paths). The numbers show *why* timestamps and window scaling shipped together in RFC 1323/7323:
 scaling enables the high-speed/large-window regime, and that regime is precisely where sequence wrap becomes
 a corruption hazard that only PAWS catches.
@@ -19313,11 +19313,11 @@ rejected; the genuine data (TSval 5200) is accepted. Without PAWS, the t=400 "XX
    RACK loss detection    uses per-segment timestamps              not implemented
 ```
 
-A real-world payoff we don't exploit: **timestamps make `tcp_tw_reuse` safe** (Day 7 §C). Reusing a 4-tuple
+A real-world payoff we don't exploit: **timestamps make `tcp_tw_reuse` safe** (Doc 7 §C). Reusing a 4-tuple
 still in TIME_WAIT is dangerous because an old duplicate could be accepted by the new incarnation — but if
 both incarnations use timestamps, PAWS rejects the old one (its timestamp predates the new connection), so
 the kernel can safely reuse the 4-tuple. This is why `tcp_tw_reuse` requires timestamps and `tcp_tw_recycle`
-(which keyed off them per-host) broke NAT. Timestamps also feed **RACK** (Day 6 §F), modern loss detection.
+(which keyed off them per-host) broke NAT. Timestamps also feed **RACK** (Doc 6 §F), modern loss detection.
 So timestamps quietly enable two features (safe TW reuse, RACK) beyond the two (RTTM, PAWS) they advertise.
 
 ## H. Security — timestamp fingerprinting and the randomized-offset fix
@@ -19338,7 +19338,7 @@ So timestamps quietly enable two features (safe TW reuse, RACK) beyond the two (
   fingerprint (distinct machines have slightly different crystal frequencies — "remote physical device
   fingerprinting", Kohno et al.).
 - **PAWS as a defense.** On the positive side, PAWS *strengthens* security: it's part of the TIME_WAIT
-  assassination defense (Day 7 §I) and makes wrapped-sequence injection (an attacker timing an injected
+  assassination defense (Doc 7 §I) and makes wrapped-sequence injection (an attacker timing an injected
   segment to a sequence reuse) far harder, since the injected segment also needs a plausible timestamp.
 
 The theme: timestamps are a double-edged tool — they fix RTT and wrap-safety but, naively implemented, leak
@@ -19351,7 +19351,7 @@ stack.
   carries 12 fewer payload bytes (within the MSS) and 12 more header bytes. On bulk transfer that's ~0.8% of
   a 1500-byte packet — negligible. On pure ACKs it's 12 bytes added to a 40-byte segment (30% bigger ACKs),
   also negligible in bandwidth but a real factor in ACK-heavy workloads. This 12-byte cost is also what
-  squeezes SACK to 3 blocks (Day 18 §5).
+  squeezes SACK to 3 blocks (Doc 18 §5).
 - **The win: a tighter, more responsive RTO.** Dense per-ACK samples (§B) mean SRTT/RTTVAR track the path in
   ~1 RTT instead of ~`W` RTTs, so the RTO is both smaller (less wasted wait on a real loss) and more
   accurate (fewer spurious retransmits on a jittery path). For a long-lived bulk transfer this measurably
@@ -19373,7 +19373,7 @@ stack.
 5. **How does TSecr give an RTT?** `now − TSecr` — the echoed value dates the exact send being acked.
 6. **Why does that beat Karn?** The peer echoes the timestamp of the copy it *received*, disambiguating
    retransmissions.
-7. **How many RTT samples per RTT with timestamps?** ~one per ACK (≈ window size), vs Day 6's one.
+7. **How many RTT samples per RTT with timestamps?** ~one per ACK (≈ window size), vs Doc 6's one.
 8. **What is `TS.Recent`?** The newest TSval we've accepted from the peer; echoed as our TSecr.
 9. **When do we update `TS.Recent`?** TSval ≥ TS.Recent (passes PAWS) AND SEG.SEQ ≤ RCV.NXT (in order).
 10. **What is the PAWS rule?** Reject an in-window segment whose TSval < TS.Recent (an old duplicate).
@@ -19387,16 +19387,16 @@ stack.
     is a hazard; PAWS makes it safe.
 16. **What clock do we use?** `now_ms as u32` — monotonic, ms resolution.
 17. **Where is `ts_val` refreshed?** At every time-aware `&mut` entry point (`on_segment`, `on_tick`, etc.).
-18. **Does a non-timestamped connection change?** No — byte-identical to Day 15.
+18. **Does a non-timestamped connection change?** No — byte-identical to Doc 15.
 19. **What's the uptime leak?** A raw timestamp clock reveals time-since-boot to an observer (§H).
 20. **What's the fix?** A random per-connection offset (RFC 7323 §5.4) — we don't do it.
-21. **What other features do timestamps enable?** Safe `tcp_tw_reuse` (Day 7) and RACK loss detection
-    (Day 6) (§G).
+21. **What other features do timestamps enable?** Safe `tcp_tw_reuse` (Doc 7) and RACK loss detection
+    (Doc 6) (§G).
 22. **What does TSecr in our SYN equal?** 0 — we have nothing to echo yet.
 23. **What is the 24-day reset?** Suspending PAWS if `TS.Recent` is implausibly old on an idle connection
     (§12).
-24. **What does the option cost?** 12 bytes per segment (and it caps SACK at 3 blocks, Day 18).
-25. **Why is `on_segment` (Day 15) the key seam?** Timestamps ride every segment, and `on_segment` carries
+24. **What does the option cost?** 12 bytes per segment (and it caps SACK at 3 blocks, Doc 18).
+25. **Why is `on_segment` (Doc 15) the key seam?** Timestamps ride every segment, and `on_segment` carries
     the parsed options.
 
 ## K. Anki starter deck
@@ -19442,10 +19442,10 @@ Q: What else do timestamps enable?  A: safe tcp_tw_reuse and RACK loss detection
    TSecr = TS.Recent (latest peer TSval; 0 in our SYN)
 ```
 
-**M.2 — RTTM: Day 6 vs timestamps**
+**M.2 — RTTM: Doc 6 vs timestamps**
 
 ```text
-   aspect              Day 6 (queue)            timestamps
+   aspect              Doc 6 (queue)            timestamps
    ─────────────────   ──────────────────────   ─────────────────────────
    samples per RTT     1 (oldest unacked)        ~window size (per ACK)
    retransmits         no sample (Karn)          sample OK (TSecr disambiguates)
@@ -19468,7 +19468,7 @@ Q: What else do timestamps enable?  A: safe tcp_tw_reuse and RACK loss detection
 
 
 
-# Day 17 — TCP, Part 15: Window Scaling (the Other Half of RFC 7323)
+# Doc 17 — TCP, Part 15: Window Scaling (the Other Half of RFC 7323)
 
 > Goal: lift the 64 KB ceiling on the window. TCP's window field is only 16 bits, so without help a receiver
 > can advertise at most 65 535 bytes — and on a "long fat" path (high bandwidth × high latency) that caps
@@ -19564,7 +19564,7 @@ The subtle part: window scaling is **per-direction**. There are two independent 
 They need not be equal. A big-buffer server and a tiny embedded client can each pick the shift that suits
 their own receive buffer. So "enabling window scaling" is really "I learn the peer's shift for the data I
 send, and the peer learns my shift for the data it sends." This is the same per-direction asymmetry as the
-window itself (Day 8) and MSS (Day 15): each side advertises a property of *its own* receive path, and the
+window itself (Doc 8) and MSS (Doc 15): each side advertises a property of *its own* receive path, and the
 peer applies it when *sending*.
 
 ## 4. Widening `SND.WND` to `u32`
@@ -19579,7 +19579,7 @@ self.send.wnd = new_wnd;
 ```
 
 This is the last place a window lived in 16 bits. The receive window we *advertise* stays a `u16` field (it's
-16 bits on the wire by definition), and the duplicate-ACK "window unchanged" test (Day 14) now compares the
+16 bits on the wire by definition), and the duplicate-ACK "window unchanged" test (Doc 14) now compares the
 *scaled* values, so a pure window update is still distinguished from a real duplicate even when the window
 exceeds 64 KB. The widening is the day's one real type change, and it ripples exactly as far as the
 flow-control arithmetic — `usable_window` drops an old `as u32` cast because everything is `u32` now.
@@ -19604,9 +19604,9 @@ and advertising a real shift is a one-line exercise once the buffer grows (E1).
 - **The clamp.** `parse_options` clamps the peer's shift to `MAX_WSCALE = 14` (`data[0].min(MAX_WSCALE)`). A
   shift > 14 is illegal (RFC 7323 §2.3, §D) — a bug or attack — and clamping it (rather than rejecting the
   segment) is the defensive choice: we still negotiate, just at the legal maximum. This is the same
-  "validate/clamp values from the wire" discipline as the option-length checks (Day 15 §D).
+  "validate/clamp values from the wire" discipline as the option-length checks (Doc 15 §D).
 - **The shift is a no-op when not negotiated.** `snd_wscale` defaults to 0, so `W << 0 == W` — a
-  non-scaling connection takes the exact pre-Day-17 path, and every prior test passes untouched. Backward
+  non-scaling connection takes the exact pre-Doc-17 path, and every prior test passes untouched. Backward
   compatibility falls out of the identity `x << 0 = x`, with no conditional.
 - **`Option<u8>` for the parsed scale** distinguishes "no WS option" (`None` → don't enable) from "WS option
   with shift 0" (`Some(0)` → enable at shift 0), which matters for the both-sides negotiation.
@@ -19633,7 +19633,7 @@ reading of the field would allow — a 128× difference, all from one shift nego
   aligned, so the concatenation is too.
 - `accept` sets `snd_wscale` from the peer's SYN; `on_segment`'s SYN_SENT branch sets it from the SYN-ACK
   (active open).
-- ESTABLISHED left-shifts the incoming window into the now-`u32` `SND.WND`; the dup-ACK comparison (Day 14)
+- ESTABLISHED left-shifts the incoming window into the now-`u32` `SND.WND`; the dup-ACK comparison (Doc 14)
   uses the scaled values.
 - `usable_window` drops its old `as u32` cast — the math is `u32` throughout.
 
@@ -19663,13 +19663,13 @@ reading of the field would allow — a 128× difference, all from one shift nego
 - **No dynamic receive window / `rcv_wscale`.** We advertise shift 0 and a flat ~1 KB window, so we never
   *use* scaling in our receive direction — we only *honor* the peer's in our send direction. A real stack
   picks `rcv_wscale` from its (autotuned, large) receive buffer and emits `field = real_window >> rcv_wscale`
-  (Day 8 §I, exercise E1).
-- **PAWS is the silent prerequisite (Day 16).** A bigger window means more in-flight data means the 32-bit
+  (Doc 8 §I, exercise E1).
+- **PAWS is the silent prerequisite (Doc 16).** A bigger window means more in-flight data means the 32-bit
   sequence space wraps faster — so window scaling on a fast path is only *safe* because timestamps + PAWS
-  reject wrapped old duplicates (§E). We implemented PAWS first (Day 16) for exactly this reason.
+  reject wrapped old duplicates (§E). We implemented PAWS first (Doc 16) for exactly this reason.
 - **No window-scale-loss recovery.** If the SYN carrying the WS option is lost and retransmitted *without*
   it (some buggy stacks), scaling silently fails to negotiate. We always include it on retransmits (the whole
-  SYN is stored byte-for-byte, Day 12), which is correct; the hazard is a peer or middlebox that strips it
+  SYN is stored byte-for-byte, Doc 12), which is correct; the hazard is a peer or middlebox that strips it
   (§H).
 - **No middlebox-stripping detection.** If a middlebox strips our WS option from the SYN but not the
   SYN-ACK (or vice versa), the two ends disagree on whether scaling is active — a famous cause of *silent
@@ -19677,7 +19677,7 @@ reading of the field would allow — a 128× difference, all from one shift nego
 - **The cap and granularity.** We clamp to 14 and accept the resulting granularity (window steps of `2^S`);
   a real stack picks the *smallest* shift that covers its buffer to minimize granularity loss.
 
-None of these change the day-17 contract (we negotiate scaling and honor the peer's scaled window); they are
+None of these change the doc-17 contract (we negotiate scaling and honor the peer's scaled window); they are
 the receive-side dynamism and middlebox-robustness a production stack adds.
 
 ## 12. Rebuild it yourself — checklist + exercises
@@ -19695,7 +19695,7 @@ the receive-side dynamism and middlebox-robustness a production stack adds.
 - **E1.** Grow the receive buffer to, say, 256 KB and advertise a real `rcv_wscale`; scale the window we emit
   (`field = real_window >> rcv_wscale`) and add a test.
 - **E2.** Enforce RFC 7323 §2.2: ignore a Window Scale option that arrives on a non-SYN segment.
-- **E3.** Combine with Day 16: confirm a SYN-ACK carrying MSS + WS + TS parses correctly and the data offset
+- **E3.** Combine with Doc 16: confirm a SYN-ACK carrying MSS + WS + TS parses correctly and the data offset
   / checksum are right.
 - **E4.** Capture a real Linux SYN with `tcpdump -v` and verify `parse_options` reads its window scale
   alongside MSS, SACK-permitted, and timestamps.
@@ -19704,7 +19704,7 @@ the receive-side dynamism and middlebox-robustness a production stack adds.
 
 ## 13. What the next step adds
 
-Day 18 is the big one: **Selective Acknowledgment** (SACK, RFC 2018). Today a single lost segment forces the
+Doc 18 is the big one: **Selective Acknowledgment** (SACK, RFC 2018). Today a single lost segment forces the
 sender to retransmit *everything* after it on a timeout, because a cumulative ACK can only say "I have through
 byte N." SACK lets the receiver also say "…and I separately have bytes N+1000 to N+2000," so the sender
 retransmits only the genuine hole. It uses the option framework (a SACK-Permitted option in the SYN, SACK
@@ -19783,7 +19783,7 @@ the handshake; ours doesn't because the shift lives in the right place.
 
 The shift is capped at **14**, giving a maximum window of `65535 << 14 = 65535 × 16384 ≈ 1.07 GB`. Why 14 and
 not 15 or 16? The constraint is the **sequence-number arithmetic**. TCP's "is A before B?" comparison (RFC
-1982, Day 3) works by checking whether the wrapping difference lands in the *lower half* of the 32-bit space —
+1982, Doc 3) works by checking whether the wrapping difference lands in the *lower half* of the 32-bit space —
 i.e. it assumes the window is less than `2^31`. If the window could approach or exceed `2^31`, the modular
 comparisons that decide acceptability would become ambiguous (you couldn't tell "far ahead" from "far
 behind"). RFC 7323 §2.3 caps the maximum window at `2^30` (a full field `2^16 − 1` shifted by 14 is just under
@@ -19806,11 +19806,11 @@ miss: **scaling makes PAWS necessary.** The chain:
                      (wrapped) sequence number  →  silent corruption  →  PAWS required
 ```
 
-Day 16 §E quantified it: at 10 Gbit/s the sequence space wraps in ~3.4 s, well under the MSL, so a delayed
+Doc 16 §E quantified it: at 10 Gbit/s the sequence space wraps in ~3.4 s, well under the MSL, so a delayed
 duplicate can alias current data. A *large* window (which scaling enables) is exactly what pushes a connection
 into the high-throughput regime where this happens. So you cannot safely deploy window scaling on a fast path
-*without* PAWS to reject wrapped duplicates by timestamp. This is why the curriculum did timestamps (Day 16)
-*before* window scaling (Day 17): PAWS is the safety net that scaling's larger windows require. The two halves
+*without* PAWS to reject wrapped duplicates by timestamp. This is why the curriculum did timestamps (Doc 16)
+*before* window scaling (Doc 17): PAWS is the safety net that scaling's larger windows require. The two halves
 of RFC 7323 are not independent features bundled by accident — scaling unlocks the speed, PAWS makes that
 speed safe, and together they make TCP work on the modern internet.
 
@@ -19848,7 +19848,7 @@ data movers (before autotuning, §I, made it automatic).
    middlebox handling  heuristics for stripped options            trust the negotiation
 ```
 
-The big real-world feature we lack is **receive-window autotuning** (Day 8 §I): Linux starts with a modest
+The big real-world feature we lack is **receive-window autotuning** (Doc 8 §I): Linux starts with a modest
 window and grows it toward the measured BDP as the connection proves it can drain fast, choosing
 `rcv_wscale` to cover the target. This balances memory (don't allocate huge buffers for slow connections)
 against throughput (do allocate them for fast ones), per-connection, automatically — which is why "tuning the
@@ -19869,14 +19869,14 @@ server, wrong for a bulk receiver.
   (the SYN we store and retransmit always includes WS, which is correct on our end, but we can't detect the
   *peer's* option being stripped).
 - **Oversized-window resource pressure.** Honoring a huge scaled window means a sender may keep a huge amount
-  of data in flight / buffered for retransmission (Day 6's retx queue holds a window's worth) — a memory cost
+  of data in flight / buffered for retransmission (Doc 6's retx queue holds a window's worth) — a memory cost
   a malicious peer advertising a maximal window could try to inflate. Bounded send buffers defend; our small
   buffers make it moot.
 - **The shift-cap clamp as defense.** A peer advertising shift > 14 is trying to push the window toward `2^31`
   where sequence comparisons break (§D); clamping to 14 is a security measure, not just spec compliance —
   it keeps the modular arithmetic unambiguous regardless of what the peer claims.
 - **Fingerprinting.** The advertised window scale (and whether it's offered at all) is part of the OS
-  fingerprint (Day 15 §H) — our fixed shift-0 offer is identifiable.
+  fingerprint (Doc 15 §H) — our fixed shift-0 offer is identifiable.
 
 The theme: window scaling's semantic-overlay design (unchanged field, negotiated multiplier) is robust to
 *old* stacks (they ignore the option and don't scale) but fragile to *middleboxes that partially strip it* —
@@ -19893,7 +19893,7 @@ sequence-math attacks.
   memory cost — the production answer scaling makes possible (a window can only autotune *up* if it can
   exceed 64 KB).
 - **Bufferbloat interaction.** A large window lets a sender put a lot in flight; if routers have deep buffers
-  and congestion control is loss-based (Day 10), that data piles up in queues, inflating RTT for everyone.
+  and congestion control is loss-based (Doc 10), that data piles up in queues, inflating RTT for everyone.
   Window scaling alone doesn't cause bufferbloat (congestion control governs *how much* you actually send),
   but it removes the 64 KB cap that used to *accidentally* limit it. The real fixes are AQM (CoDel) and
   better congestion control (BBR), not a smaller window.
@@ -19944,7 +19944,7 @@ sequence-math attacks.
 22. **Does a non-scaling connection change?** No — `snd_wscale = 0`, `W << 0 = W`, byte-identical to before.
 23. **What's the throughput on an LFN with vs without scaling?** Up to ~150× (0.66% → 100% of a gigabit link)
     (§F).
-24. **What does the dup-ACK check compare now?** The *scaled* window values (Day 14), so updates aren't
+24. **What does the dup-ACK check compare now?** The *scaled* window values (Doc 14), so updates aren't
     miscounted.
 25. **Why is it the "last 16-bit window"?** `SND.WND` was the final window still pinned to `u16`; it's now
     `u32`.
@@ -19980,7 +19980,7 @@ Q: Why "the last 16-bit window"?  A: SND.WND was the final window pinned to u16;
 - **Receive-window autotuning** — growing the advertised window toward the BDP per connection.
 - **Option stripping** — a middlebox removing the WS option, breaking the negotiation.
 - **Shift cap (14)** — the maximum shift, keeping the window below `2^30` for sequence-math safety.
-- **PAWS** — the timestamp-based wrapped-duplicate defense that makes large windows safe (Day 16).
+- **PAWS** — the timestamp-based wrapped-duplicate defense that makes large windows safe (Doc 16).
 
 ## M. Reference tables
 
@@ -20013,12 +20013,12 @@ Q: Why "the last 16-bit window"?  A: SND.WND was the final window pinned to u16;
 ```
 
 > Re-type the window-scale negotiation and the `SND.WND` shift with the book closed, then `cargo test`. Your
-> stack can now fill a fast, far pipe — the last 16-bit window is gone, and (because Day 16 gave you PAWS)
+> stack can now fill a fast, far pipe — the last 16-bit window is gone, and (because Doc 16 gave you PAWS)
 > it's safe to do so.
 
 
 
-# Day 18 — TCP, Part 16: Selective Acknowledgment (SACK, RFC 2018)
+# Doc 18 — TCP, Part 16: Selective Acknowledgment (SACK, RFC 2018)
 
 > Goal: stop punishing a sender for *one* lost packet. With only the cumulative ACK, a receiver can
 > say no more than "I have everything through byte N" — so when segment 2 of a 10-segment burst is
@@ -20026,9 +20026,9 @@ Q: Why "the last 16-bit window"?  A: SND.WND was the final window pinned to u16;
 > data the receiver already holds. **Selective Acknowledgment** (RFC 2018) adds a second channel:
 > the receiver also reports the *islands* it has buffered above the hole ("…and I separately have
 > bytes N+1000 … N+9000"), so the sender retransmits **only the hole**. This is the payoff day of the
-> last several: it uses the **option framework** (Day 15) to negotiate and carry blocks, the
-> **reassembler's** buffered ranges (Day 9) to *generate* them, and the **retransmission queue**
-> (Day 12) to *act* on them.
+> last several: it uses the **option framework** (Doc 15) to negotiate and carry blocks, the
+> **reassembler's** buffered ranges (Doc 9) to *generate* them, and the **retransmission queue**
+> (Doc 12) to *act* on them.
 
 **Contents**
 
@@ -20087,10 +20087,10 @@ receiver gets segment 1, then segments 3 through 10. What can it say?
    cumulative ACK the receiver can send:  ack = 2000   (everything through 1999)
 ```
 
-The receiver buffers 3–10 (Day 9's reassembler), but its **cumulative ACK is stuck at 2000** — it
+The receiver buffers 3–10 (Doc 9's reassembler), but its **cumulative ACK is stuck at 2000** — it
 cannot advance past the hole at `[2000, 3000)`, no matter how much arrives behind it. Every segment
 that arrives after the hole produces *another* ACK 2000. To the sender these look like **duplicate
-ACKs**, and three of them trigger a fast retransmit of segment 2 (Day 10). Good so far.
+ACKs**, and three of them trigger a fast retransmit of segment 2 (Doc 10). Good so far.
 
 But now ask: **what happens on a retransmission timeout?** Before today, our `RetxQueue::due` resends
 *every* unacknowledged segment whose timer has elapsed — and after an RTO they all have. So the
@@ -20115,7 +20115,7 @@ deployed across the 1990s Internet without a flag day.
 RFC 2018 is two options that work together:
 
 - **SACK-Permitted (kind 4)** — a 2-byte flag sent **only in the SYN / SYN-ACK**. It means "I can
-  *process* SACK information." Like window scaling and timestamps (Days 16–17), it is **negotiated**:
+  *process* SACK information." Like window scaling and timestamps (Docs 16–17), it is **negotiated**:
   SACK is used on a connection only if **both** SYNs carried SACK-Permitted. If either side stays
   silent, the feature is off and we fall back to pure cumulative ACKs. This is the handshake-time
   capability exchange.
@@ -20208,7 +20208,7 @@ The TCP header length field (the data offset) is **4 bits**, counting 32-bit wor
 Every option you want on a segment competes for those 40 bytes. Let's do the arithmetic that pins
 down how many SACK blocks fit.
 
-Once a connection is established with **timestamps** (Day 16), *every* segment we send carries a
+Once a connection is established with **timestamps** (Doc 16), *every* segment we send carries a
 Timestamps option. With its two NOP pads that is **12 bytes**:
 
 ```text
@@ -20239,7 +20239,7 @@ they were meant to share 40 bytes, and three SACK blocks + timestamps is the exa
 
 ## 6. The receiver's job: generating blocks from the reassembler
 
-Here is the lovely part: we already built the data structure that knows the answer. The Day-9
+Here is the lovely part: we already built the data structure that knows the answer. The Doc-9
 **reassembler** buffers out-of-order fragments keyed by offset in a `BTreeMap`. The set of buffered
 ranges *is* the set of SACK blocks. We only need to read them out as absolute sequence ranges and
 coalesce neighbors:
@@ -20264,7 +20264,7 @@ pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
 Three things to notice:
 
 - **Offsets → absolute sequence numbers.** The reassembler stores `offset = seq − base` to keep
-  ordering wrap-free (Day 9). SACK blocks are *absolute* sequence numbers, so we add `base` back.
+  ordering wrap-free (Doc 9). SACK blocks are *absolute* sequence numbers, so we add `base` back.
 - **Coalescing.** Two fragments that happen to be adjacent (`prev.right == next.left`) are one
   contiguous run and become **one** block. This keeps the option compact — three blocks can describe
   three *holes*, not three fragments. Without coalescing, a burst that arrives as ten adjacent
@@ -20366,7 +20366,7 @@ advance. (If the peer *reneges* — drops data it once SACKed — a production s
 ## 8. Modular sequence math for block coverage
 
 Sequence numbers wrap at 2³², so "≤" can't be a plain integer compare — `4_000_000_000 ≤ 5` is true
-on the wrapping circle. We reuse Day 3's serial-number helpers (`src/seq.rs`, RFC 1982):
+on the wrapping circle. We reuse Doc 3's serial-number helpers (`src/seq.rs`, RFC 1982):
 
 - `seq::before(a, b)` — `a` is strictly before `b` (the wrapping difference `a − b` lands in the
   upper half).
@@ -20943,7 +20943,7 @@ structures it feeds.
   bandwidth-delay-product path that is the difference between a ~1.5 KB retransmission and a 10 MB
   one — and, because each spurious retransmit is also read as congestion, SACK additionally avoids an
   unnecessary `cwnd` collapse. The benefit grows with the BDP, which is exactly why SACK matters most
-  on the long-fat networks window scaling (Day 17) unlocked.
+  on the long-fat networks window scaling (Doc 17) unlocked.
 - **The cost** is small: a few bytes of options per ACK while a hole is open (we pay nothing when
   there's no hole), an O(buffered-fragments) scan to build blocks, and an O(segments × blocks) scan
   to mark the scoreboard. Both scans are over structures bounded by the window. There is no extra
@@ -21106,7 +21106,7 @@ Q: What was "SACK Panic" (2019)?  A: crafted SACKs overflowed Linux retransmit-q
 
 
 
-# Day 19 — TCP, Part 17: Finishing the State Machine — Half-Close (CLOSE_WAIT) + RFC 5961
+# Doc 19 — TCP, Part 17: Finishing the State Machine — Half-Close (CLOSE_WAIT) + RFC 5961
 
 > Goal: make the teardown *correct*, and make the connection *hard to kill*. Two jobs that sound
 > unrelated but are the same job — closing the gap between "passes our happy-path tests" and "is a
@@ -21231,14 +21231,14 @@ genuinely separate events:
 Two roles, and which you play depends only on **who sends the first FIN**:
 
 - The **active closer** sends FIN first. It traverses `FIN_WAIT_1 → FIN_WAIT_2 → TIME_WAIT → CLOSED`
-  and is the one that pays the 2·MSL TIME_WAIT cost (Day 7). In our stack, the HTTP path is the
+  and is the one that pays the 2·MSL TIME_WAIT cost (Doc 7). In our stack, the HTTP path is the
   active closer: after writing `200 OK` it calls `close()` itself.
 - The **passive closer** receives the first FIN. It traverses `CLOSE_WAIT → LAST_ACK → CLOSED` and
   **never enters TIME_WAIT**. In our stack, the echo path is the passive closer: the user closes
   `nc`, we get the FIN.
 
 The fourth case is **simultaneous close** (both sides send FIN before receiving the other's):
-`FIN_WAIT_1 → CLOSING → TIME_WAIT`. We've supported that since Day 7; it is untouched today.
+`FIN_WAIT_1 → CLOSING → TIME_WAIT`. We've supported that since Doc 7; it is untouched today.
 
 The crucial asymmetry: the active closer's middle states (`FIN_WAIT_1/2`) are driven by the
 *network* — it's waiting for the peer's ACK and FIN to arrive. The passive closer's middle state
@@ -21356,14 +21356,14 @@ Here is our complete connection lifecycle as of today. Boxes are `State` variant
                                                               CLOSED
 ```
 
-The two new edges Day 19 adds are the split of the old single arrow `ESTABLISHED ──FIN──▶ LAST_ACK`
+The two new edges Doc 19 adds are the split of the old single arrow `ESTABLISHED ──FIN──▶ LAST_ACK`
 into `ESTABLISHED ──recv FIN──▶ CLOSE_WAIT ──app close()──▶ LAST_ACK`. Everything else was already
 there. (And every *synchronized* box — ESTABLISHED through TIME_WAIT — now also has the invisible
 self-edges "recv bad RST / challenge or drop" and "recv SYN / challenge," from RFC 5961.)
 
 ## 5. The FIN is a sequence-consuming control bit (the +1, again)
 
-We met this with SYN on Day 3: a control flag that carries no data nonetheless **occupies one
+We met this with SYN on Doc 3: a control flag that carries no data nonetheless **occupies one
 sequence number**, so that its delivery is reliable in exactly the same way data is. FIN is the
 other such bit.
 
@@ -21464,7 +21464,7 @@ returns `0`. Our stack exposes that with one accessor:
 pub fn peer_closed(&self) -> bool { self.peer_fin }
 ```
 
-A future blocking `TcpStream::read` (the day11-book §11 exercise) returns `Ok(0)` exactly when
+A future blocking `TcpStream::read` (the doc11-book §11 exercise) returns `Ok(0)` exactly when
 `peer_closed()` is true and the receive buffer is drained — the canonical Rust EOF. Our `main`
 doesn't need the accessor because its "application" is hard-coded: the echo policy is *"once the peer
 closes and my send buffer is empty, I have nothing more to say, so close."* That's
@@ -21491,7 +21491,7 @@ Here is the arithmetic that makes the attack practical:
 
 ```text
    sequence space:      2^32 = 4,294,967,296 values
-   a generous window:   W = 65,535 (or far larger with window scaling, Day 17)
+   a generous window:   W = 65,535 (or far larger with window scaling, Doc 17)
    guesses to land one packet in window:   2^32 / W ≈ 65,536
 ```
 
@@ -21697,7 +21697,7 @@ derives `PartialEq`, so `== Some(x)` just works.
 nothing. `on_rst` takes `&mut self` because it may transition to `Closed`. The borrow checker turns
 this design intent into a compile-time fact: a `&self` method *cannot* accidentally mutate the TCB,
 so when reading `challenge_ack` you know with certainty it has no side effects on the connection.
-That's the same discipline that let `segment()` stay `&self` since Day 3 — building a packet reads
+That's the same discipline that let `segment()` stay `&self` since Doc 3 — building a packet reads
 the connection but must never alter it.
 
 **`matches!` for a set membership test.** `is_synchronized` could be a chain of `||`, but
@@ -21918,7 +21918,7 @@ In the spirit of every chapter — here is the gap between our correct *core* an
 - **RFC 5961 §5 (blind data injection) is only partial.** We tightened *RST* and *SYN*; we did **not**
   tighten *data/ACK* acceptance to RFC 5961 §5's stricter ACK window
   (`SND.UNA − MAX.SND.WND ≤ SEG.ACK ≤ SND.NXT`) with a challenge ACK on violation. We still use the
-  Day 8 `between(SND.UNA, ACK, SND.NXT)` acceptance, which is RFC 793-grade. An attacker who can also
+  Doc 8 `between(SND.UNA, ACK, SND.NXT)` acceptance, which is RFC 793-grade. An attacker who can also
   guess the ACK number could still attempt blind data injection. (Exercise E4.)
 - **No challenge-ACK rate limiting.** RFC 5961 §3 recommends throttling challenge ACKs; doing it with
   a *shared, non-random* counter created CVE-2016-5696 (§D). We emit one per trigger, unlimited.
@@ -21929,12 +21929,12 @@ In the spirit of every chapter — here is the gap between our correct *core* an
   `tcp_fin_timeout`.)
 - **Half-close is mechanism-only.** We *support* sending after the peer's FIN, but our `main`'s
   application is a hard-coded echo that never wants to. There's no `shutdown(SHUT_WR)` API yet, no way
-  for a program to half-close on purpose. That's the `TcpStream` veneer (day11-book §11).
+  for a program to half-close on purpose. That's the `TcpStream` veneer (doc11-book §11).
 - **No `LISTEN` state.** A passively-opened connection that receives a RST in SYN_RCVD goes straight
   to `Closed` (we delete the TCB); a stack with a real listener returns to `LISTEN` to accept the
   next SYN.
 - **RST generation is still minimal.** We send a polite RST for segments to *unknown* connections
-  (Day 4's `build_rst`), but we don't, e.g., RST a connection whose app aborted; we only ever close
+  (Doc 4's `build_rst`), but we don't, e.g., RST a connection whose app aborted; we only ever close
   gracefully with FIN.
 - **No simultaneous-open, no data on SYN (TFO).** Out of scope, as before.
 
@@ -21985,11 +21985,11 @@ arithmetic and the three RST cases; those are the two things people misremember.
 ## 21. What the next day adds
 
 The state machine is correct; the obvious next reach is **modern congestion control** — upgrading our
-RFC 5681 Reno (Day 10) to **NewReno** (RFC 6582), so a *single* fast-recovery episode survives
+RFC 5681 Reno (Doc 10) to **NewReno** (RFC 6582), so a *single* fast-recovery episode survives
 *multiple* losses in one window via partial-ACK handling, instead of collapsing. After that, the
 **RFC 6675 SACK scoreboard** (the `pipe` estimator that keeps a fast link full *during* recovery) is
-the natural partner to Day 18's selective ACKs — together they're how a real connection sustains
-throughput across loss. Alternatively, the **`TcpListener`/`TcpStream` blocking veneer** (day11-book
+the natural partner to Doc 18's selective ACKs — together they're how a real connection sustains
+throughput across loss. Alternatively, the **`TcpListener`/`TcpStream` blocking veneer** (doc11-book
 §11) turns everything we've built into an API a program can actually call — and is where the
 half-close *mechanism* from today finally gets an application that uses it on purpose.
 
@@ -22042,7 +22042,7 @@ SYN):
    ESTABLISHED    ✓             data transfer
    FIN_WAIT_1     ✓             active close, FIN sent, awaiting ACK/FIN
    FIN_WAIT_2     ✓             active close, our FIN acked, awaiting peer FIN
-   CLOSE_WAIT     ✓ (Day 19)    passive close, peer FIN acked, app to close
+   CLOSE_WAIT     ✓ (Doc 19)    passive close, peer FIN acked, app to close
    CLOSING        ✓             simultaneous close
    LAST_ACK       ✓             passive close, our FIN sent, awaiting ACK
    TIME_WAIT      ✓             active close complete, 2·MSL linger
@@ -22113,7 +22113,7 @@ the acceptable ACK window could inject data. RFC 5961 §5 tightens the *ACK* acc
 
 The §5 window is deliberately *wider on the low side* (it tolerates old duplicate ACKs) but bounded,
 and crucially it pairs with a challenge ACK so an out-of-bounds ACK can't be used as a probe. We
-implement §3 and §4; §5 is exercise E4 (we currently use the RFC 793 acceptance from Day 8).
+implement §3 and §4; §5 is exercise E4 (we currently use the RFC 793 acceptance from Doc 8).
 
 A summary table:
 
@@ -22198,9 +22198,9 @@ concern; our `Connection` is the single owner.
 ## G. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                 Linux               FreeBSD            lwIP              smoltcp        ours (Day 19)
+   aspect                 Linux               FreeBSD            lwIP              smoltcp        ours (Doc 19)
    ────────────────────   ─────────────────   ────────────────   ───────────────   ────────────   ─────────────────
-   CLOSE_WAIT             full, leak-prone    full               full              full           full (Day 19)
+   CLOSE_WAIT             full, leak-prone    full               full              full           full (Doc 19)
    CLOSE_WAIT timeout     app/keepalive       app/keepalive      poll interval     configurable   none (E2)
    half-close API         shutdown()          shutdown()         tcp_shutdown()    .close()/abort no API yet (E1)
    RFC 5961 RST           yes (exact)         yes                yes (recent)      yes            yes
@@ -22419,9 +22419,9 @@ Q: recv()==0 means?  A: the peer sent its FIN — EOF.
 
 
 
-# Day 20 — TCP, Part 18: NewReno — Recovering From *Multiple* Losses in One Window (RFC 6582)
+# Doc 20 — TCP, Part 18: NewReno — Recovering From *Multiple* Losses in One Window (RFC 6582)
 
-> Goal: fix the one place our congestion control quietly falls off a cliff. Day 10 gave us RFC 5681
+> Goal: fix the one place our congestion control quietly falls off a cliff. Doc 10 gave us RFC 5681
 > Reno — slow start, congestion avoidance, fast retransmit, fast recovery. It recovers beautifully
 > from a *single* lost segment without an RTO. But drop **two** segments in the same window and Reno
 > recovers the first, declares victory on the very next ACK, deflates its window, and then has to
@@ -22435,7 +22435,7 @@ Q: recv()==0 means?  A: the peer sent its FIN — EOF.
 > another is still missing, so retransmit the next hole *immediately* and stay in recovery. Repeat
 > until the window is whole. No timeout, no stall, one new state variable.
 >
-> This is the natural partner to Day 18's SACK: SACK tells us *which* islands the receiver has;
+> This is the natural partner to Doc 18's SACK: SACK tells us *which* islands the receiver has;
 > NewReno is how a sender *without* SACK still escapes the multiple-loss trap using nothing but the
 > cumulative ACK. Tomorrow (RFC 6675) we wire SACK into loss recovery proper; today we make the
 > SACK-less path correct first, because every real stack keeps it as the fallback.
@@ -22478,7 +22478,7 @@ Volume II — the exhaustive reference
 
 ## 1. The mental model: one hole vs several in a window
 
-Recall the shape of fast retransmit/recovery from Day 10. A sender has a window of segments in
+Recall the shape of fast retransmit/recovery from Doc 10. A sender has a window of segments in
 flight. One is lost. Every segment that arrives *after* the hole makes the receiver re-send the same
 cumulative ACK (it can't advance past the gap). Three of those **duplicate ACKs** are the sender's
 cue that a segment is lost — without waiting for the retransmission timer — so it retransmits the
@@ -22501,7 +22501,7 @@ acknowledges *new* data (S2–S4), so it is **not** a duplicate ACK. It's a real
 
 ## 2. Reno's flaw, watched in slow motion
 
-Plain RFC 5681 Reno (our Day 10 code) has exactly one rule for "a new ACK arrives during fast
+Plain RFC 5681 Reno (our Doc 10 code) has exactly one rule for "a new ACK arrives during fast
 recovery": *recovery is over.* Re-read the old congestion code:
 
 ```rust
@@ -22572,7 +22572,7 @@ if self.cong.in_recovery() && seq::before(th.ack, self.recover) {
 
 `seq::before(th.ack, self.recover)` is "`SEG.ACK` is strictly behind `recover` on the wrapping
 32-bit circle." Its negation, the `else`, is `SEG.ACK ≥ recover` — the full ACK. We deliberately let
-the full ACK fall into `on_ack`, whose existing in-recovery branch (unchanged from Day 10) deflates
+the full ACK fall into `on_ack`, whose existing in-recovery branch (unchanged from Doc 10) deflates
 to `ssthresh` and clears `in_recovery`. So we reused Reno's *exit* and only added the *partial-ACK*
 path. Minimal surface, maximal reuse.
 
@@ -22643,7 +22643,7 @@ collapse. `dup_acks = 0` because a partial ACK is a *real* (forward-moving) ACK,
 ## 7. Where the logic lives: byte-oriented module, sequence-aware connection
 
 A design note worth dwelling on, because it's why today's change is so small. Our `CongestionControl`
-(Day 10) was deliberately built to know *nothing* about sequence numbers — it takes byte counts
+(Doc 10) was deliberately built to know *nothing* about sequence numbers — it takes byte counts
 (`on_ack(acked)`, `on_dup_ack(flight_size)`, `on_timeout(flight_size)`) and returns cwnd. That made
 it trivially unit-testable in isolation (its tests are pure arithmetic, no packets).
 
@@ -22764,7 +22764,7 @@ if self.cong.in_recovery() && seq::before(th.ack, self.recover) {
 }
 ```
 
-`retx.fast_retransmit` (Day 12/18) already resends "the oldest segment the peer hasn't SACKed" and
+`retx.fast_retransmit` (Doc 12/18) already resends "the oldest segment the peer hasn't SACKed" and
 resets its timer — which, after `SND.UNA` has advanced over the just-acked data, is exactly the next
 hole. NewReno didn't need a new retransmission primitive; it only needed to *call* the existing one
 on a partial ACK.
@@ -22790,7 +22790,7 @@ full recovery through the connection.
 
 ## 12. Why this, not that
 
-**Why NewReno and not "just enable SACK"?** SACK (Day 18) is negotiated — both ends must support it.
+**Why NewReno and not "just enable SACK"?** SACK (Doc 18) is negotiated — both ends must support it.
 NewReno needs *nothing* from the peer; it works with the bare cumulative ACK every TCP speaks. It's
 the universal fallback, which is why every stack ships it even alongside SACK. (Tomorrow's RFC 6675
 is the SACK-aware recovery that supersedes NewReno *when SACK is on*.)
@@ -22821,7 +22821,7 @@ multi-loss recovery.
   made that fallback correct.
 - **Simplified exit.** RFC 6582 §3 step 5 sets `cwnd = min(ssthresh, max(FlightSize, MSS) + MSS)` on
   the full ACK; we deflate to `ssthresh`. The difference matters only at the margins of a drained
-  pipe; our simplification matches our Day 10 Reno exit and keeps one code path.
+  pipe; our simplification matches our Doc 10 Reno exit and keeps one code path.
 - **No "careful" NewReno / `recover` entry guard.** RFC 6582 §4 adds a guard so that dup ACKs for
   data already past `recover` (e.g. after an RTO) don't spuriously *re-enter* fast recovery for the
   same window. We rely on the `in_recovery` flag + dup-ACK reset, which handles the common cases; the
@@ -22832,8 +22832,8 @@ multi-loss recovery.
   is a natural later exercise.
 - **No ECN.** Explicit Congestion Notification lets routers *mark* instead of *drop*, signalling
   congestion without loss. We react only to loss (dup ACKs / RTO).
-- **The echo server never bulk-sends**, so cwnd rarely binds in practice — as noted since Day 10. The
-  machinery is real and tested; a bulk sender (the Day 22 socket API) is what exercises it on the
+- **The echo server never bulk-sends**, so cwnd rarely binds in practice — as noted since Doc 10. The
+  machinery is real and tested; a bulk sender (the Doc 22 socket API) is what exercises it on the
   wire.
 
 ## 14. Rebuild it yourself — checklist + exercises
@@ -22856,7 +22856,7 @@ multi-loss recovery.
    the cumulative ACK is beyond the previous `recover`. Construct a post-RTO scenario where stale dup
    ACKs would otherwise re-trigger recovery, and show the guard prevents it.
 3. **E3 — measure it.** With the live stack and `tc qdisc … netem loss 5%`, run a bulk transfer
-   (needs the Day 22 socket API) and compare completion time with the partial-ACK branch enabled vs
+   (needs the Doc 22 socket API) and compare completion time with the partial-ACK branch enabled vs
    stubbed out (force Reno). Watch the RTO stalls disappear.
 4. **E4 — CUBIC.** Replace the congestion-avoidance growth with CUBIC's cubic function of time since
    the last loss; keep NewReno's recovery. Compare ramp-up on a high-BDP `netem delay 100ms` link.
@@ -22870,7 +22870,7 @@ the two ideas that *are* NewReno.
 ## 15. What the next day adds
 
 Tomorrow is **RFC 6675**: SACK-based loss recovery. Where NewReno repairs one hole per RTT using only
-the cumulative ACK, RFC 6675 uses Day 18's SACK scoreboard to know *every* hole at once, plus a
+the cumulative ACK, RFC 6675 uses Doc 18's SACK scoreboard to know *every* hole at once, plus a
 `pipe` estimator (bytes actually in flight) so the sender can keep transmitting *new* data during
 recovery instead of going quiet. It's the difference between "limp out of loss one segment at a time"
 and "repair everything and stay at line rate." NewReno is the floor; 6675 is the ceiling — and today
@@ -22947,9 +22947,9 @@ the final cwnd `= 2·MSS`.
    algorithm   year   loss recovery                                    what it added
    ─────────   ────   ──────────────────────────────────────────────  ─────────────────────────────
    Tahoe       1988   any loss → slow-start restart (cwnd→1)           slow start, AIMD, fast retransmit
-   Reno        1990   1 loss → fast recovery (no RTO); 2+ → RTO        fast recovery (Day 10)
+   Reno        1990   1 loss → fast recovery (no RTO); 2+ → RTO        fast recovery (Doc 10)
    NewReno     1999   2+ losses → partial ACKs, 1 hole/RTT, no RTO     the recover variable (TODAY)
-   SACK/6675   2012   all holes known; pipe keeps sending new data     SACK scoreboard + pipe (Day 21)
+   SACK/6675   2012   all holes known; pipe keeps sending new data     SACK scoreboard + pipe (Doc 21)
    CUBIC       2008   loss-based, cubic cwnd growth (high BDP)         time-based growth curve
    BBR         2016   model-based (bottleneck bw × RTT), not loss      probes bandwidth/RTT, ignores loss
 ```
@@ -22975,7 +22975,7 @@ RFC 6582 discusses two subtleties beyond the core:
 ## F. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                Linux             FreeBSD          lwIP             smoltcp        ours (Day 20)
+   aspect                Linux             FreeBSD          lwIP             smoltcp        ours (Doc 20)
    ───────────────────   ───────────────   ──────────────   ──────────────   ───────────    ──────────────
    default CC            CUBIC             CUBIC/NewReno    NewReno-ish      Reno/NewReno   NewReno (this day)
    NewReno partial ACK   yes               yes              yes              yes            yes
@@ -23033,7 +23033,7 @@ knowing all holes up front and pacing new data by the `pipe` estimate — tomorr
     i.e. the next hole — via the existing `fast_retransmit`.
 12. **Did NewReno need a new retransmission primitive?** No — `fast_retransmit` already resends the
     oldest non-SACKed segment and resets its timer.
-13. **How does NewReno interact with SACK today?** `fast_retransmit` skips SACKed ranges (Day 18), so
+13. **How does NewReno interact with SACK today?** `fast_retransmit` skips SACKed ranges (Doc 18), so
     on a partial ACK it naturally resends a genuine hole. Tomorrow's 6675 makes SACK the primary
     driver.
 14. **What if `fast_retransmit` returns None on a partial ACK?** Nothing to resend; we deflated cwnd
@@ -23045,7 +23045,7 @@ knowing all holes up front and pacing new data by the `pipe` estimate — tomorr
 18. **Does NewReno change the dup-ACK threshold?** No — still 3 (RFC 5681).
 19. **Does it change slow start / congestion avoidance?** No — only the in-recovery ACK handling.
 20. **What about an RTO during NewReno recovery?** `on_timeout` collapses cwnd to 1·MSS and clears
-    `in_recovery` (Day 10), same as always — NewReno is about *avoiding* that RTO, not changing it.
+    `in_recovery` (Doc 10), same as always — NewReno is about *avoiding* that RTO, not changing it.
 21. **Why `saturating_sub`/`max(MSS)`?** To keep cwnd a sane `u32` ≥ one segment under any ACK.
 22. **How is this tested without a network?** Two congestion-unit tests (arithmetic) + one connection
     test that drives a real two-loss recovery and asserts the retransmission sequence numbers.
@@ -23147,11 +23147,11 @@ Q: Default Linux CC today?  A: CUBIC (NewReno is the conformance baseline).
 
 
 
-# Day 21 — TCP, Part 19: SACK-Based Loss Recovery — `pipe`, `IsLost`, `NextSeg` (RFC 6675)
+# Doc 21 — TCP, Part 19: SACK-Based Loss Recovery — `pipe`, `IsLost`, `NextSeg` (RFC 6675)
 
-> Goal: turn Day 18's selective acknowledgements from a *retransmission hint* into a full
-> *loss-recovery engine*. SACK (Day 18) lets the receiver tell us exactly which islands it holds
-> above a hole; NewReno (Day 20) recovers from multiple losses but only *one hole per round trip* and
+> Goal: turn Doc 18's selective acknowledgements from a *retransmission hint* into a full
+> *loss-recovery engine*. SACK (Doc 18) lets the receiver tell us exactly which islands it holds
+> above a hole; NewReno (Doc 20) recovers from multiple losses but only *one hole per round trip* and
 > goes nearly silent while it does. RFC 6675 ("A Conservative Loss Recovery Algorithm Based on SACK")
 > uses the SACK scoreboard to do far better: infer **every** lost segment at once (`IsLost`),
 > estimate the bytes genuinely in flight (`pipe`), and then — gated by `pipe < cwnd` — retransmit
@@ -23159,8 +23159,8 @@ Q: Default Linux CC today?  A: CUBIC (NewReno is the conformance baseline).
 > loses three segments is repaired in a single round trip instead of three, and the pipe never
 > drains.
 >
-> This is the capstone of the reliability arc that began on Day 6: retransmission queue (Day 12),
-> reassembly (Day 9), congestion control (Day 10), SACK blocks (Day 18), NewReno (Day 20), and now
+> This is the capstone of the reliability arc that began on Doc 6: retransmission queue (Doc 12),
+> reassembly (Doc 9), congestion control (Doc 10), SACK blocks (Doc 18), NewReno (Doc 20), and now
 > the algorithm that ties the scoreboard to the congestion window. We keep NewReno as the fallback
 > for peers that don't speak SACK; RFC 6675 is what runs when they do — which, on today's internet,
 > is almost always.
@@ -23227,7 +23227,7 @@ recovery.
 
 ## 2. Why NewReno still under-performs, concretely
 
-NewReno (Day 20) fixed the *correctness* of multiple-loss recovery — no more RTO stalls — but not its
+NewReno (Doc 20) fixed the *correctness* of multiple-loss recovery — no more RTO stalls — but not its
 *speed*. It learns about holes through the **cumulative** ACK, which can only reveal the *next* hole
 after the *previous* one is filled:
 
@@ -23261,8 +23261,8 @@ RFC 6675 is built from three pure functions over the retransmission queue + the 
 - **`NextSeg()`** — "what do I send next?" The next lost hole to retransmit; or, when no holes remain,
   new data.
 
-In our code these are methods on `RetxQueue` (which already tracks `sacked` per segment from Day 18,
-and `retries` from Day 12), plus a driver in `Connection::poll_transmit`. Let's take them in turn.
+In our code these are methods on `RetxQueue` (which already tracks `sacked` per segment from Doc 18,
+and `retries` from Doc 12), plus a driver in `Connection::poll_transmit`. Let's take them in turn.
 
 ## 4. `IsLost` — inferring loss from the scoreboard
 
@@ -23385,7 +23385,7 @@ window, not coalesce.
 
 ## 8. Where it lives: the queue computes, the connection paces
 
-The same separation-of-concerns that made Day 20 small applies again:
+The same separation-of-concerns that made Doc 20 small applies again:
 
 ```text
    ┌────────────────────────────────────────────┐    ┌──────────────────────────────────────┐
@@ -23417,7 +23417,7 @@ refactor that reorders the queue knows to revisit it.
 **`wrapping_sub` for lengths, `seq::after` for comparisons.** `s.end_seq − s.start_seq` uses
 `wrapping_sub` so a segment that straddles the 32-bit wrap still yields its true length; "is this
 SACKed segment above that one?" uses the modular `seq::after`, not `>`. Every sequence comparison in
-the file goes through `seq::` for exactly this reason (Day 3).
+the file goes through `seq::` for exactly this reason (Doc 3).
 
 ## 10. A fully worked three-loss trace — NewReno vs 6675
 
@@ -23452,7 +23452,7 @@ The feature is three `RetxQueue` methods, one `poll_transmit` branch, and one co
 scoreboard analogue of three duplicate ACKs.
 
 **The queue primitives** (`src/tcp.rs`, on `RetxQueue`): `is_lost` (private), `pipe`,
-`next_lost_retransmit` — §§4–6. They read `sacked` (Day 18) and `retries` (Day 12); no new per-segment
+`next_lost_retransmit` — §§4–6. They read `sacked` (Doc 18) and `retries` (Doc 12); no new per-segment
 state was needed.
 
 **The pacing** (`src/tcp.rs`, in `poll_transmit`): the `sack_ok && in_recovery()` branch of §7,
@@ -23460,12 +23460,12 @@ placed *before* the ordinary `usable_window`/Nagle path so it intercepts recover
 steady-state sending (and the whole non-SACK NewReno world) untouched.
 
 **Entry is unchanged.** We still enter recovery via the third duplicate ACK (`on_dup_ack`), which
-sets `recover` (Day 20) and fast-retransmits the first hole. RFC 6675 then takes over the *rest* of
-the retransmissions through `poll_transmit`. The SACK marking (`mark_sacked`, Day 18) already happens
+sets `recover` (Doc 20) and fast-retransmits the first hole. RFC 6675 then takes over the *rest* of
+the retransmissions through `poll_transmit`. The SACK marking (`mark_sacked`, Doc 18) already happens
 on every ACK, so the scoreboard is current before the loop reads it.
 
 **Fallback is automatic.** When `sack_ok` is false, the `poll_transmit` branch is skipped entirely
-and NewReno (Day 20) handles recovery through the cumulative ACK. One stack, two recovery engines,
+and NewReno (Doc 20) handles recovery through the cumulative ACK. One stack, two recovery engines,
 selected by whether the peer offered SACK in its SYN.
 
 ## 12. Verification — the three new tests, and why each exists
@@ -23523,7 +23523,7 @@ allows." (§7.)
   our queue, but a larger stack tracks them explicitly for the corner cases.
 - **No reneging handling.** If a receiver *discards* data it previously SACKed (legal but rare under
   memory pressure), a real stack must clear the scoreboard and fall back to cumulative recovery (RFC
-  6675 §5.1). We keep SACK state across RTOs (Day 18) and don't detect reneging.
+  6675 §5.1). We keep SACK state across RTOs (Doc 18) and don't detect reneging.
 - **No DSACK (RFC 2883) feedback into recovery.** DSACK reports *duplicate* receipt, letting a sender
   detect a *spurious* retransmit and undo its congestion reaction. We parse SACK blocks but don't act
   on duplicate ones.
@@ -23531,7 +23531,7 @@ allows." (§7.)
   octet; a partially-SACKed segment isn't split. Fine for our one-segment-per-record queue; a
   byte-granular scoreboard is what large stacks keep.
 - **The echo server never bulk-sends**, so this engine, like cwnd, rarely binds in the live binary —
-  it's exercised by the unit tests and would bind under the Day 22 socket API doing a real transfer.
+  it's exercised by the unit tests and would bind under the Doc 22 socket API doing a real transfer.
 
 None of these are wrong in what we built; they're the next refinements. Our `pipe`/`IsLost`/`NextSeg`
 core is faithful RFC 6675 for the common multi-loss case.
@@ -23563,7 +23563,7 @@ core is faithful RFC 6675 for the common multi-loss case.
    tail loss. Test a scenario where the *last* two segments are lost.
 4. **E4 — reneging.** Simulate a receiver that SACKs `[a,b)` then later cumulatively ACKs *below* `a`
    while un-SACKing it; detect the inconsistency and clear `sacked` flags (RFC 6675 §5.1).
-5. **E5 — measure it.** Under `tc qdisc … netem loss 8%`, run a bulk transfer (Day 22 socket API)
+5. **E5 — measure it.** Under `tc qdisc … netem loss 8%`, run a bulk transfer (Doc 22 socket API)
    with SACK on vs off (force NewReno) and compare completion time and the retransmission timeline in
    `tcpdump`.
 
@@ -23573,10 +23573,10 @@ ideas that *are* RFC 6675.
 ## 16. What the next day adds
 
 Tomorrow we finally give all of this an **application to drive it**: a blocking `TcpListener` /
-`TcpStream` façade over the event loop (the day11-book §11 exercise), plus **outgoing segmentation**
+`TcpStream` façade over the event loop (the doc11-book §11 exercise), plus **outgoing segmentation**
 below one delivered run and **multi-request / keep-alive HTTP** with full header buffering. Until now
 our "application" has been a hard-coded echo that never bulk-sends, so cwnd, NewReno, and the `pipe`
-estimator have been exercised only by tests. Day 22 builds the API a real program calls — at which
+estimator have been exercised only by tests. Doc 22 builds the API a real program calls — at which
 point a single `stream.write_all(big_buffer)` finally puts this whole reliability stack under genuine
 load.
 
@@ -23595,19 +23595,19 @@ and routines, mapped to our code:
    HighACK              highest cumulatively ACKed sequence       SND.UNA
    HighData             highest sequence transmitted              SND.NXT
    HighRxt              highest sequence retransmitted             (per-segment retries > 0)
-   RecoveryPoint        SND.NXT at recovery start                  recover (Day 20)
-   the scoreboard       per-range SACK state                      Unacked.sacked (Day 18)
+   RecoveryPoint        SND.NXT at recovery start                  recover (Doc 20)
+   the scoreboard       per-range SACK state                      Unacked.sacked (Doc 18)
    IsLost(SeqNum)       loss inference                            RetxQueue::is_lost
    SetPipe()/Pipe       bytes in flight                           RetxQueue::pipe
    NextSeg()            what to (re)transmit next                 next_lost_retransmit (+ new data)
-   Update()             ingest a SACK block                       mark_sacked (Day 18)
+   Update()             ingest a SACK block                       mark_sacked (Doc 18)
 ```
 
 The control flow on each ACK during recovery (RFC 6675 §5, simplified to what we implement):
 
 ```text
    1. Update() the scoreboard from the SACK blocks.                  (mark_sacked, on every ACK)
-   2. If a full ACK (cum ≥ RecoveryPoint): exit recovery.            (on_ack, Day 20)
+   2. If a full ACK (cum ≥ RecoveryPoint): exit recovery.            (on_ack, Doc 20)
    3. Else SetPipe(); while (pipe < cwnd):                           (poll_transmit loop)
         a. (re)transmit NextSeg();                                   (next_lost_retransmit / new data)
         b. pipe += the bytes just sent.
@@ -23698,13 +23698,13 @@ follow-ons and noted here so the gap is explicit.
 RFC 6675 is the SACK-era standard our stack now implements. The modern frontier is **RACK-TLP** (RFC
 8985), which replaces the *count*-based DupThresh with a *time*-based test ("a segment is lost if a
 segment sent later has been ACKed and enough time has passed"), eliminating the reordering
-sensitivity and handling tail loss with a Tail Loss Probe. RACK builds directly on our Day 16
-timestamps + Day 18 SACK; it's the natural successor day.
+sensitivity and handling tail loss with a Tail Loss Probe. RACK builds directly on our Doc 16
+timestamps + Doc 18 SACK; it's the natural successor day.
 
 ## G. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                Linux             FreeBSD         lwIP            smoltcp       ours (Day 21)
+   aspect                Linux             FreeBSD         lwIP            smoltcp       ours (Doc 21)
    ───────────────────   ───────────────   ─────────────   ─────────────   ───────────   ──────────────
    SACK recovery         RACK-TLP (6675+)  6675 + RACK     basic/none      6675-ish      6675 core
    pipe estimator        yes               yes             no              yes           yes
@@ -23764,9 +23764,9 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
    ACK.
 10. **How do we enter recovery?** Still via three duplicate ACKs (`on_dup_ack`) — SACK rides on those
     dup ACKs. 6675 then drives the rest of the retransmissions.
-11. **Where does the scoreboard come from?** `mark_sacked` (Day 18), called on every ACK before the
+11. **Where does the scoreboard come from?** `mark_sacked` (Doc 18), called on every ACK before the
     loop reads it.
-12. **What marks a segment "retransmitted" for `pipe`?** `retries > 0` (Day 12) — reused as RFC
+12. **What marks a segment "retransmitted" for `pipe`?** `retries > 0` (Doc 12) — reused as RFC
     6675's HighRxt/Retran predicate.
 13. **Does a SACKed segment count in `pipe`?** No — the receiver has it; it's not in the network.
 14. **Does a lost-but-retransmitted segment count?** Yes — it's back on the wire.
@@ -23774,7 +23774,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
 16. **What if `pipe ≥ cwnd`?** Send nothing this round — the pipe is full; wait for ACKs to open it.
 17. **Why skip Nagle during recovery?** We *want* to fill the window with retransmits and new data;
     coalescing would defeat that.
-18. **What happens when SACK isn't negotiated?** The `poll_transmit` branch is skipped; NewReno (Day
+18. **What happens when SACK isn't negotiated?** The `poll_transmit` branch is skipped; NewReno (Doc
     20) handles recovery via the cumulative ACK.
 19. **How is the loop self-terminating?** Each (re)transmission raises `pipe`; once `pipe ≥ limit` or
     no holes/new-data remain, it stops.
@@ -23782,7 +23782,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
     `IsLost` segment because the queue is in ascending order.
 21. **Can `pipe` exceed cwnd?** Momentarily, if cwnd shrinks, but we never *add* when `pipe ≥ limit`,
     so it converges down as ACKs arrive.
-22. **Does 6675 change how we *exit* recovery?** No — the full-ACK exit is NewReno's (Day 20), via
+22. **Does 6675 change how we *exit* recovery?** No — the full-ACK exit is NewReno's (Doc 20), via
     `recover`.
 23. **What's reneging and do we handle it?** A receiver discarding previously-SACKed data; we don't
     detect it (exercise E4).
@@ -23796,7 +23796,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
     wouldn't retransmit the second hole in the same round.
 28. **Complexity?** O(segments) per `pipe`, O(segments) calls per recovery → O(n²) worst case for our
     linear queue; production uses a tree for O(log n).
-29. **Does this interact with timestamps (Day 16)?** Not directly today, but RACK-TLP (the successor)
+29. **Does this interact with timestamps (Doc 16)?** Not directly today, but RACK-TLP (the successor)
     uses timestamps to replace the count-based `IsLost` — a natural next day.
 30. **Single biggest thing still missing?** Rescue/TLP for tail loss, and RACK's time-based loss
     detection (RFC 8985).
@@ -23816,7 +23816,7 @@ Q: A SACKed segment's contribution to pipe?  A: zero (the receiver has it).
 Q: A retransmitted lost segment's contribution to pipe?  A: its length (back on the wire).
 Q: What marks "retransmitted" in our code?  A: retries > 0 (RFC 6675 HighRxt).
 Q: How do we enter 6675 recovery?  A: 3 duplicate ACKs (carrying SACK), same as before.
-Q: Fallback when SACK isn't negotiated?  A: NewReno (cumulative ACK), Day 20.
+Q: Fallback when SACK isn't negotiated?  A: NewReno (cumulative ACK), Doc 20.
 Q: Tail-loss weakness of 6675?  A: nothing SACKs above the last segments → RTO (rescue/TLP fixes it).
 Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detection.
 ```
@@ -23829,7 +23829,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 - **`NextSeg`** — RFC 6675's "what to send next" routine: lost holes, then new data (then rescue).
 - **DupThresh** — the loss threshold (3); the SACK analogue of three duplicate ACKs.
 - **HighRxt / Retran** — the highest retransmitted sequence; a segment is "retransmitted" if resent.
-- **RecoveryPoint** — SND.NXT frozen at recovery entry (our `recover`, Day 20); recovery ends when the
+- **RecoveryPoint** — SND.NXT frozen at recovery entry (our `recover`, Doc 20); recovery ends when the
   cumulative ACK reaches it.
 - **Rescue retransmission** — retransmitting the highest outstanding segment to avoid a tail-loss RTO.
 - **Reneging** — a receiver discarding data it previously SACKed.
@@ -23864,7 +23864,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 ```text
    routine    purpose                         our method                         tested by
    ────────   ─────────────────────────────   ────────────────────────────────   ───────────────────────────
-   Update()   ingest a SACK block             mark_sacked (Day 18)               out_of_order_data_acks… etc.
+   Update()   ingest a SACK block             mark_sacked (Doc 18)               out_of_order_data_acks… etc.
    IsLost()   loss inference                  RetxQueue::is_lost (private)        via pipe / next_lost tests
    SetPipe()  bytes in flight                 RetxQueue::pipe                     pipe_excludes_sacked…
    NextSeg()  what to (re)transmit            next_lost_retransmit + new data    sack_recovery_retransmits…
@@ -23877,7 +23877,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 
 
 
-# Day 22 — TCP, Part 20: The Socket API — `TcpListener` / `TcpStream`, Active Half-Close, Keep-Alive HTTP
+# Doc 22 — TCP, Part 20: The Socket API — `TcpListener` / `TcpStream`, Active Half-Close, Keep-Alive HTTP
 
 > Goal: give everything we've built an **application to drive it**. For twenty days the "socket API"
 > has been `Connection::{write, take_received, poll_transmit}` plus the hand-written event loop in
@@ -23890,7 +23890,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 > Three things land together, because building the API exposes what was missing:
 > 1. **The façade** — `PacketIo`, `TcpStream`, `TcpListener`, blocking `Read`/`Write`.
 > 2. **Active half-close** — a client that `shutdown(SHUT_WR)`s (sends its FIN) must still *receive*
->    the response. Our `FIN_WAIT_1/2` only handled teardown; now they deliver data too. (Day 19 did
+>    the response. Our `FIN_WAIT_1/2` only handled teardown; now they deliver data too. (Doc 19 did
 >    the passive mirror: keep *sending* in CLOSE_WAIT; today: keep *receiving* in FIN_WAIT_2.)
 > 3. **Real HTTP** — buffer the full request head (`\r\n\r\n`), parse it, and support
 >    **keep-alive**: many requests on one connection, closing only when the response says so.
@@ -23946,7 +23946,7 @@ There are two layers to "TCP" in any system:
    mechanism (the protocol state machine)   ← Connection: on_segment / poll_transmit / on_tick
 ```
 
-We built the mechanism first (Days 3–21) and exercised it with a bespoke event loop in `main`. That
+We built the mechanism first (Docs 3–21) and exercised it with a bespoke event loop in `main`. That
 was right — you can't wrap what doesn't work. But no application speaks `on_segment`; applications
 speak `read`/`write`. The kernel hides the mechanism behind file descriptors and the sockets API;
 we hide it behind `TcpStream`/`TcpListener`.
@@ -24013,7 +24013,7 @@ routing table.
 
 ```rust
 pub struct TcpStream<T: PacketIo> {
-    conn: Connection,    // the state machine (Days 3–21)
+    conn: Connection,    // the state machine (Docs 3–21)
     io: T,               // the transport
     quad: Quad,          // our 4-tuple, for demuxing in poll
     rbuf: VecDeque<u8>,  // received bytes not yet handed to the caller (sub-buffer reads)
@@ -24088,17 +24088,17 @@ Building the façade surfaced a real gap. The canonical HTTP client does:
    while read(...) > 0 { consume response }   // still RECEIVING after we've closed our send side
 ```
 
-Day 19 implemented the *passive* half-close (stay in CLOSE_WAIT, keep **sending**). This is the
+Doc 19 implemented the *passive* half-close (stay in CLOSE_WAIT, keep **sending**). This is the
 *active* half-close (in FIN_WAIT_2, keep **receiving**) — the mirror image. But our `FIN_WAIT_1/2`
 blocks only handled FIN/ACK for teardown; data arriving there was dropped. The loopback test
 "client half-closes, server replies" failed, exposing it.
 
-The fix mirrors Day 19: deliver incoming data (via the reassembler) and ACK it, *in addition* to the
+The fix mirrors Doc 19: deliver incoming data (via the reassembler) and ACK it, *in addition* to the
 teardown logic, in both FIN_WAIT_1 and FIN_WAIT_2:
 
 ```rust
 if self.state == State::FinWait2 {
-    if !payload.is_empty() {                                  // Day 22: receive side still open
+    if !payload.is_empty() {                                  // Doc 22: receive side still open
         let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
         if !delivered.is_empty() {
             self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
@@ -24113,7 +24113,7 @@ if self.state == State::FinWait2 {
 ```
 
 Now both directions of half-close work: either end can stop sending while the other keeps going —
-which is what makes a TCP connection two *independent* pipes, the theme since Day 19.
+which is what makes a TCP connection two *independent* pipes, the theme since Doc 19.
 
 ## 8. The loopback: two stacks in one thread, no network
 
@@ -24288,7 +24288,7 @@ method. (§10.)
 
 **Why add data-receive to FIN_WAIT_1/2 now?** The façade made the active-half-close pattern (the
 normal HTTP client) testable, and it failed — surfacing that our teardown states dropped incoming
-data. It's a genuine correctness fix, the mirror of Day 19. (§7.)
+data. It's a genuine correctness fix, the mirror of Doc 19. (§7.)
 
 **Why keep `main`'s raw loop instead of rewriting it on the façade?** `main` also serves ICMP and UDP
 and many simultaneous connections over one device — the multi-protocol demux the single-connection
@@ -24309,7 +24309,7 @@ façade deliberately doesn't do. The façade is the *library* API; `main` is the
 - **No write backpressure surfaced.** `Write::write` always accepts all bytes into the send buffer;
   it never reports a full window to the caller (a real socket would block or `WouldBlock`).
 - **Loopback is lossless and zero-latency.** Great for correctness; it doesn't exercise loss/RTT (that
-  needs `tc netem` against the live binary). The reliability machinery (Days 6–21) is still tested
+  needs `tc netem` against the live binary). The reliability machinery (Docs 6–21) is still tested
   directly by the `tcp`/`congestion` unit tests.
 
 ## 16. Rebuild it yourself — checklist + exercises
@@ -24348,7 +24348,7 @@ that turn a state machine into a socket.
 Tomorrow is the **robustness pack** — the hardening that turns "correct on the happy path" into
 "hard to break": RFC 5961 §5 (the blind *data* injection defence — tighten ACK acceptability with a
 challenge ACK), a **randomized challenge-ACK throttle** (closing the CVE-2016-5696 side channel from
-Day 19), and **reaper timeouts** for connections stuck in CLOSE_WAIT / FIN_WAIT_2 (so a peer that
+Doc 19), and **reaper timeouts** for connections stuck in CLOSE_WAIT / FIN_WAIT_2 (so a peer that
 vanishes can't pin a connection forever). With the API in place today and the hardening tomorrow, the
 stack is a complete, defensible TCP endpoint.
 
@@ -24390,8 +24390,8 @@ state machine.
 The two half-closes, now both implemented:
 
 ```text
-   passive half-close (Day 19):  peer sends FIN  → we ACK, CLOSE_WAIT, keep SENDING until we close
-   active  half-close (Day 22):  we send FIN     → FIN_WAIT_2, keep RECEIVING until peer closes
+   passive half-close (Doc 19):  peer sends FIN  → we ACK, CLOSE_WAIT, keep SENDING until we close
+   active  half-close (Doc 22):  we send FIN     → FIN_WAIT_2, keep RECEIVING until peer closes
 ```
 
 Together they realise TCP's two-independent-pipes model: each direction closes on its own schedule.
@@ -24484,14 +24484,14 @@ adds it. The concept (route by 4-tuple) is unchanged — only the plumbing grows
 ## G. Comparison to real stacks & libraries
 
 ```text
-   aspect                std::net (kernel)   smoltcp            tokio::net          ours (Day 22)
+   aspect                std::net (kernel)   smoltcp            tokio::net          ours (Doc 22)
    ───────────────────   ─────────────────   ────────────────   ─────────────────   ──────────────
    API shape             TcpListener/Stream  Socket + poll      async Listener/Stream  TcpListener/Stream
    I/O model             blocking / nonblk   non-blocking poll  async (readiness)   nonblk core + blk veneer
    transport             kernel TUN/NIC      a Device trait     kernel              PacketIo trait
    multi-connection      yes                 yes (SocketSet)    yes                 single (E1)
    testable offline      no (needs kernel)   yes (loopback)     partially           yes (loopback)
-   half-close (both)     yes                 yes                yes                 yes (Day 19 + 22)
+   half-close (both)     yes                 yes                yes                 yes (Doc 19 + 22)
 ```
 
 The closest sibling is **smoltcp**: a `Device` trait (our `PacketIo`), a poll-driven core, offline
@@ -24504,7 +24504,7 @@ The technique generalises beyond TCP:
 1. **Abstract the I/O boundary** behind a trait (`PacketIo`) — never call the device directly from
    logic.
 2. **Inject time** — pass `now_ms` in rather than reading a clock, so tests drive a logical clock
-   (we've done this since Day 6).
+   (we've done this since Doc 6).
 3. **Loopback the abstraction** — wire two instances through in-memory queues so they talk to each
    other deterministically.
 4. **Step, don't sleep** — a non-blocking `poll(now)` the test calls in a controlled order, instead
@@ -24545,8 +24545,8 @@ test`, on any OS, in milliseconds. The live TUN run (root, Linux) then validates
     exactly `main`'s design (E1).
 15. **What is active half-close?** We send FIN (FIN_WAIT_2) but keep *receiving* — the HTTP client
     pattern. Added today.
-16. **How does it differ from Day 19's half-close?** Day 19 = passive (CLOSE_WAIT, keep sending);
-    Day 22 = active (FIN_WAIT_2, keep receiving). Mirror images.
+16. **How does it differ from Doc 19's half-close?** Doc 19 = passive (CLOSE_WAIT, keep sending);
+    Doc 22 = active (FIN_WAIT_2, keep receiving). Mirror images.
 17. **What broke without the FIN_WAIT_2 receive path?** The loopback "client half-closes, server
     replies" test — the client dropped the reply.
 18. **How does keep-alive HTTP frame requests?** Buffer until `\r\n\r\n`; serve each complete head;
@@ -24589,7 +24589,7 @@ Q: read() EOF signal?  A: Ok(0) when peer_closed() and the buffer is empty.
 Q: A loopback test is?  A: two façades over crossed in-memory queues — two endpoints, one thread.
 Q: Why Rc<RefCell<VecDeque>> for loopback queues?  A: shared, interior-mutable FIFO; both ends share it.
 Q: Active half-close?  A: we FIN (FIN_WAIT_2) but keep receiving (the HTTP client pattern).
-Q: Passive half-close (Day 19)?  A: peer FINs (CLOSE_WAIT) but we keep sending.
+Q: Passive half-close (Doc 19)?  A: peer FINs (CLOSE_WAIT) but we keep sending.
 Q: Why rename take()→recv_all()?  A: std::io::Read::take (by-value self) shadows the inherent method.
 Q: HTTP/1.1 default persistence?  A: keep-alive (close only on Connection: close).
 Q: HTTP/1.0 default persistence?  A: close (persist only on Connection: keep-alive).
@@ -24634,8 +24634,8 @@ Q: Generic TcpStream<T> vs Box<dyn>?  A: monomorphised, zero-cost; TUN and test 
 ```text
    who closes first   their state path                         their open direction
    ────────────────   ──────────────────────────────────────  ────────────────────
-   active (we FIN)    ESTABLISHED → FIN_WAIT_1 → FIN_WAIT_2     still RECEIVING (Day 22)
-   passive (peer FIN) ESTABLISHED → CLOSE_WAIT → LAST_ACK        still SENDING  (Day 19)
+   active (we FIN)    ESTABLISHED → FIN_WAIT_1 → FIN_WAIT_2     still RECEIVING (Doc 22)
+   passive (peer FIN) ESTABLISHED → CLOSE_WAIT → LAST_ACK        still SENDING  (Doc 19)
 ```
 
 **L.3 — HTTP keep-alive decision**
@@ -24657,9 +24657,9 @@ Q: Generic TcpStream<T> vs Box<dyn>?  A: monomorphised, zero-cost; TUN and test 
 
 
 
-# Day 23 — TCP, Part 21: The Robustness Pack — RFC 5961 §5, Challenge-ACK Throttling, Reaper Timeouts
+# Doc 23 — TCP, Part 21: The Robustness Pack — RFC 5961 §5, Challenge-ACK Throttling, Reaper Timeouts
 
-> Goal: close the last gaps between "correct on the happy path" and "hard to break." Day 19 hardened
+> Goal: close the last gaps between "correct on the happy path" and "hard to break." Doc 19 hardened
 > the connection against blind **RST** and **SYN** attacks (RFC 5961 §§3–4) and TIME-WAIT
 > assassination (RFC 1337). Three holes remained, and today we close all three:
 >
@@ -24696,7 +24696,7 @@ Volume I — the chapter
 15. What comes after — the project, complete
 
 Volume II — the exhaustive reference
-- A. RFC 5961 in full, §§3–5 together (with Day 19)
+- A. RFC 5961 in full, §§3–5 together (with Doc 19)
 - B. The ACK acceptability window, every case
 - C. CVE-2016-5696 in detail — the side channel and the fix
 - D. The half-closed states and their real-world timeouts
@@ -24727,12 +24727,12 @@ A connection faces three kinds of trouble beyond ordinary loss and reordering:
 The first is malice (an attacker who guessed the 4-tuple); the second is malice *exploiting* our
 first defence; the third is mere absence (a crashed peer, a yanked cable, a buggy app that forgets to
 `close()`). All three leave a *correct* stack either acting on a lie, leaking information, or leaking
-memory. Robustness is refusing all three. Day 19 did the RST/SYN half; today does the ACK/data half
+memory. Robustness is refusing all three. Doc 19 did the RST/SYN half; today does the ACK/data half
 plus the resource-leak half.
 
 ## 2. RFC 5961 §5 — the ACK acceptability window
 
-Recall the blind-injection threat (Day 19 §8): an off-path attacker who knows the 4-tuple tries to
+Recall the blind-injection threat (Doc 19 §8): an off-path attacker who knows the 4-tuple tries to
 land a forged segment in our window. To inject *data*, they need the data's sequence number in our
 *receive* window (hard) **and** a plausible *ACK* number. Our ACK check was the loose RFC 793 rule:
 
@@ -24781,7 +24781,7 @@ We track it as we track everything else, right where the window is read each seg
 ```rust
 let new_wnd = (th.window as u32) << self.snd_wscale;
 self.send.wnd = new_wnd;
-self.max_snd_wnd = self.max_snd_wnd.max(new_wnd);   // Day 23
+self.max_snd_wnd = self.max_snd_wnd.max(new_wnd);   // Doc 23
 ```
 
 Two subtleties:
@@ -24797,7 +24797,7 @@ Two subtleties:
 
 ## 4. The challenge ACK as an oracle: CVE-2016-5696
 
-The challenge ACK (Day 19 §10) is a beautiful defence — it makes a forger prove liveness it can't.
+The challenge ACK (Doc 19 §10) is a beautiful defence — it makes a forger prove liveness it can't.
 But a defence that emits an *observable, deterministic* signal can become an *oracle*, and that's
 exactly what happened.
 
@@ -24852,7 +24852,7 @@ fn maybe_challenge(&mut self, now_ms: u64) -> Option<Vec<u8>> {
 Each connection gets its own budget, refilled to a fresh random `1..=CHALLENGE_ACK_MAX` value each
 second. The first challenge in a window always goes out (the budget is at least 1); beyond the
 randomized ceiling, challenges are suppressed until the next refill. Every challenge-ACK site — the
-in-window RST (Day 19 §9), the in-window SYN (§11), and today's §5 ACK check — now routes through
+in-window RST (Doc 19 §9), the in-window SYN (§11), and today's §5 ACK check — now routes through
 `maybe_challenge`, so the throttle covers all of them uniformly.
 
 The non-determinism is the point: an off-path observer can't predict when the budget runs out, so the
@@ -24862,7 +24862,7 @@ The non-determinism is the point: an off-path observer can't predict when the bu
 
 The third trouble is absence, not malice. Two states wait on something that might never come:
 
-- **CLOSE_WAIT** waits for the **local application** to call `close()` (Day 19 §3). If the app forgets
+- **CLOSE_WAIT** waits for the **local application** to call `close()` (Doc 19 §3). If the app forgets
   — a missing cleanup, an exception that skips it — the connection sits in CLOSE_WAIT *forever*,
   holding a TCB and (in a real OS) a file descriptor. This is the single most common networking
   resource leak; every backend engineer eventually learns to read `ss -tan | grep CLOSE-WAIT` as
@@ -24875,7 +24875,7 @@ A correct-but-naive stack leaks in both cases. The fix is a bounded wait.
 
 ## 7. The reaper: idle timeouts on the lingering states
 
-We already had a timer loop — `on_tick` reaps TIME_WAIT after 2·MSL (Day 7). The reaper extends it to
+We already had a timer loop — `on_tick` reaps TIME_WAIT after 2·MSL (Doc 7). The reaper extends it to
 the two lingering states, keyed off the **last time a segment arrived**:
 
 ```rust
@@ -24893,7 +24893,7 @@ if (self.state == State::FinWait2 && idle >= FIN_WAIT2_TIMEOUT_MS)
 ```
 
 Keying off `last_active_ms` (not the time we *entered* the state) is deliberate: an **active
-half-close still exchanging data** — a client in FIN_WAIT_2 reading a long response (Day 22) — keeps
+half-close still exchanging data** — a client in FIN_WAIT_2 reading a long response (Doc 22) — keeps
 receiving segments, each resetting `last_active_ms`, so it is *never* reaped while productive. Only a
 *genuinely idle* half-closed connection is collected. `main` already deletes any connection that
 reaches `Closed`, so the reaper plugs straight into the existing reaping path.
@@ -24903,10 +24903,10 @@ reaches `Closed`, so the reaper plugs straight into the existing reaping path.
 **Wrapping arithmetic for a windowed bound.** `self.send.una.wrapping_sub(self.max_snd_wnd)` is the
 only correct way to compute "one max-window below UNA" on a 32-bit circle — and it must be paired with
 `seq::before`/`seq::after`, never `<`/`>`, so the comparison respects the wrap (§3). This is the same
-discipline as every sequence comparison since Day 3, applied to a *range bound* rather than a point.
+discipline as every sequence comparison since Doc 3, applied to a *range bound* rather than a point.
 
 **`rand` for the budget, but determinism where it matters.** The budget refill uses
-`rand::random::<u32>()` (the same OS RNG as the ISN, Day 3) so the count is unpredictable. But the
+`rand::random::<u32>()` (the same OS RNG as the ISN, Doc 3) so the count is unpredictable. But the
 *expression* `1 + rand % MAX` guarantees the budget is always `≥ 1`, so the *first* challenge in any
 window is deterministic — which is what the tests rely on (a single challenge always succeeds), while
 the *cap* (`≤ MAX`) is what the throttle test checks. Randomness for security, a guaranteed floor for
@@ -24938,7 +24938,7 @@ trying to inject data — with an ACK number meant to look plausible:
 
 Even though the attacker guessed a sequence number *inside* our receive window (the hard part), the
 forged ACK gives the game away, and the §5 check turns a potential data injection into a harmless
-challenge. Compare the pre-Day-23 behaviour: the segment's ACK was simply not "between UNA and NXT,"
+challenge. Compare the pre-Doc-23 behaviour: the segment's ACK was simply not "between UNA and NXT,"
 so the ACK branch did nothing and processing fell through to *data handling* — which, for an in-window
 seq, would have **delivered "evil" to the application.** That's the hole we closed.
 
@@ -24955,7 +24955,7 @@ All in `src/tcp.rs`.
 emitted. The old `challenge_ack` (the raw builder) is called only from inside it.
 
 **Three call-site changes** route every challenge through the throttle: `on_rst` (in-window RST,
-Day 19) now takes `now_ms` and calls `maybe_challenge`; the in-window SYN check calls
+Doc 19) now takes `now_ms` and calls `maybe_challenge`; the in-window SYN check calls
 `maybe_challenge`; and the new §5 guard at the top of the ACK branch calls it.
 
 **`MAX.SND.WND` tracking** — one line where the send window is read each segment.
@@ -25061,13 +25061,13 @@ bounded against a forgotten `close()`. (§D.)
    it.
 
 Make Anki cards from the §5 window inequality and the "shared+deterministic = oracle" lesson — those
-are the two ideas that *are* Day 23.
+are the two ideas that *are* Doc 23.
 
 ## 15. What comes after — the project, complete
 
-With today's pack, the README's "Limitations → Hardening" list is closed: NewReno (Day 20), RFC 6675
-SACK recovery (Day 21), the socket API + keep-alive HTTP (Day 22), and now RFC 5961 §5 + challenge
-throttling + reaper timeouts (Day 23). The stack is a **correct, tested, and defensible** TCP/IP
+With today's pack, the README's "Limitations → Hardening" list is closed: NewReno (Doc 20), RFC 6675
+SACK recovery (Doc 21), the socket API + keep-alive HTTP (Doc 22), and now RFC 5961 §5 + challenge
+throttling + reaper timeouts (Doc 23). The stack is a **correct, tested, and defensible** TCP/IP
 endpoint: handshake, reliable in-order transfer, adaptive RTO, flow control, reassembly, congestion
 control with modern loss recovery, window scaling, timestamps/PAWS, SACK, the full close lifecycle
 with both half-closes, RFC 5961/1337 robustness, a socket façade, and an HTTP/1.1 server — all proven
@@ -25082,9 +25082,9 @@ named exercises (CUBIC, RACK-TLP, SYN cookies, keepalive, multi-connection faça
 
 # Volume II — the exhaustive reference
 
-## A. RFC 5961 in full, §§3–5 together (with Day 19)
+## A. RFC 5961 in full, §§3–5 together (with Doc 19)
 
-RFC 5961 ("Improving TCP's Robustness to Blind In-Window Attacks") has three defences. Days 19 and 23
+RFC 5961 ("Improving TCP's Robustness to Blind In-Window Attacks") has three defences. Docs 19 and 23
 together implement all three:
 
 ```text
@@ -25117,7 +25117,7 @@ itself.**
 
 The middle row is why the lower bound exists: a delayed duplicate ACK from when the window was open is
 *acceptable* (we just ignore it), not challenged. The last two rows are the defence — and crucially,
-before Day 23 an `ACK > SND.NXT` with an in-window *seq* fell through to data delivery.
+before Doc 23 an `ACK > SND.NXT` with an in-window *seq* fell through to data delivery.
 
 ## C. CVE-2016-5696 in detail — the side channel and the fix
 
@@ -25153,7 +25153,7 @@ covert channel. Defences must not themselves be measurable oracles.
    FIN_WAIT_2    the peer's FIN       60 s          Linux net.ipv4.tcp_fin_timeout (default 60 s)
    CLOSE_WAIT    the local app's      120 s         no kernel timeout — relies on the app +
                  close()                              SO_KEEPALIVE; a leak if the app forgets
-   TIME_WAIT     2·MSL to elapse      240 s (Day 7) fixed 2·MSL (Linux ~60 s, MSL tuned down)
+   TIME_WAIT     2·MSL to elapse      240 s (Doc 7) fixed 2·MSL (Linux ~60 s, MSL tuned down)
 ```
 
 CLOSE_WAIT is special: the kernel genuinely *can't* time it out safely in general (the app might
@@ -25163,11 +25163,11 @@ always close promptly — it bounds a *bug*, not normal operation.
 
 ## E. RFC 1337 recap and the TIME_WAIT family of hazards
 
-From Day 19, for completeness alongside the rest of the robustness pack:
+From Doc 19, for completeness alongside the rest of the robustness pack:
 
 - **RFC 1337 — TIME-WAIT assassination.** A stray RST in TIME_WAIT could end it early, freeing the
   4-tuple before delayed duplicates of the old connection have died — corrupting a new incarnation.
-  Fix: **ignore RSTs in TIME_WAIT** (Day 19's `on_rst`).
+  Fix: **ignore RSTs in TIME_WAIT** (Doc 19's `on_rst`).
 - **TIME-WAIT exhaustion** (related, not implemented): a busy client that actively closes many
   short-lived connections accumulates TIME_WAIT entries; real stacks mitigate with `tcp_tw_reuse` /
   port-range tuning. We just let them expire at 2·MSL.
@@ -25175,7 +25175,7 @@ From Day 19, for completeness alongside the rest of the robustness pack:
 ## F. Comparison to real stacks — Linux, FreeBSD, the sysctls
 
 ```text
-   defence                  Linux                          FreeBSD            ours (Day 23)
+   defence                  Linux                          FreeBSD            ours (Doc 23)
    ──────────────────────   ────────────────────────────   ────────────────   ─────────────────
    RFC 5961 §5 ACK window   yes                            yes                yes (ESTABLISHED path)
    challenge-ACK limit      per-socket, randomized (4.7+)  rate-limited       per-conn, randomized
@@ -25192,7 +25192,7 @@ tested; SYN cookies and keepalive as exercises."
 
 ## G. The threat model, end to end — what we now resist
 
-Putting Days 19 and 23 together, against an **off-path** attacker who knows (or guesses) the 4-tuple:
+Putting Docs 19 and 23 together, against an **off-path** attacker who knows (or guesses) the 4-tuple:
 
 ```text
    attacker goal           pre-19            after 19          after 23
@@ -25225,7 +25225,7 @@ RFC 5961 targets — the connection is now hard to perturb.
    is the only correct expression.
 8. **What happens to an unacceptable ACK now?** A (throttled) challenge ACK, and the segment is
    dropped — not delivered.
-9. **What happened before Day 23?** An out-of-window ACK was silently ignored, and for an in-window
+9. **What happened before Doc 23?** An out-of-window ACK was silently ignored, and for an in-window
    seq, processing fell through to *deliver* the data.
 10. **What is a challenge ACK again?** A bare ACK of our state (`seq=SND.NXT, ack=RCV.NXT`) that only a
     genuine on-path peer can usefully answer.
@@ -25237,8 +25237,8 @@ RFC 5961 targets — the connection is now hard to perturb.
     signal) budget, refilled each ~second.
 14. **Why is the budget `1 + rand % MAX`?** So it's randomized (`security`) but always `≥ 1` (the
     first challenge always works — testability).
-15. **Which sites route through the throttle?** All three: in-window RST (Day 19), in-window SYN
-    (Day 19), and the §5 ACK check (Day 23).
+15. **Which sites route through the throttle?** All three: in-window RST (Doc 19), in-window SYN
+    (Doc 19), and the §5 ACK check (Doc 23).
 16. **Does the throttle ever drop a legitimate challenge?** Only under a flood within one window — and
     then a genuine peer simply retransmits and is challenged next window.
 17. **What's the CLOSE_WAIT leak?** The app never calls `close()`, so the connection (and fd) sits in
@@ -25302,14 +25302,14 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
 
 ## K. Reference tables
 
-**K.1 — challenge-ACK sites, all throttled (Day 23)**
+**K.1 — challenge-ACK sites, all throttled (Doc 23)**
 
 ```text
    trigger                              rule                   throttled?   reset connection?
    ──────────────────────────────────  ─────────────────────  ──────────   ─────────────────
-   in-window inexact RST (Day 19 §3)    RFC 5961 §3            yes          no
-   in-window SYN (Day 19 §4)            RFC 5961 §4            yes          no
-   unacceptable ACK (Day 23 §5)         RFC 5961 §5            yes          no
+   in-window inexact RST (Doc 19 §3)    RFC 5961 §3            yes          no
+   in-window SYN (Doc 19 §4)            RFC 5961 §4            yes          no
+   unacceptable ACK (Doc 23 §5)         RFC 5961 §5            yes          no
    exact-RCV.NXT RST                    RFC 5961 §3            n/a          YES (honored)
 ```
 
@@ -25320,7 +25320,7 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
    ───────────   ───────   ─────────────────   ─────────────
    FIN_WAIT_2    60 s      the peer's FIN       last_active_ms
    CLOSE_WAIT    120 s     local app close()    last_active_ms
-   TIME_WAIT     2·MSL     2·MSL elapsing       time_wait_ms (Day 7)
+   TIME_WAIT     2·MSL     2·MSL elapsing       time_wait_ms (Doc 7)
 ```
 
 **K.3 — the robustness pack, by file/function**
@@ -25342,9 +25342,9 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
 
 
 
-# Day 24 — TCP, Part 22: RACK-TLP — Time-Based Loss Detection and the Tail Loss Probe (RFC 8985)
+# Doc 24 — TCP, Part 22: RACK-TLP — Time-Based Loss Detection and the Tail Loss Probe (RFC 8985)
 
-> Goal: fix the loss the rest of the stack can't see. Days 10–21 built loss recovery on *counting*:
+> Goal: fix the loss the rest of the stack can't see. Docs 10–21 built loss recovery on *counting*:
 > three duplicate ACKs (RFC 5681), three SACKed segments above a hole (RFC 6675's `IsLost`). Counting
 > has two blind spots. First, **reordering** inflates and deflates the count, so a reordered (not
 > lost) segment can trigger a needless fast retransmit, and a genuine loss behind reordering can be
@@ -25359,7 +25359,7 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
 > Probe): when the tail is outstanding with nothing new to send, send one probe at ≈ RTO/2 to elicit
 > an ACK/SACK *before* the full RTO, turning a tail loss into an ordinary RACK recovery.
 >
-> This is the modern capstone on everything: it uses Day 16's per-segment timing and Day 18's SACK
+> This is the modern capstone on everything: it uses Doc 16's per-segment timing and Doc 18's SACK
 > scoreboard, and it's what Linux and the rest of the internet actually run today (it supersedes the
 > count-based DupThresh of RFC 5681/6675). We add it *additively* — the count-based paths remain — so
 > the stack gains time-based detection and fast tail recovery without losing what already works.
@@ -25451,7 +25451,7 @@ web traffic) the tail loss is the *whole* tail of the user-visible latency. TLP 
 ## 3. RACK: a segment is lost if a later one was acked, plus slack
 
 RACK keeps, per outstanding segment, the time it was (most recently) sent — which our retransmission
-queue already records as `sent_at_ms` (Day 12). When an ACK or SACK acknowledges some segment, RACK
+queue already records as `sent_at_ms` (Doc 12). When an ACK or SACK acknowledges some segment, RACK
 remembers the **most recently sent** segment among those now acknowledged:
 
 ```rust
@@ -25558,7 +25558,7 @@ congestion state (don't probe during recovery), and the event loop (arm in `poll
 ## 7. Keeping it additive — not breaking the count-based paths
 
 RFC 8985 is meant to *replace* the DupThresh-based detection. We add it *alongside* the existing
-dup-ACK fast retransmit (Day 10), NewReno (Day 20), and RFC 6675 (Day 21), for two reasons: it's far
+dup-ACK fast retransmit (Doc 10), NewReno (Doc 20), and RFC 6675 (Doc 21), for two reasons: it's far
 lower risk against a suite of 100+ tests that pin the count-based behavior, and it lets the chapter
 show RACK-TLP as a *complement* you can reason about in isolation. The ordering in `on_tick` keeps
 them from fighting:
@@ -25582,7 +25582,7 @@ recovery and reduces cwnd on real losses; we note this in §13 and leave it as e
 ## 8. The Rust: per-segment timestamps, `rev().find`, the PTO < RTO invariant
 
 **Per-segment timestamps, already there.** RACK needs each segment's send time — which `Unacked.sent_at_ms`
-has recorded since Day 12 (for the RTO) and Day 16 (for RTT). RACK is almost free on top: two new
+has recorded since Doc 12 (for the RTO) and Doc 16 (for RTT). RACK is almost free on top: two new
 `u64`/`u32` fields on the queue (`rack_xmit_ts`, `rack_end_seq`) and a comparison. Reusing the
 existing timing infrastructure is why a "modern" algorithm lands in ~40 lines.
 
@@ -25608,7 +25608,7 @@ A 1-segment tail (the unit test), `MSS`-irrelevant, no RTT sample yet so `RTO = 
 `PTO ≈ 100 ms`. We send "hi"; the segment is lost.
 
 ```text
-   t(ms)  without TLP (pre-Day-24)              with TLP (Day 24)
+   t(ms)  without TLP (pre-Doc-24)              with TLP (Doc 24)
    ─────  ──────────────────────────────────    ─────────────────────────────────────────
    0      send [1,3); arm nothing                send [1,3); arm PTO = 0 + 100 = 100
    50     on_tick: nothing (RTO not due)         on_tick: PTO not due; RTO not due → nothing
@@ -25818,7 +25818,7 @@ detector, with dup-ACK/6675 effectively subsumed and the RTO as backstop.
 ## E. Comparison to real stacks — Linux, the sysctls
 
 ```text
-   aspect                  Linux                         ours (Day 24)
+   aspect                  Linux                         ours (Doc 24)
    ─────────────────────   ───────────────────────────   ──────────────────────────
    primary loss detection  RACK (replaces DupThresh)     RACK additive to dup-ACK/6675
    reo_wnd                  adaptive (DSACK), min_RTT/4   fixed RTO/4 (E2)
@@ -25871,8 +25871,8 @@ Linux enabled RACK by default in 4.18 (`tcp_recovery` bit 1). The shape is ident
     production stack replaces DupThresh with RACK.
 22. **What existing test changed and why?** `connection_retransmits_then_clears_on_ack` — the tail is
     now probed at ~RTO/2 (TLP) instead of waiting for the RTO.
-23. **Does RACK use timestamps (Day 16)?** It uses per-segment *send* times (recorded since Day 12);
-    Day 16's TCP timestamps option is a related but separate RTT mechanism.
+23. **Does RACK use timestamps (Doc 16)?** It uses per-segment *send* times (recorded since Doc 12);
+    Doc 16's TCP timestamps option is a related but separate RTT mechanism.
 24. **What's `retransmit_last`?** The TLP target: the highest-sequence non-SACKed outstanding segment.
 25. **Biggest thing still missing?** DSACK-adaptive `reo_wnd`, a congestion reaction on RACK loss, and
     new-data probes — all exercises.
@@ -25932,10 +25932,10 @@ Q: Linux default since 4.18?  A: RACK-TLP (tcp_recovery).
    RTO due()     full RTO        anything left (backstop)        cwnd → 1 MSS, slow start
 ```
 
-**I.3 — what RACK-TLP adds over Days 10/20/21**
+**I.3 — what RACK-TLP adds over Docs 10/20/21**
 
 ```text
-   capability                         before Day 24   after Day 24
+   capability                         before Doc 24   after Doc 24
    ────────────────────────────────   ─────────────   ────────────
    single mid-stream loss             yes             yes
    multiple losses / RTT (SACK)       yes (6675)      yes
@@ -25948,10 +25948,10 @@ Q: Linux default since 4.18?  A: RACK-TLP (tcp_recovery).
 > of waiting it out — and shrugs off reordering instead of retransmitting needlessly — you've built
 > the loss detection the modern internet runs on.
 
-# Day 25 — TCP, Part 23: CUBIC — Filling Fat Pipes with a Cubic Growth Curve (RFC 8312 / 9438)
+# Doc 25 — TCP, Part 23: CUBIC — Filling Fat Pipes with a Cubic Growth Curve (RFC 8312 / 9438)
 
 > Goal: replace Reno's straight-line congestion avoidance with the curve the modern internet actually
-> runs. Day 10 gave us RFC 5681 Reno: after a loss, `cwnd` grows **+1 MSS per RTT** — a gentle slope
+> runs. Doc 10 gave us RFC 5681 Reno: after a loss, `cwnd` grows **+1 MSS per RTT** — a gentle slope
 > that is safe but glacial on a *fat pipe* (a high bandwidth-delay-product link: fast and/or
 > long-haul). On a 1 Gbps, 100 ms path the window needs ~8000 segments to fill the pipe; at +1
 > segment/RTT that's *minutes* to recover from a single loss. **CUBIC** (RFC 8312, updated by RFC
@@ -25966,8 +25966,8 @@ Q: Linux default since 4.18?  A: RACK-TLP (tcp_recovery).
 > so two flows sharing a link converge to fairness regardless of their round-trip times (Reno favors
 > short-RTT flows).
 >
-> This is the congestion-control capstone: the loss *detection* (RACK-TLP, Day 24) and *recovery
-> structure* (NewReno/6675, Days 20–21) stay; CUBIC changes only the *growth law* and the *decrease
+> This is the congestion-control capstone: the loss *detection* (RACK-TLP, Doc 24) and *recovery
+> structure* (NewReno/6675, Docs 20–21) stay; CUBIC changes only the *growth law* and the *decrease
 > factor* — the two numbers that decide how fast a real bulk transfer fills a real network.
 
 **Contents**
@@ -26125,7 +26125,7 @@ only the curve itself uses floating point.
 Note the decrease is based on `cwnd` (CUBIC's definition), not Reno's `FlightSize/2`. And `W_max =
 cwnd` records the height to aim the curve back at. Everything else about recovery — the fast-retransmit
 inflation (`ssthresh + 3·MSS`), NewReno's partial-ACK deflation, the recovery-exit to `ssthresh` — is
-unchanged from Days 10/20. CUBIC swaps the *growth law* and the *cut factor*; the recovery *plumbing*
+unchanged from Docs 10/20. CUBIC swaps the *growth law* and the *cut factor*; the recovery *plumbing*
 is the same.
 
 ## 6. RTT-independence and fairness
@@ -26162,7 +26162,7 @@ if self.epoch_ms == 0 {
 ```
 
 Two new fields hold the curve's anchor: `w_max` (the inflection window) and `epoch_ms` (when this
-cubic epoch began). The connection already threads `now_ms` everywhere (Day 6), so the single
+cubic epoch began). The connection already threads `now_ms` everywhere (Doc 6), so the single
 call-site change in `tcp.rs` is `self.cong.on_ack(acked, now_ms)`.
 
 ## 8. The Rust: f64 for the curve, integer β, the per-ACK step
@@ -26231,7 +26231,7 @@ records `w_max = cwnd`; everything else (the `+3·MSS` inflation, the collapse-t
 before.
 
 **`tcp.rs`** — the one call site becomes `self.cong.on_ack(acked, now_ms)`; the connection already has
-`now_ms` in hand. NewReno (Day 20), RFC 6675 (Day 21), and RACK-TLP (Day 24) are untouched — they
+`now_ms` in hand. NewReno (Doc 20), RFC 6675 (Doc 21), and RACK-TLP (Doc 24) are untouched — they
 drive *which* segments to send and *when* a loss is declared; CUBIC only changes *how big* the window
 grows and *how much* it shrinks.
 
@@ -26300,7 +26300,7 @@ loss happened*; CUBIC decides *window size*. They're orthogonal — CUBIC swaps 
 - **Still loss-based.** CUBIC (like Reno) treats loss as the congestion signal; BBR instead models the
   bottleneck bandwidth and RTT and ignores loss. Different philosophy (§E), a much larger change.
 - **The echo server never bulk-sends**, so CUBIC, like all our congestion control, is exercised by the
-  unit tests rather than binding live — a bulk transfer over the socket API (Day 22) under `tc netem`
+  unit tests rather than binding live — a bulk transfer over the socket API (Doc 22) under `tc netem`
   is what makes it visible.
 
 CUBIC's curve and β are real; the gaps are the production refinements (TCP-friendly region, fast
@@ -26330,7 +26330,7 @@ convergence, HyStart, fixed-point), each a known follow-on.
    plateau→convex shape against the §4 numbers.
 4. **E4 — RTT fairness.** Simulate two flows with RTTs 20 ms and 200 ms sharing a bottleneck; show
    CUBIC's windows converge while Reno's diverge in the short-RTT flow's favor.
-5. **E5 — measure it.** Over the socket API (Day 22) with `tc qdisc … netem delay 100ms` + a single
+5. **E5 — measure it.** Over the socket API (Doc 22) with `tc qdisc … netem delay 100ms` + a single
    drop, time a bulk transfer's recovery under CUBIC vs a stubbed Reno slope; watch CUBIC refill in
    seconds.
 
@@ -26453,7 +26453,7 @@ capstone for this stack.
 ## F. Comparison to real stacks — Linux, the sysctls
 
 ```text
-   aspect                  Linux                       ours (Day 25)
+   aspect                  Linux                       ours (Doc 25)
    ─────────────────────   ─────────────────────────   ────────────────────────
    default CC              CUBIC (since 2.6.19)        CUBIC
    β                       0.7                         0.7 (integer 7/10)
@@ -26559,10 +26559,10 @@ Q: CUBIC vs BBR?  A: loss-based cubic growth vs model-based (bandwidth×RTT), lo
    W(t)     C·(t−K)³ + W_max             the target window
 ```
 
-**J.2 — what changed vs Reno (Day 10)**
+**J.2 — what changed vs Reno (Doc 10)**
 
 ```text
-   aspect                Reno (Day 10)        CUBIC (Day 25)
+   aspect                Reno (Doc 10)        CUBIC (Doc 25)
    ───────────────────   ──────────────────   ──────────────────────────────
    CA growth             +1 MSS / RTT          cubic curve in time
    decrease β            0.5 (FlightSize/2)    0.7 (cwnd · 7/10)
@@ -26589,14 +26589,14 @@ Q: CUBIC vs BBR?  A: loss-based cubic growth vs model-based (bandwidth×RTT), lo
 > *past* it — instead of crawling up one segment per round trip forever — you've built the congestion
 > control that actually fills the modern internet's pipes.
 
-# Day 26 — TCP, Part 24: Keepalive — Detecting a Peer That Vanished (`SO_KEEPALIVE`, RFC 9293 §3.8.4)
+# Doc 26 — TCP, Part 24: Keepalive — Detecting a Peer That Vanished (`SO_KEEPALIVE`, RFC 9293 §3.8.4)
 
 > Goal: notice when the other end is simply *gone*. Everything so far detects an *active* failure —
 > a RST aborts, a FIN closes, lost data triggers retransmission. But what about a connection that is
 > ESTABLISHED, idle (no data flowing), and whose peer silently **disappears** — a crashed process, a
 > yanked Ethernet cable, a NAT box that dropped the mapping, a laptop that slept? No FIN, no RST, no
 > data to retransmit: nothing happens. The connection sits ESTABLISHED *forever*, a zombie holding a
-> TCB (and, on a real OS, a file descriptor) for a peer that will never speak again. Our Day 23
+> TCB (and, on a real OS, a file descriptor) for a peer that will never speak again. Our Doc 23
 > reaper bounds the *half-closed* states, but an idle ESTABLISHED connection has no timer at all.
 >
 > **TCP keepalive** (`SO_KEEPALIVE`) fills the gap. After a connection sits idle for a while, the
@@ -26665,10 +26665,10 @@ Line up everything that can end a connection and what detects it:
 ```text
    failure mode                         detected by                         state it acts in
    ──────────────────────────────────   ─────────────────────────────────   ────────────────────
-   peer aborts                          incoming RST (Day 19)               any synchronized
-   peer closes gracefully               incoming FIN (Days 5, 19)           ESTABLISHED → CLOSE_WAIT
-   in-flight data lost                  RTO / RACK / dup-ACK (Days 6,10,24) data outstanding
-   peer FIN'd then vanished             reaper timeout (Day 23)             CLOSE_WAIT / FIN_WAIT_2
+   peer aborts                          incoming RST (Doc 19)               any synchronized
+   peer closes gracefully               incoming FIN (Docs 5, 19)           ESTABLISHED → CLOSE_WAIT
+   in-flight data lost                  RTO / RACK / dup-ACK (Docs 6,10,24) data outstanding
+   peer FIN'd then vanished             reaper timeout (Doc 23)             CLOSE_WAIT / FIN_WAIT_2
    peer vanished while IDLE+ESTABLISHED  ── nothing, until today ──          ESTABLISHED, idle
 ```
 
@@ -26738,13 +26738,13 @@ So the total time to detect a dead peer is `IDLE + PROBES · INTVL` (here 60 + 3
 ## 5. Reset on any activity
 
 The keepalive timer measures *idleness*, so **any** segment from the peer resets it. We already track
-`last_active_ms` (Day 23, for the reaper); the keepalive schedule is anchored to it, and we reset the
+`last_active_ms` (Doc 23, for the reaper); the keepalive schedule is anchored to it, and we reset the
 probe counter on every arriving segment:
 
 ```rust
 // top of on_segment:
-self.last_active_ms = now_ms;       // Day 23
-self.keepalive_probes_sent = 0;     // Day 26 — the peer spoke, so it's alive; restart probing
+self.last_active_ms = now_ms;       // Doc 23
+self.keepalive_probes_sent = 0;     // Doc 26 — the peer spoke, so it's alive; restart probing
 ```
 
 This is what makes keepalive safe: a connection that's actually exchanging data (or whose peer
@@ -26778,7 +26778,7 @@ retransmission, fast/RACK recovery, zero-window persistence, lifecycle reaping, 
 
 **An opt-in `bool`, defaulted off.** `keepalive_enabled: bool` starts `false`; `set_keepalive(true)`
 turns it on. The `on_tick` block is gated on it, so a connection that didn't ask pays nothing. This
-mirrors `set_nodelay` (Day 13) — a per-connection option the protocol exposes but doesn't impose.
+mirrors `set_nodelay` (Doc 13) — a per-connection option the protocol exposes but doesn't impose.
 
 **The schedule from a counter, not a stored deadline.** Rather than store and rearm a "next probe
 time," we *derive* it each tick from `last_active_ms + IDLE + probes_sent · INTVL`. That's stateless
@@ -26885,7 +26885,7 @@ impossible to leave stale across a reset. (§8.)
   stack also typically sends a RST to the (possibly returned) peer and surfaces `ETIMEDOUT` to the
   application. We don't send the RST.
 - **No interaction with the application.** Real keepalive death wakes a blocked `read`/`write` with an
-  error; our socket façade (Day 22) would need to surface it (a small follow-on).
+  error; our socket façade (Doc 22) would need to surface it (a small follow-on).
 
 The mechanism — idle detection, the `SND.NXT − 1` probe, the count-to-death, the reset-on-activity —
 is real RFC 9293 keepalive; the gaps are configuration surface and integration polish.
@@ -26905,7 +26905,7 @@ is real RFC 9293 keepalive; the gaps are configuration surface and integration p
 
 1. **E1 — per-connection timers.** Add `set_keepalive_params(idle, intvl, probes)` (the
    `TCP_KEEPIDLE`/`INTVL`/`CNT` analogues) and test a connection with custom values.
-2. **E2 — surface the death.** Wire keepalive into the Day 22 socket façade so a `read` on a
+2. **E2 — surface the death.** Wire keepalive into the Doc 22 socket façade so a `read` on a
    keepalive-dead connection returns an error (the `ETIMEDOUT` analogue).
 3. **E3 — RST on death.** Send a RST to the peer when keepalive declares it dead (in case it returns),
    and test the RST is well-formed.
@@ -27008,7 +27008,7 @@ the one TCP itself provides.
 ## E. Comparison to real stacks — the sysctls and socket options
 
 ```text
-   aspect                Linux                          ours (Day 26)
+   aspect                Linux                          ours (Doc 26)
    ───────────────────   ────────────────────────────   ──────────────────────────
    enable                setsockopt SO_KEEPALIVE        set_keepalive(true)
    idle / intvl / count  TCP_KEEPIDLE/INTVL/CNT          global constants (E1)
@@ -27048,7 +27048,7 @@ as exercises." The probe and the reset-on-activity semantics match exactly.
 14. **Does an active connection get probed?** No — any data resets the idle timer; only a genuinely
     idle connection is probed.
 15. **Does keepalive change sequence numbers?** No — `SND.NXT − 1` is old; nothing advances.
-16. **Does it interact with the reaper (Day 23)?** No — the reaper handles half-closed states;
+16. **Does it interact with the reaper (Doc 23)?** No — the reaper handles half-closed states;
     keepalive handles idle ESTABLISHED. Disjoint.
 17. **Is it enabled in our demo?** No — API + tested, off in `main` (like `set_nodelay`).
 18. **Does keepalive detect a *hung application*?** No — the kernel answers the probe; the app could
@@ -27106,9 +27106,9 @@ Q: Is the probe retransmitted reliably?  A: no — spacing several probes + coun
 ```text
    segment              seq            purpose                         retransmitted?
    ──────────────────   ────────────   ─────────────────────────────   ──────────────
-   keepalive probe      SND.NXT − 1    force an ACK (liveness)         no (Day 26)
-   zero-window probe    SND.NXT        poke a closed window (1 byte)   yes (Day 14)
-   challenge ACK        SND.NXT        prove our state (RFC 5961)      no (Days 19/23)
+   keepalive probe      SND.NXT − 1    force an ACK (liveness)         no (Doc 26)
+   zero-window probe    SND.NXT        poke a closed window (1 byte)   yes (Doc 14)
+   challenge ACK        SND.NXT        prove our state (RFC 5961)      no (Docs 19/23)
    ordinary ACK         SND.NXT        acknowledge received data       no
 ```
 
@@ -27129,7 +27129,7 @@ Q: Is the probe retransmitted reliably?  A: no — spacing several probes + coun
 > connection whose peer pulled the plug — but never bothers a healthy idle one — you've closed the
 > last liveness gap.
 
-# Day 27 — TCP, Part 25: SYN Cookies — A Stateless Handshake Under Flood (RFC 4987)
+# Doc 27 — TCP, Part 25: SYN Cookies — A Stateless Handshake Under Flood (RFC 4987)
 
 > Goal: survive a SYN flood. Every passive open so far allocates a Transmission Control Block the
 > instant a SYN arrives — a TCB in SYN_RCVD, holding sequence numbers, buffers, timers — and waits
@@ -27194,7 +27194,7 @@ MSS). Normally that memory is a TCB. SYN cookies ask: **what if we didn't keep t
 on the wire instead?**
 
 The SYN-ACK already carries a 32-bit field the server chooses freely: its **initial sequence number**
-(ISS). Normally the ISS is random (Day 3, RFC 6528). SYN cookies make the ISS *carry information* — a
+(ISS). Normally the ISS is random (Doc 3, RFC 6528). SYN cookies make the ISS *carry information* — a
 **cookie** that encodes the handshake parameters and a cryptographic-ish signature. The server sends
 this cookie as its ISS and discards all state. The TCP protocol then does the server's bookkeeping
 *for free*: the client must acknowledge the SYN-ACK by sending `ack = ISS + 1 = cookie + 1`. That
@@ -27636,7 +27636,7 @@ ESTABLISHED or on reaping.
 ## F. Comparison to real stacks — the sysctls
 
 ```text
-   aspect                Linux                              ours (Day 27)
+   aspect                Linux                              ours (Doc 27)
    ───────────────────   ────────────────────────────────   ──────────────────────────
    enable                net.ipv4.tcp_syncookies (0/1/2)    cookies on backlog overflow
    backlog limit         net.ipv4.tcp_max_syn_backlog       SYN_BACKLOG = 128
@@ -27772,10 +27772,10 @@ Q: Cost of a spoofed SYN to the server now?  A: one stateless SYN-ACK, zero memo
 > real client still completes the handshake by handing back a cookie it never knew it was carrying,
 > you've put the connection's state into the sequence number and made the accept path unfloodable.
 
-# Day 28 — TCP, Part 26: BBR — Congestion Control by Model, Not by Loss (Cardwell et al., 2016)
+# Doc 28 — TCP, Part 26: BBR — Congestion Control by Model, Not by Loss (Cardwell et al., 2016)
 
-> Goal: build the *other kind* of congestion control. Every controller so far — Reno (Day 10),
-> NewReno (Day 20), CUBIC (Day 25) — is **loss-based**: it grows the window until a packet drops, then
+> Goal: build the *other kind* of congestion control. Every controller so far — Reno (Doc 10),
+> NewReno (Doc 20), CUBIC (Doc 25) — is **loss-based**: it grows the window until a packet drops, then
 > backs off. That made sense in 1988, when a drop almost always meant a full queue. It is a poor proxy
 > today. On a router with a deep buffer, a loss-based sender fills that buffer *to the brim* before it
 > ever sees a drop — so it runs with a permanently full queue, adding tens or hundreds of milliseconds
@@ -28294,7 +28294,7 @@ Exercises:
 BBR completes the **congestion-control family**: the stack now ships both a loss-based controller
 (CUBIC over NewReno + RFC 6675) and a model-based one (BBR), selectable per connection. The natural
 follow-ons are *rate-paced transmission* (exercise (a) — the missing half of BBR, only meaningful under
-bulk transfer), BBRv2/v3's ECN and loss response (§E), and the multi-connection server (Day 29) that
+bulk transfer), BBRv2/v3's ECN and loss response (§E), and the multi-connection server (Doc 29) that
 lets several BBR flows run at once so you can watch them interact.
 
 ---
@@ -28352,7 +28352,7 @@ max-filter down. Our per-ACK delta is the right idea with those two refinements 
 ## D. BBR vs CUBIC vs Reno — a side-by-side
 
 ```text
-                         Reno (Day 10)     CUBIC (Day 25)        BBR (Day 28)
+                         Reno (Doc 10)     CUBIC (Doc 25)        BBR (Doc 28)
    ────────────────────  ───────────────   ───────────────────   ─────────────────────────────
    signal                loss              loss                  measured BtlBw + RTprop
    on loss               cwnd ×0.5         cwnd ×0.7             retransmit; cwnd unchanged
@@ -28489,9 +28489,9 @@ the durable core, which is why v1 is the right thing to learn first.
 | 100 Mbit/s × 100 ms | 1.25 MB ≈ 856 MSS | 2.5 MB | 12.5 MB/s |
 | 1 Mbit/s × 300 ms (sat.) | 37.5 KB ≈ 25 MSS | 75 KB | 125 KB/s |
 
-# Day 29 — TCP, Part 27: Many Connections at Once — the Multi-Connection Socket Server
+# Doc 29 — TCP, Part 27: Many Connections at Once — the Multi-Connection Socket Server
 
-> Goal: serve *more than one* connection through the socket façade. Day 22 built a `std::net`-shaped
+> Goal: serve *more than one* connection through the socket façade. Doc 22 built a `std::net`-shaped
 > veneer — `TcpListener` / `TcpStream` over a `PacketIo` transport — that runs a full handshake →
 > transfer → close offline, with no TUN device. But it was deliberately **single-connection**: the
 > listener *moves* its one transport into the stream it accepts, so it can serve exactly one client and
@@ -28503,8 +28503,8 @@ the durable core, which is why v1 is the right thing to learn first.
 > a listening port, used to *open* a new one. The thing that makes this possible is that TCP already
 > gives every connection a globally unique name: the **4-tuple** `(remote IP, remote port, local IP,
 > local port)`. A server keeps a **table** keyed by that 4-tuple, and routing is a hash lookup. This is
-> exactly what `src/main.rs` already does for the live stack (its `HashMap<Quad, Connection>`); Day 29
-> lifts that pattern into the reusable, testable `TcpServer` in `src/socket.rs`, removing the Day-22
+> exactly what `src/main.rs` already does for the live stack (its `HashMap<Quad, Connection>`); Doc 29
+> lifts that pattern into the reusable, testable `TcpServer` in `src/socket.rs`, removing the Doc-22
 > "one connection at a time" limitation and completing the socket layer.
 >
 > We build `TcpServer<T: PacketIo>`: it owns one transport and a connection table, demuxes every
@@ -28518,7 +28518,7 @@ the durable core, which is why v1 is the right thing to learn first.
 
 Volume I — the chapter
 1. The mental model: one wire, many connections, demux by 4-tuple
-2. The Day 22 limitation: a transport owned by a single stream
+2. The Doc 22 limitation: a transport owned by a single stream
 3. The connection table: keyed by `Quad`
 4. Routing one datagram: parse, look up, dispatch — or accept
 5. The accept backlog: announce each connection once
@@ -28567,9 +28567,9 @@ up in a table.** Hit → hand the segment to that connection. Miss → if it's a
 listening on, create a new connection; otherwise drop (or RST). That hash-lookup is the whole idea;
 everything else in this chapter is bookkeeping around it.
 
-## 2. The Day 22 limitation: a transport owned by a single stream
+## 2. The Doc 22 limitation: a transport owned by a single stream
 
-Day 22's `TcpStream<T>` *owns* its transport `T` (the `PacketIo`), because a single connection driving
+Doc 22's `TcpStream<T>` *owns* its transport `T` (the `PacketIo`), because a single connection driving
 a single pipe is the simplest possible ergonomics:
 
 ```rust
@@ -28612,7 +28612,7 @@ connection appears in `backlog` exactly once, the first poll after it reaches ES
 ## 4. Routing one datagram: parse, look up, dispatch — or accept
 
 A free function `parse_any` turns raw bytes into `(Quad, header, payload, options)` with *no*
-per-connection filtering — the server routes by the returned `Quad`, unlike Day 22's `parse_for` which
+per-connection filtering — the server routes by the returned `Quad`, unlike Doc 22's `parse_for` which
 filtered against one connection's quad:
 
 ```rust
@@ -28729,7 +28729,7 @@ the server keeps demuxing everyone else's packets.
 
 ## 8. `PacketIo` and a shared medium for offline testing
 
-The façade abstracts the transport behind `PacketIo` (Day 22) precisely so it can be tested without a
+The façade abstracts the transport behind `PacketIo` (Doc 22) precisely so it can be tested without a
 TUN device. For *one* connection, two cross-wired queues (a `Pipe`) suffice. For *many* connections to
 one server, the test needs a **shared medium**: all clients write "up" to the server, and the server
 broadcasts "down" to every client inbox — and each client ignores datagrams not for its own 4-tuple,
@@ -28794,7 +28794,7 @@ buffer, because they hash to different `Quad`s.
 - **Routing** (`parse_any` + the `poll` step-2 match) is the demux: lookup-or-accept by 4-tuple.
 - **`accept_one`** drains the backlog FIFO; the app then drives that connection by quad.
 - **`send`/`recv`/`close`/`state`/`peer_closed`** are thin per-quad wrappers over the underlying
-  `Connection::{write, take_received, close, state, peer_closed}` — the same primitives Day 11 exposed,
+  `Connection::{write, take_received, close, state, peer_closed}` — the same primitives Doc 11 exposed,
   now selected by 4-tuple.
 - **Reaping** (`poll` step 4) removes connections that reached CLOSED and forgets their `announced`
   entry, bounding the table.
@@ -28816,7 +28816,7 @@ buffer, because they hash to different `Quad`s.
 
 This proves the three things that distinguish a server from a single connection: it **tracks** many
 connections at once, **accepts** each as a distinct endpoint, and **demuxes** their data without
-cross-talk. Together with the Day 22 single-connection handshake/transfer/close tests, the socket layer
+cross-talk. Together with the Doc 22 single-connection handshake/transfer/close tests, the socket layer
 is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
 
 ## 13. Why this, not that
@@ -28825,7 +28825,7 @@ is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
   is the natural key. Real stacks use a hash table with the same key (plus a separate listener lookup).
 - **Why return a `Quad` handle from `accept_one`, not an owned `TcpStream`?** Because the connection
   must stay in the server's table to keep receiving routed packets. Handing out an owned stream would
-  recreate the Day-22 ownership problem (the transport can't be in two places). The handle pattern is
+  recreate the Doc-22 ownership problem (the transport can't be in two places). The handle pattern is
   how a real server holds many fds and `select`s over them.
 - **Why announce-once with a `HashSet`?** A connection reaches ESTABLISHED on one specific poll; without
   a "seen" set, every later poll would re-enqueue it. The set makes the backlog a true event queue.
@@ -28843,7 +28843,7 @@ is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
   differs.
 - **A separate listen socket and accept queue.** The kernel keeps a *listener* (matched by local
   port with a wildcard remote) distinct from established connections, with its own SYN queue and accept
-  queue, backlog limits, and SYN-cookie fallback (Day 27). We fold "is this a SYN to our port" into the
+  queue, backlog limits, and SYN-cookie fallback (Doc 27). We fold "is this a SYN to our port" into the
   same table lookup.
 - **Per-connection buffering limits, fairness, and backpressure.** A real server bounds memory per
   connection and across connections; ours has unbounded per-connection buffers.
@@ -28864,20 +28864,20 @@ Checklist (extending `src/socket.rs`):
 
 Exercises:
 - **(a)** Add a real RST for stray segments to no connection (mirror `main`'s behaviour) and test it.
-- **(b)** Bound the table: cap `conns.len()`, and fall back to SYN cookies (Day 27) when full —
-  wiring Day 27 into the façade.
+- **(b)** Bound the table: cap `conns.len()`, and fall back to SYN cookies (Doc 27) when full —
+  wiring Doc 27 into the façade.
 - **(c)** Give `accept_one` a blocking sibling `accept()` that polls until the backlog is non-empty.
-- **(d)** Run two **BBR** connections (Day 28) through one `TcpServer` and watch them share the
-  (simulated) bottleneck — the multi-flow experiment Day 28 set up.
+- **(d)** Run two **BBR** connections (Doc 28) through one `TcpServer` and watch them share the
+  (simulated) bottleneck — the multi-flow experiment Doc 28 set up.
 - **(e)** Add `0.0.0.0` wildcard binding: accept a SYN to *any* local IP on the bound port.
 
 ## 16. What comes after
 
-With BBR (Day 28) and the multi-connection `TcpServer`, the stack is **feature-complete** against its
+With BBR (Doc 28) and the multi-connection `TcpServer`, the stack is **feature-complete** against its
 own roadmap: every algorithm and façade the README listed is built and tested offline. What remains is
 not new code but *live* exercise that needs sudo + a TUN device + a real network — `packetdrill`
 conformance against the kernel, `iperf3` throughput under `tc netem` loss/reordering, flamegraph
-profiling, and actually rate-pacing the sender to BBR's computed rate (Day 28, exercise (a)). Those are
+profiling, and actually rate-pacing the sender to BBR's computed rate (Doc 28, exercise (a)). Those are
 the subjects no offline unit test can stand in for, and so they are where this book ends and a live lab
 begins.
 
@@ -28909,7 +28909,7 @@ to the listener; we fold both into one table plus the "SYN to our port" rule.
 ```
 
 The split between "SYN creates a SYN_RCVD connection" and "the ACK promotes it and announces it" is the
-server-side handshake, table-resident. Day 27's SYN cookies are the alternative path when the backlog
+server-side handshake, table-resident. Doc 27's SYN cookies are the alternative path when the backlog
 would overflow — not yet wired into `TcpServer` (exercise (b)), but present in `main`.
 
 ## C. A connection's lifecycle in the table
@@ -28968,7 +28968,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 
 ## G. Extended FAQ — twenty questions a careful reader asks
 
-1. **Why can the server share one transport across connections but Day 22 couldn't?** Day 22's stream
+1. **Why can the server share one transport across connections but Doc 22 couldn't?** Doc 22's stream
    *owns* the transport; `TcpServer` owns it centrally and routes — the opposite ownership.
 2. **What if two clients pick the same source port?** They can't collide unless they're also the same
    source IP — then they'd be the same connection. Different IP or port → different `Quad`.
@@ -28989,7 +28989,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 12. **Could two `TcpServer`s share a medium?** Yes (different `local`); each ignores the other's
     packets via the `quad.local != self.local` filter.
 13. **Does the server handle half-close per connection?** Yes — `peer_closed(quad)` and `close(quad)`
-    are per-connection, like Day 19's half-close.
+    are per-connection, like Doc 19's half-close.
 14. **What drives retransmission for all connections?** `poll` step 1 calls every connection's
     `on_tick(now_ms)`, which fires its RTO/RACK-TLP/persist/keepalive timers.
 15. **Why is the module `#![allow(dead_code)]`?** It's an embeddable API exercised by tests; the demo
@@ -29000,7 +29000,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
     `parse_for` drops datagrams whose quad isn't its own.
 18. **Does `TcpServer` support active open (connect)?** No — it's a passive server; the client side uses
     `TcpStream::connect`. Add a `connect`-into-the-table method if you want both.
-19. **What's the relationship to BBR (Day 28)?** Orthogonal: each `Connection` in the table has its own
+19. **What's the relationship to BBR (Doc 28)?** Orthogonal: each `Connection` in the table has its own
     congestion controller; you can `use_bbr()` per connection (exercise (d)).
 20. **Is this how `main` actually serves `nc`/`curl`?** Yes — `main` is the same demux plus ICMP/UDP and
     the echo/HTTP application; `TcpServer` is its TCP core, lifted out and unit-tested.
@@ -29010,7 +29010,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 ```text
    Q: What uniquely identifies a TCP connection?  A: The 4-tuple (remote IP, remote port, local IP,
       local port).
-   Q: Why was Day 22's façade single-connection?  A: The stream OWNS its transport; the listener moves
+   Q: Why was Doc 22's façade single-connection?  A: The stream OWNS its transport; the listener moves
       it on accept, so it's spent after one.
    Q: What does TcpServer own?  A: One PacketIo transport + a HashMap<Quad, Connection> table.
    Q: How is an inbound datagram routed?  A: parse → 4-tuple → table lookup; hit = dispatch, miss+SYN =
@@ -29055,7 +29055,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
    connection_count()      conns.len()                          live connections in the table
 ```
 
-| Aspect | Day 22 `TcpListener`/`TcpStream` | Day 29 `TcpServer` |
+| Aspect | Doc 22 `TcpListener`/`TcpStream` | Doc 29 `TcpServer` |
 |---|---|---|
 | Connections | one | many (a table) |
 | Transport ownership | moved into the stream | held centrally, shared |
@@ -29108,7 +29108,7 @@ in `src/tcp.rs`; edges are `trigger / action`.
                                                                CLOSED
 ```
 
-Robustness edges present on every *synchronized* state (ESTABLISHED … TIME_WAIT), from Chapters 19 &
+Robustness edges present on every *synchronized* state (ESTABLISHED … TIME_WAIT), from Docs 19 &
 23, not drawn above to keep it readable:
 
 ```text
@@ -29116,10 +29116,10 @@ Robustness edges present on every *synchronized* state (ESTABLISHED … TIME_WAI
    recv RST, in-window, seq != RCV.NXT → challenge ACK     (RFC 5961 §3, throttled)
    recv SYN (any seq)                  → challenge ACK     (RFC 5961 §4, throttled)
    recv ACK ∉ [UNA−MAX.SND.WND, NXT]   → challenge ACK     (RFC 5961 §5, throttled)
-   idle in FIN_WAIT_2 (60s) / CLOSE_WAIT (120s) → CLOSED   (reaper, Ch. 23)
+   idle in FIN_WAIT_2 (60s) / CLOSE_WAIT (120s) → CLOSED   (reaper, Doc 23)
 ```
 
-The two half-closes, the theme of Chapters 19 and 22:
+The two half-closes, the theme of Docs 19 and 22:
 
 ```text
    passive (peer FINs first):  ESTABLISHED → CLOSE_WAIT → LAST_ACK → CLOSED   (keep SENDING in CLOSE_WAIT)
@@ -29159,17 +29159,17 @@ The two half-closes, the theme of Chapters 19 and 22:
 ## Appendix C — The complete RFC map
 
 ```text
-   RFC 791   IPv4                         Ch. 1     |  RFC 2018  SACK                        Ch. 18
-   RFC 792   ICMP                          Ch. 1     |  RFC 6582  NewReno                     Ch. 20
-   RFC 1071  Internet checksum             Ch. 2     |  RFC 6675  SACK-based recovery         Ch. 21
-   RFC 1982  Serial-number arithmetic      Ch. 3     |  RFC 9112  HTTP/1.1 framing            Ch. 22
-   RFC 6528  ISN randomization             Ch. 3     |  RFC 5961  Blind in-window attacks     Ch. 19, 23
-   RFC 9293  TCP (obsoletes 793)           Ch. 3+    |  RFC 1337  TIME-WAIT assassination     Ch. 19, 23
-   RFC 6298  TCP RTO                        Ch. 6     |  RFC 8985  RACK-TLP                    Ch. 24
-   RFC 5681  Congestion control            Ch. 10    |  RFC 8312/9438  CUBIC                  Ch. 25
-   RFC 896   Nagle                          Ch. 13    |  RFC 9293 §3.8.4  Keepalive           Ch. 26
-   RFC 7323  Timestamps + window scale      Ch. 16–17 |  RFC 4987  SYN cookies               Ch. 27
-                                                      |  BBR draft  Model-based control       Ch. 28
+   RFC 791   IPv4                         Doc 1     |  RFC 2018  SACK                        Doc 18
+   RFC 792   ICMP                          Doc 1     |  RFC 6582  NewReno                     Doc 20
+   RFC 1071  Internet checksum             Doc 2     |  RFC 6675  SACK-based recovery         Doc 21
+   RFC 1982  Serial-number arithmetic      Doc 3     |  RFC 9112  HTTP/1.1 framing            Doc 22
+   RFC 6528  ISN randomization             Doc 3     |  RFC 5961  Blind in-window attacks     Doc 19, 23
+   RFC 9293  TCP (obsoletes 793)           Doc 3+    |  RFC 1337  TIME-WAIT assassination     Doc 19, 23
+   RFC 6298  TCP RTO                        Doc 6     |  RFC 8985  RACK-TLP                    Doc 24
+   RFC 5681  Congestion control            Doc 10    |  RFC 8312/9438  CUBIC                  Doc 25
+   RFC 896   Nagle                          Doc 13    |  RFC 9293 §3.8.4  Keepalive           Doc 26
+   RFC 7323  Timestamps + window scale      Doc 16–17 |  RFC 4987  SYN cookies               Doc 27
+                                                      |  BBR draft  Model-based control       Doc 28
                                                       |  RFC 2883  D-SACK (further study)      Appendix E
 ```
 
@@ -29234,13 +29234,13 @@ finish line.
 
 ## Appendix E — Further study (what this book doesn't build)
 
-The curriculum now spans Days 1–29 — the full lifecycle, both loss-based (NewReno → RFC 6675 → CUBIC,
-Chs. 20/21/25) and model-based (BBR, Ch. 28) congestion control, RACK-TLP (Ch. 24), RFC 5961
-robustness (Ch. 23), SYN cookies (Ch. 27), keepalive (Ch. 26), and a multi-connection server
-(Ch. 29). What remains is genuinely *not built*, deliberately left as next steps (several are chapter
+The curriculum now spans Docs 1–29 — the full lifecycle, both loss-based (NewReno → RFC 6675 → CUBIC,
+Chs. 20/21/25) and model-based (BBR, Doc 28) congestion control, RACK-TLP (Doc 24), RFC 5961
+robustness (Doc 23), SYN cookies (Doc 27), keepalive (Doc 26), and a multi-connection server
+(Doc 29). What remains is genuinely *not built*, deliberately left as next steps (several are chapter
 exercises):
 
-- **Real rate-paced transmission** — BBR (Ch. 28) computes a pacing rate but the sender is still
+- **Real rate-paced transmission** — BBR (Doc 28) computes a pacing rate but the sender is still
   window-limited; actually pacing each segment to `BtlBw` is the missing half, and only matters under
   bulk transfer the echo server never drives.
 - **BBRv2 / BBRv3** — an explicit loss/ECN response and fairer coexistence with loss-based flows; Ch.
@@ -29248,7 +29248,7 @@ exercises):
 - **ECN (RFC 3168)** — explicit congestion notification as a signal for either controller.
 - **D-SACK (RFC 2883)** — detect spurious retransmits from duplicate SACK blocks.
 - **Limited Transmit (RFC 3042)** — send new data on the first dup-ACKs to avoid an RTO on tail loss.
-- **A bounded connection table + SYN-cookie fallback in `TcpServer`** (Ch. 29 exercise), `0.0.0.0`
+- **A bounded connection table + SYN-cookie fallback in `TcpServer`** (Doc 29 exercise), `0.0.0.0`
   wildcard binding, write backpressure, request bodies / chunked transfer.
 - **Live conformance + load testing** — `packetdrill` against the kernel, `iperf3` under `tc netem`,
   profiling/flamegraphs (needs sudo / TUN and a live network — the one thing no offline test replaces).
@@ -29259,7 +29259,7 @@ families, flood survival, and a multi-connection server — is what this book bu
 
 ## Colophon
 
-This volume is compiled from the per-chapter sources `docs/day1-book.md` … `docs/day29-book.md`; edit
+This volume is compiled from the per-chapter sources `docs/doc1-book.md` … `docs/doc29-book.md`; edit
 those, not this file. The accompanying implementation lives in `src/`, proven by the in-tree test
 suite (`cargo test`) and kept clippy-clean (`-D warnings`). Built from scratch, byte by byte, against
 the RFCs.

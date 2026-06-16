@@ -1,4 +1,4 @@
-//! Day 22 — a minimal HTTP/1.x request parser + responder for the server in `main`.
+//! Doc 22 — a minimal HTTP/1.x request parser + responder for the server in `main`.
 //!
 //! Until now `main` recognised a request by its first bytes (`GET `) and replied on the request
 //! line — fine for a single `curl` GET that arrives in one segment, but not real HTTP: it never
@@ -6,7 +6,7 @@
 //! properly: buffer until the blank line `\r\n\r\n`, parse the request line + the `Connection`
 //! header, and decide **keep-alive vs close** per the HTTP/1.0-vs-1.1 rules — so one connection can
 //! carry many requests. Everything here is a pure function over bytes, so it is unit-tested offline.
-//! Theory: `docs/day22-book.md`.
+//! Theory: `docs/doc22-book.md`.
 
 /// The HTTP version on the request line. It sets the *default* persistence: 1.1 keeps the connection
 /// alive unless told otherwise; 1.0 closes unless explicitly asked to persist.

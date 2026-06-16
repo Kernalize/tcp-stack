@@ -1,10 +1,10 @@
-# Day 2 — Replying to Pings: the Internet Checksum and the First Write
+# Doc 2 — Replying to Pings: the Internet Checksum and the First Write
 
 > Goal: make `ping 192.168.0.2` actually succeed (0% loss). To do that we must, for the
 > first time, **build a packet and write it to the wire** — and that forces us to learn the
 > **Internet Checksum** (RFC 1071), the one piece of arithmetic shared by IP, ICMP, TCP and
 > UDP. After this you can compute and verify the checksum by hand and know exactly why
-> `ping` was silent on Day 1.
+> `ping` was silent on Doc 1.
 
 **Contents**
 1. Recap and the plan
@@ -22,19 +22,19 @@
 
 ## 1. Recap and the plan
 
-Day 1 we could *read* a ping (ICMP Echo Request, type 8) but never answered, so `ping`
+Doc 1 we could *read* a ping (ICMP Echo Request, type 8) but never answered, so `ping`
 reported 100% loss. An Echo *Reply* (type 0) carrying the same payload is what makes the
 round trip complete. Building that reply means writing correct bytes back — including a
-correct checksum, or the kernel/peer silently drops our packet. So Day 2 is two things:
+correct checksum, or the kernel/peer silently drops our packet. So Doc 2 is two things:
 **the checksum** (the hard concept) and **the reply** (the first write).
 
 ---
 
 ## 2. The modular refactor — why now, what moved
 
-Day 1 lived entirely in `main.rs` — correct, because there was one caller of the IP parser.
+Doc 1 lived entirely in `main.rs` — correct, because there was one caller of the IP parser.
 Now ICMP-reply also needs IP logic (to rewrite addresses and the header checksum), so there
-are 2+ callers and the "split when there are 2+ callers" rule (day1-book.md §13) kicks in:
+are 2+ callers and the "split when there are 2+ callers" rule (doc1-book.md §13) kicks in:
 
 | Module | Holds | Public API used elsewhere |
 |---|---|---|
@@ -175,14 +175,14 @@ contract.
 ## 6. Writing to the wire — `iface.send` and why ping now works
 
 `iface.send(&reply)` is `write(fd, reply)` on the TUN device (the mirror of the `recv`/`read`
-from day1-book.md §2-under-the-hood). To the kernel it looks as if a packet `192.168.0.2 →
+from doc1-book.md §2-under-the-hood). To the kernel it looks as if a packet `192.168.0.2 →
 192.168.0.1` *arrived from* `tun0`. The kernel routes it to the `ping` process, which sees
 its Echo Reply, matches it by id/seq, and prints `64 bytes from 192.168.0.2: icmp_seq=1
 ttl=64 time=0.2 ms`. Loss drops to 0%. You have built a host that answers pings using a
 network stack you wrote.
 
 If a checksum were wrong, the kernel would drop the reply before `ping` ever saw it — which
-is exactly why Day 1 (no reply at all) and "a reply with a bad checksum" look identical from
+is exactly why Doc 1 (no reply at all) and "a reply with a bad checksum" look identical from
 the outside, and why we test the checksums offline rather than trusting the live run.
 
 ---
@@ -198,7 +198,7 @@ the outside, and why we test the checksums offline rather than trusting the live
 - `icmp::reply_is_well_formed` — the reply has type 0, swapped addresses, **both checksums
   valid (each region sums to 0)**, and the data payload unchanged.
 - `icmp::ignores_non_echo_request` — we don't reply to non-requests.
-- (plus the Day-1 parse tests, now living in `ip`/`icmp`).
+- (plus the Doc-1 parse tests, now living in `ip`/`icmp`).
 
 Live test (your hands): run the stack, `ping -c3 192.168.0.2` from terminal 2 — expect
 replies and **0% loss**. `sudo tcpdump -i tun0 -n -v` should now show *both* the request and
@@ -232,7 +232,7 @@ From memory you should be able to:
 4. Explain why a wrong checksum makes the reply vanish silently.
 
 **Exercises:**
-- **E1.** Hand-compute the checksum of the Day-1 ping IP header (zero the field first); then
+- **E1.** Hand-compute the checksum of the Doc-1 ping IP header (zero the field first); then
   confirm your number with a one-line test.
 - **E2.** **Validate incoming** IP checksums: in `ip::parse` (or the loop), reject a packet
   whose header doesn't verify to 0. Add a `ParseError::BadChecksum` and a test.
@@ -259,18 +259,18 @@ that state machine is the heart of the project.
 ---
 ---
 
-# VOLUME II — The Exhaustive Reference (Day 2)
+# VOLUME II — The Exhaustive Reference (Doc 2)
 
 > Volume I above is the narrative that gets ping replying. Volume II makes you own the checksum and
 > packet construction completely: every checksum variant, the math with proofs, the build technique,
-> the code line-by-line, and the testing — so you can re-derive Day 2 from first principles.
+> the code line-by-line, and the testing — so you can re-derive Doc 2 from first principles.
 
-## Contents of Volume II (Day 2)
+## Contents of Volume II (Doc 2)
 - A. Error detection in general — why checksums, and the alternatives
 - B. One's-complement arithmetic, completely (with proofs)
 - C. The Internet checksum algorithm — variants and optimizations
 - D. Packet construction — the general technique (mutate vs build)
-- E. `utils.rs` and `icmp.rs` line-by-line (Day-2 additions)
+- E. `utils.rs` and `icmp.rs` line-by-line (Doc-2 additions)
 - F. Writing to the wire — `iface.send` internals
 - (continues: debugging, exercises, FAQ, glossary, tables)
 
@@ -326,7 +326,7 @@ guarantee the property; intermediate checks are optimizations, not guarantees.
 
 ## B. One's-complement arithmetic, completely
 
-Day 1 §R sketched this; here it is in full, because the checksum *is* this arithmetic.
+Doc 1 §R sketched this; here it is in full, because the checksum *is* this arithmetic.
 
 ### B.1 — Representations recap
 
@@ -375,7 +375,7 @@ fact.
 | In our code | `!sum` in `checksum` | `i32`/`i8` (we don't use these for fields) |
 
 Rust's `!` gives the one's complement of the bit pattern (what the checksum needs); Rust's signed
-integer *arithmetic* is two's complement (what your CPU does). Day 2 uses the former, never the
+integer *arithmetic* is two's complement (what your CPU does). Doc 2 uses the former, never the
 latter.
 
 ---
@@ -434,19 +434,19 @@ NIC (e.g. on the loopback or with certain capture points) may show a "bad" check
 fine — Wireshark even warns "checksum offload?" for exactly this. On our TUN path there's no NIC, so
 we compute in software (our `utils::checksum`).
 
-### C.7 — The pseudo-header detail (TCP/UDP, preview of Day 3)
+### C.7 — The pseudo-header detail (TCP/UDP, preview of Doc 3)
 
 IP checksums only its header. TCP and UDP checksum a **pseudo-header** (src/dst IP, protocol,
 transport length) **plus** the transport header and data. The pseudo-header is never transmitted — it
 binds the checksum to the addresses so a misdelivered segment is detected. Same `utils::checksum`
 function, different byte range (you prepend the 12-byte pseudo-header). UDP may send checksum 0 to
-mean "not computed" (IPv4 only); TCP must always compute it. Full treatment in day3-book.md §8.
+mean "not computed" (IPv4 only); TCP must always compute it. Full treatment in doc3-book.md §8.
 
 ---
 
 ## D. Packet construction — the general technique
 
-Day 1 only read packets; Day 2 writes the first one. There are two ways to produce an outgoing
+Doc 1 only read packets; Doc 2 writes the first one. There are two ways to produce an outgoing
 packet, and knowing when to use each is a real skill.
 
 ### D.1 — Mutate-in-place vs build-from-scratch
@@ -455,12 +455,12 @@ packet, and knowing when to use each is a real skill.
   fields that differ, recompute the affected checksums. Cheapest and least error-prone when the
   response *resembles* the request (echo reply ≈ echo request with swapped addresses + flipped type).
   Bonus: any field/payload you don't touch is automatically correct (the data echoes for free).
-- **Build from scratch** (what `tcp::build_packet` does, Day 3): allocate a zeroed buffer and write
+- **Build from scratch** (what `tcp::build_packet` does, Doc 3): allocate a zeroed buffer and write
   every field. Necessary when the response has *no* corresponding request to mutate (a SYN-ACK, a
   fresh data segment, a generated ICMP error). More code, more places to get a field wrong.
 
-The rule: mutate when the response is a near-copy; build when it's genuinely new. Day 2 is mutate;
-Day 3 introduces build.
+The rule: mutate when the response is a near-copy; build when it's genuinely new. Doc 2 is mutate;
+Doc 3 introduces build.
 
 ### D.2 — The invariant order of operations
 
@@ -476,7 +476,7 @@ most common packet-construction bug.
 The IP checksum covers **only the IP header** (`reply[..header_len]`); the ICMP checksum covers **the
 whole ICMP message** (`reply[header_len..]`). They are independent computations over disjoint ranges
 with the same `utils::checksum`. Getting the ranges wrong (e.g. checksumming the whole packet for the
-IP field) silently produces an invalid packet. (TCP/UDP add the pseudo-header twist — Day 3.)
+IP field) silently produces an invalid packet. (TCP/UDP add the pseudo-header twist — Doc 3.)
 
 ### D.4 — Zero-the-field-first, always
 
@@ -500,15 +500,15 @@ and the IP Total Length field must match — a mismatch confuses receivers and s
 
 ---
 
-## E. `utils.rs` and `icmp.rs` line-by-line (Day-2 additions)
+## E. `utils.rs` and `icmp.rs` line-by-line (Doc-2 additions)
 
-(Day-1 §O covered `ip.rs`/`utils.rs` parse side; here are the Day-2 additions in full.)
+(Doc-1 §O covered `ip.rs`/`utils.rs` parse side; here are the Doc-2 additions in full.)
 
-### E.1 — `utils::checksum` — see Day 1 §O.1 for the full line-by-line
+### E.1 — `utils::checksum` — see Doc 1 §O.1 for the full line-by-line
 
-The function is unchanged from where Day 1 introduced it; its complete walkthrough (the `u32`
+The function is unchanged from where Doc 1 introduced it; its complete walkthrough (the `u32`
 accumulator, `chunks_exact(2)` + `by_ref()`, the odd-byte `<<8`, the end-around `while` fold, the
-final `!`) lives in **day1-book.md §O.1**, with the math in §R there. Day 2 is where it's first
+final `!`) lives in **doc1-book.md §O.1**, with the math in §R there. Doc 2 is where it's first
 *used* for real (computing, not just the concept).
 
 ### E.2 — `ip::write_header_checksum`, line by line
@@ -559,7 +559,7 @@ pub fn build_echo_reply(request: &[u8], header_len: usize) -> Option<Vec<u8>> {
 ```
 - Swap source/destination via temporaries. The temporaries avoid an overlapping
   borrow-of-self (you can't `copy_from_slice` one part of `reply` from another part simultaneously —
-  see day1 §AR.12). After this, the reply is addressed back to the pinger.
+  see doc1 §AR.12). After this, the reply is addressed back to the pinger.
 
 ```rust
     reply[8] = 64;
@@ -597,7 +597,7 @@ executable checks — if you violate the order or forget to zero a field, a test
 
 `iface.send(&reply)` is `write(tun_fd, reply)` — it hands the bytes to the TUN driver, which presents
 them to the kernel's IP layer as if the packet **arrived from** `tun0` (the mirror of `recv`/`read`,
-day1 §F.4). The kernel then routes/delivers it normally: for our echo reply addressed to
+doc1 §F.4). The kernel then routes/delivers it normally: for our echo reply addressed to
 `192.168.0.1`, the kernel hands it to the waiting `ping` process.
 
 ### F.2 — Why a bad checksum vanishes here
@@ -605,7 +605,7 @@ day1 §F.4). The kernel then routes/delivers it normally: for our echo reply add
 After `write`, the kernel (or, for a real peer, the receiving host) validates the IP and ICMP
 checksums. If either fails, the packet is **silently discarded** — no error returns to us, `send`
 still reports success. That's why "I sent a reply but ping still shows loss" almost always means a
-checksum bug (day1 §P.8), and why we verify checksums in *offline tests* rather than trusting the
+checksum bug (doc1 §P.8), and why we verify checksums in *offline tests* rather than trusting the
 live result.
 
 ### F.3 — Partial writes and return value
@@ -618,7 +618,7 @@ returned count — a robustness nit, not a correctness bug for our sizes.
 ### F.4 — Blocking and ordering
 
 Like `recv`, `send` on the blocking fd may block if the device queue is full (rare for our volume).
-Packets we write are delivered in order. Under the future event loop (day1 §AI), `send` on a
+Packets we write are delivered in order. Under the future event loop (doc1 §AI), `send` on a
 non-blocking fd could return `WouldBlock`, and you'd queue the packet to retry on writability — part
 of the same refactor that enables retransmission.
 
@@ -627,13 +627,13 @@ of the same refactor that enables retransmission.
 `ping` → kernel routes to tun0 → our `recv` → parse → `build_echo_reply` (valid checksums) → our
 `send` → kernel sees a packet "from tun0" to 192.168.0.1 → delivers to `ping` → `ping` matches it by
 id/seq → prints `64 bytes from 192.168.0.2 ... time=0.2 ms`, loss 0%. Every arrow is something this
-project now implements or drives. That round trip is the Day-2 milestone made concrete.
+project now implements or drives. That round trip is the Doc-2 milestone made concrete.
 
 ---
 
 ## G. Debugging the checksum and the reply
 
-Day-2 bugs are almost all "the packet went out but vanished." Here's how to find each.
+Doc-2 bugs are almost all "the packet went out but vanished." Here's how to find each.
 
 ### G.1 — Symptom: ping still 100% loss after adding the reply
 
@@ -685,7 +685,7 @@ session.
 
 ---
 
-## H. Day 2 exercises with full worked solutions
+## H. Doc 2 exercises with full worked solutions
 
 ### H.1 — Compute a checksum by hand
 **Q.** Header `45 00 00 28 00 01 00 00 40 06 00 00 0a 00 00 01 0a 00 00 02` (field zeroed). Checksum?
@@ -743,7 +743,7 @@ checksum without re-summing.
 
 ---
 
-## I. Day 2 FAQ
+## I. Doc 2 FAQ
 
 **1. Why does the checksum use a `u32` accumulator?** To hold carries from summing many 16-bit words
 before folding (§C.2).
@@ -761,7 +761,7 @@ discard by the kernel/peer (§F.2). Verify checksums offline.
 separate checksum fields (§D.3).
 
 **6. Can I reuse `utils::checksum` for TCP later?** Yes — same function, you just prepend the 12-byte
-pseudo-header to the TCP segment (§C.7, day3).
+pseudo-header to the TCP segment (§C.7, doc3).
 
 **7. Why mutate the request instead of building a reply?** Less code, fewer bugs, and the payload
 echoes for free (§D.1). Build-from-scratch is for responses with no matching request.
@@ -784,7 +784,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 
 ---
 
-## J. Day-2 glossary
+## J. Doc-2 glossary
 
 - **Adler-32** — a fast checksum (zlib); stronger than the Internet checksum, weaker than CRC.
 - **checksum** — redundancy computed from data to *detect* (not correct) corruption.
@@ -807,7 +807,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 - **two's complement** — signed-integer representation (invert+1); CPU/Rust arithmetic.
 - **verify-to-zero** — a valid Internet checksum, re-summed including its field, yields 0.
 
-## K. Day-2 reference tables
+## K. Doc-2 reference tables
 
 ### K.1 — The checksum algorithm as a step table
 
@@ -836,7 +836,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 |----------|--------|----------------|----------------|
 | IPv4 header | the IP header only (IHL×4 bytes) | no | IP bytes 10–11 |
 | ICMP | the whole ICMP message | no | ICMP bytes 2–3 |
-| TCP (day3) | pseudo-header + TCP header + data | **yes** | TCP bytes 16–17 |
+| TCP (doc3) | pseudo-header + TCP header + data | **yes** | TCP bytes 16–17 |
 | UDP | pseudo-header + UDP header + data | yes (optional in v4) | UDP bytes 6–7 |
 
 ### K.4 — Error-detection strength comparison
@@ -860,7 +860,7 @@ it's wrong, drop. (On real NICs, hardware offload may compute outgoing ones — 
 
 ## L. The modular refactor — line-by-line and the module graph
 
-Day 2 split `main.rs` into modules. Here's the structure and why each `use`/`mod` line exists.
+Doc 2 split `main.rs` into modules. Here's the structure and why each `use`/`mod` line exists.
 
 ### L.1 — The `mod` declarations in `main.rs`
 
@@ -913,11 +913,11 @@ Each module carries `#[cfg(test)] mod tests`. Tests are child modules, so they c
 of their parent — you can test internals without making them `pub`. They compile only under
 `cargo test`. This is why splitting into modules didn't scatter the tests: each file owns its own.
 
-### L.6 — Why split now and not Day 1
+### L.6 — Why split now and not Doc 1
 
-Day 1 had one caller of IP logic → one file was right (no premature structure). Day 2's ICMP reply
-created a *second* caller of IP/checksum logic → the "2+ callers" threshold (day1 §13) → split. The
-refactor is behavior-preserving (all Day-1 tests still pass, now living in `ip`/`icmp`), which is the
+Doc 1 had one caller of IP logic → one file was right (no premature structure). Doc 2's ICMP reply
+created a *second* caller of IP/checksum logic → the "2+ callers" threshold (doc1 §13) → split. The
+refactor is behavior-preserving (all Doc-1 tests still pass, now living in `ip`/`icmp`), which is the
 safe way to refactor: move code, keep tests green.
 
 ## M. The checksum across the stack — one function, four protocols
@@ -925,22 +925,22 @@ safe way to refactor: move code, keep tests green.
 `utils::checksum` is reused by every layer; the only differences are the byte range and whether a
 pseudo-header is prepended. Seeing them together cements the "reuse physically" rule.
 
-- **IPv4 header:** `checksum(&packet[..ihl*4])`. Header only. No pseudo-header. (Day 2.)
-- **ICMP:** `checksum(&icmp_message)`. Whole message. No pseudo-header. (Day 2.)
+- **IPv4 header:** `checksum(&packet[..ihl*4])`. Header only. No pseudo-header. (Doc 2.)
+- **ICMP:** `checksum(&icmp_message)`. Whole message. No pseudo-header. (Doc 2.)
 - **UDP:** `checksum(pseudo_header ++ udp_header ++ data)`. Optional in IPv4 (0 = none). (UDP exercise.)
-- **TCP:** `checksum(pseudo_header ++ tcp_header ++ data)`. Mandatory. (Day 3.)
+- **TCP:** `checksum(pseudo_header ++ tcp_header ++ data)`. Mandatory. (Doc 3.)
 
 The pseudo-header (for TCP/UDP) is 12 bytes: src IP, dst IP, zero, protocol, transport length. It's
 *input only* — never sent. The reason it exists (binding the checksum to the addresses, to catch
 misdelivery) is the one conceptual addition over IP/ICMP. Everything else is the same one's-complement
-sum you wrote once. When you reach Day 3, the TCP checksum will feel familiar precisely because it's
+sum you wrote once. When you reach Doc 3, the TCP checksum will feel familiar precisely because it's
 this function with a 12-byte prefix — the payoff of putting it in `utils`.
 
 ---
 
 ## N. A full byte-level trace: echo request → echo reply
 
-The whole Day-2 transformation, byte for byte. Request in, reply out.
+The whole Doc-2 transformation, byte for byte. Request in, reply out.
 
 ### N.1 — The request (84 bytes), annotated
 
@@ -1034,11 +1034,11 @@ listed in the §AE/AE-style simplifications.
 
 Premature optimization would obscure the learning. The naive checksum maps 1:1 to RFC 1071 and to the
 math in §B/§R; a SIMD version would be faster but unreadable. The right time to optimize is when a
-benchmark says so (day1 §S), not before. Knowing the *fast* forms exist (§C) is enough for now.
+benchmark says so (doc1 §S), not before. Knowing the *fast* forms exist (§C) is enough for now.
 
 ---
 
-## P. Security notes — ICMP attacks Day 2 enables and defends
+## P. Security notes — ICMP attacks Doc 2 enables and defends
 
 Building an ICMP responder is your first taste of being a network *endpoint* an attacker can poke.
 
@@ -1055,12 +1055,12 @@ Our stack does neither yet — a deliberate simplification and a good exercise.
 Echo *data* is arbitrary and echoed verbatim — so it's a covert channel: tools like `icmptunnel`
 smuggle TCP/SSH inside ping payloads to bypass firewalls that allow ICMP. As the *responder*, you'd
 faithfully echo whatever you're sent. Blue-team detection: anomalous echo payload sizes/entropy/rates.
-This connects Day 2 directly to your security track (you can now both build and recognize it).
+This connects Doc 2 directly to your security track (you can now both build and recognize it).
 
 ### P.3 — Ping of Death / malformed input
 
 Historically, oversized or overlapping-fragment ICMP crashed reassembly buffers. Our defense is the
-same length discipline as Day 1: `build_echo_reply` guards `request.len() >= header_len + 8` before
+same length discipline as Doc 1: `build_echo_reply` guards `request.len() >= header_len + 8` before
 indexing, so a runt request returns `None` instead of panicking. A reply builder that indexed blindly
 would be crashable by a crafted short packet.
 
@@ -1069,7 +1069,7 @@ would be crashable by a crafted short packet.
 TTL in your replies hints at your OS; echoing data confirms reachability and timing. ICMP error
 messages (if you generated them) quote the offending packet's header + 8 bytes, leaking ports/seq.
 Security-sensitive hosts rate-limit and sometimes suppress ICMP for this reason — a tradeoff against
-the PMTUD breakage that blocking ICMP causes (day1 §H.9).
+the PMTUD breakage that blocking ICMP causes (doc1 §H.9).
 
 ### P.5 — The defensive checklist (carry forward)
 
@@ -1081,7 +1081,7 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 
 ---
 
-## Q. Day-2 self-test and the bridge to Day 3
+## Q. Doc-2 self-test and the bridge to Doc 3
 
 ### Q.1 — Self-test (answer cold)
 
@@ -1096,7 +1096,7 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 9. Why does a reply with a bad checksum produce the *same* symptom as no reply at all?
 10. What does the TCP checksum add over IP/ICMP, and why?
 11. When do you mutate-in-place vs build-from-scratch?
-12. Why did Day 2 justify splitting into modules?
+12. Why did Doc 2 justify splitting into modules?
 
 ### Q.2 — Mastery checklist
 
@@ -1105,18 +1105,18 @@ the PMTUD breakage that blocking ICMP causes (day1 §H.9).
 - [ ] Compute and verify an IP checksum by hand.
 - [ ] Produce the §N request→reply byte trace from a blank page.
 - [ ] Make `ping` reply with 0% loss live, and confirm both packets in tcpdump.
-- [ ] Explain the pseudo-header you'll need on Day 3 without looking.
+- [ ] Explain the pseudo-header you'll need on Doc 3 without looking.
 
-### Q.3 — Bridge to Day 3
+### Q.3 — Bridge to Doc 3
 
-Day 1 read packets; Day 2 wrote one (a near-copy of a request). **Day 3 writes packets from
+Doc 1 read packets; Doc 2 wrote one (a near-copy of a request). **Doc 3 writes packets from
 scratch** and, for the first time, keeps **state across packets**: the TCP three-way handshake. The
 checksum you mastered here returns immediately — TCP's checksum is this exact function with a 12-byte
 pseudo-header (§C.7, §M). The build technique (lay out bytes, checksum last, big-endian) scales from
 the echo reply to a synthesized SYN-ACK. And the modular structure you refactored into is where
-`tcp.rs` slots in. Everything Day 2 taught is load-bearing for Day 3.
+`tcp.rs` slots in. Everything Doc 2 taught is load-bearing for Doc 3.
 
-Open `day3-book.md`. The stack grows a memory.
+Open `doc3-book.md`. The stack grows a memory.
 
 ---
 
@@ -1145,7 +1145,7 @@ touch bytes 2–3. (If you *changed* the data length, you'd have to update Total
 checksum.)
 
 ### R.5 — Build an ICMP echo *request* (originate)
-**A.** See day1 §AX: 20-byte IP header (proto 1, your src/dst) + 8-byte ICMP (type 8, id, seq),
+**A.** See doc1 §AX: 20-byte IP header (proto 1, your src/dst) + 8-byte ICMP (type 8, id, seq),
 IP checksum then ICMP checksum, both with field zeroed first. Sending it makes you a ping *client*.
 
 ### R.6 — What if you forget to swap addresses?
@@ -1171,7 +1171,7 @@ Anything shorter → `None`.
 
 ### R.10 — Why `Option`, not `Result`, for `build_echo_reply`?
 **A.** The only failure is "not a well-formed echo request" — one reason. `Option`/`None` matches the
-shape; a `Result` with a single error variant would add noise (day1 §G.7–G.8).
+shape; a `Result` with a single error variant would add noise (doc1 §G.7–G.8).
 
 ## S. The history of ping and ICMP
 
@@ -1180,7 +1180,7 @@ shape; a `Result` with a single error variant would add noise (day1 §G.7–G.8)
 - **`ping`** was written by **Mike Muuss in 1983** in a single evening, named after sonar (send a
   pulse, listen for the echo). It's one of the most-used network tools ever, and its source is a
   classic. The "64 bytes from…" output format is Muuss's.
-- **`traceroute`** (Van Jacobson, 1987) layered the TTL trick (§day1 H.5) on top of ICMP Time
+- **`traceroute`** (Van Jacobson, 1987) layered the TTL trick (§doc1 H.5) on top of ICMP Time
   Exceeded — using an *error* mechanism as a *measurement* tool, an enduringly clever idea.
 - ICMP's role *grew* in IPv6 (RFC 4443 + Neighbor Discovery), absorbing ARP's job — so "block all
   ICMP" went from bad IPv4 advice to network-breaking on IPv6.
@@ -1209,7 +1209,7 @@ buffer reuse, hardware offload, rate limiting, and policy knobs. Our version is 
 optimizations wrap. Reading Linux's `net/ipv4/icmp.c` (`icmp_echo` / `icmp_reply`) after this is
 illuminating: you'll recognize the structure immediately.
 
-## U. Final Day-2 reference tables
+## U. Final Doc-2 reference tables
 
 ### U.1 — Checksum facts at a glance
 | Question | Answer |
@@ -1235,7 +1235,7 @@ zero reply[ihl*4+2 .. ihl*4+4]; that = checksum(reply[ihl*4..]) # ICMP cksum
 send(reply)
 ```
 
-### U.3 — Symptom → cause (Day 2)
+### U.3 — Symptom → cause (Doc 2)
 | Symptom | Cause |
 |---|---|
 | ping still 100% loss, reply seen in tcpdump | bad checksum |
@@ -1283,14 +1283,14 @@ icmp_seq=1 ttl=64 time=0.2 ms`. Loss for that seq → 0%.
 Every field we set or preserved has a consumer on the other side. That's why each one matters and why
 getting any wrong makes the reply useless even if "sent."
 
-### V.6 — The mirror with day1 §F
-Day-1 §F traced packet *in* (kernel → our recv). This is packet *out* (our send → kernel → ping).
+### V.6 — The mirror with doc1 §F
+Doc-1 §F traced packet *in* (kernel → our recv). This is packet *out* (our send → kernel → ping).
 Together they're the full duplex of "bytes in, bytes out" — the definition of a stack from Volume I
 §1, now realized in both directions.
 
-## W. Day 2 in 80 facts (rapid review)
+## W. Doc 2 in 80 facts (rapid review)
 
-1. Day 2 = the write half of "bytes in, bytes out."
+1. Doc 2 = the write half of "bytes in, bytes out."
 2. The Internet checksum (RFC 1071) is the centerpiece.
 3. It detects corruption; it does not correct it.
 4. It's deliberately weak and fast (end-to-end principle).
@@ -1324,11 +1324,11 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 32. On TUN there's no offload → software checksum.
 33. Wireshark may flag offloaded outgoing checksums as "bad" (red herring on real NICs).
 34. On TUN a red checksum is a real bug.
-35. Day 2's milestone: ping replies, 0% loss.
+35. Doc 2's milestone: ping replies, 0% loss.
 36. Echo Reply = ICMP type 0; Echo Request = type 8.
 37. We build the reply by mutating a copy of the request.
 38. Mutate-in-place: cheap, fewer bugs, data echoes for free.
-39. Build-from-scratch: for responses with no matching request (Day 3 SYN-ACK).
+39. Build-from-scratch: for responses with no matching request (Doc 3 SYN-ACK).
 40. The four edits: swap addrs, TTL, IP checksum, type+ICMP checksum.
 41. Edit order: change fields first, checksum last (per region).
 42. A checksum computed before a later edit is stale → drop.
@@ -1346,14 +1346,14 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 54. `iface.send` = `write(tun_fd, bytes)`.
 55. The kernel treats it as a packet arriving on tun0.
 56. The kernel verifies IP + ICMP checksums on ingress.
-57. Day 2 split main.rs into utils/ip/icmp modules.
+57. Doc 2 split main.rs into utils/ip/icmp modules.
 58. `mod X;` compiles src/X.rs; undeclared files aren't compiled.
 59. `use crate::utils` etc. are the dependency edges.
 60. Dependency graph: utils ← ip ← icmp; main on top; acyclic.
 61. The graph mirrors the protocol stack.
 62. `pub` marks the cross-module API surface.
 63. Tests live in each module (`#[cfg(test)]`), can see privates.
-64. Refactor was behavior-preserving (Day-1 tests still green).
+64. Refactor was behavior-preserving (Doc-1 tests still green).
 65. Split happened at the "2+ callers" threshold.
 66. `utils::checksum` is reused by ip, icmp (and later tcp).
 67. "Reuse physically" = import one function, don't copy-paste.
@@ -1369,9 +1369,9 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 77. Hardening: rate-limit replies, ignore broadcast echo.
 78. ICMP data is arbitrary → covert channels (icmptunnel).
 79. Length guards prevent Ping-of-Death-style crashes.
-80. Day 2's checksum + build technique carry directly into Day 3's TCP.
+80. Doc 2's checksum + build technique carry directly into Doc 3's TCP.
 
-## X. Day-2 mastery checklist
+## X. Doc-2 mastery checklist
 
 - [ ] Re-type `utils::checksum`; explain u32, fold, odd-byte, NOT.
 - [ ] State and use the verify-to-zero property.
@@ -1386,14 +1386,14 @@ Together they're the full duplex of "bytes in, bytes out" — the definition of 
 - [ ] Explain the silent-drop symptom of a bad checksum.
 - [ ] Reproduce the module dependency graph from memory.
 
-When every box is checked, Day 2 is owned.
+When every box is checked, Doc 2 is owned.
 
 ---
 
 ## Y. Detection vs recovery — where the checksum sits in reliability
 
 The checksum is half of a story the rest of the project completes. Understanding the split clarifies
-what Day 2 does and doesn't give you.
+what Doc 2 does and doesn't give you.
 
 ### Y.1 — Detection ≠ recovery
 The checksum **detects** corruption and the receiver **drops** the bad packet. That's it. Nothing
@@ -1404,7 +1404,7 @@ necessary but not sufficient for reliability.
 - **ICMP/UDP: nobody.** A dropped echo reply just means `ping` records a loss for that sequence; a
   dropped UDP datagram is gone unless the application resends. There is no automatic recovery.
 - **TCP: retransmission.** TCP detects the loss (a missing ACK / duplicate ACKs) and **resends** the
-  data. This is the reliability machinery of the day-5 roadmap, and it's *built on top of* detection:
+  data. This is the reliability machinery of the doc-5 roadmap, and it's *built on top of* detection:
   the checksum drops corrupt segments; the ACK/timer logic notices they didn't arrive and resends.
 
 ### Y.3 — The layered division of labor
@@ -1412,18 +1412,18 @@ necessary but not sufficient for reliability.
 - **IP checksum:** detects header corruption end-to-end; drops the packet.
 - **TCP/UDP checksum:** detects transport+data corruption end-to-end; drops the segment.
 - **TCP retransmission:** *recovers* from any drop (corruption-caused or congestion-caused).
-Each layer detects; only TCP recovers. Day 2 gave you detection (the checksum). Days 3–5 + the
+Each layer detects; only TCP recovers. Doc 2 gave you detection (the checksum). Docs 3–5 + the
 roadmap give you recovery (sequence numbers, ACKs, timers). Seeing this now means the retransmission
 work later reads as "the recovery half of what the checksum started."
 
 ### Y.4 — Why detection must come first
 You can't recover from a loss you didn't notice, and you can't trust data you didn't verify. So the
 checksum (and the drop-on-mismatch) is the foundation; reliability is layered on top. That ordering —
-verify, then recover — is why this project does checksums (Day 2) before reliable delivery (later).
+verify, then recover — is why this project does checksums (Doc 2) before reliable delivery (later).
 
 ## Z. Worked ICMP checksum for our echo reply
 
-The IP checksum was worked in §H.1/§4 of day2 and day1 §R; here's the ICMP side, which people skip.
+The IP checksum was worked in §H.1/§4 of doc2 and doc1 §R; here's the ICMP side, which people skip.
 
 ### Z.1 — The ICMP message to checksum
 A minimal 8-byte echo reply ICMP (no data): `00 00 00 00 12 34 00 01` — type 0, code 0, checksum 0
@@ -1450,7 +1450,7 @@ Echo request has type byte 0x08 (word `0x0800` with code), reply has 0x00 (word 
 corresponding amount. This is exactly why flipping the type *requires* recomputing the ICMP checksum
 (edit 4) — change the input, change the output.
 
-## AA. Common Day-2 mistakes gallery
+## AA. Common Doc-2 mistakes gallery
 
 Ten real mistakes, each with the giveaway symptom.
 
@@ -1474,9 +1474,9 @@ Ten real mistakes, each with the giveaway symptom.
 Each maps to a §G triage step. The meta-lesson (again): build the offline test that asserts type,
 addresses, and both checksums — it catches 1–6 and 9 instantly, before you ever touch the wire.
 
-## AB. Day-2 RFC index and acronyms
+## AB. Doc-2 RFC index and acronyms
 
-### AB.1 — RFCs for Day 2
+### AB.1 — RFCs for Doc 2
 | RFC | Title | Relevance |
 |-----|-------|-----------|
 | 1071 | Computing the Internet Checksum | the algorithm + worked examples |
@@ -1486,7 +1486,7 @@ addresses, and both checksums — it catches 1–6 and 9 instantly, before you e
 | 9293 | TCP | the pseudo-header checksum (preview) |
 | 1141 | Incremental checksum (obsoleted by 1624) | historical |
 
-### AB.2 — Day-2 acronyms
+### AB.2 — Doc-2 acronyms
 - **CRC** Cyclic Redundancy Check · **ECC/FEC** Error-Correcting Code / Forward Error Correction ·
   **ICMP** Internet Control Message Protocol · **RTT** Round-Trip Time · **TLV** Type-Length-Value ·
   **NIC** Network Interface Card · **GSO/TSO** Generic/TCP Segmentation Offload · **PI** Packet
@@ -1538,7 +1538,7 @@ corruption*, and it's optimal for exactly that niche.
 The Internet checksum trades reorder-safety for the endianness-independence and incremental-update
 properties only one's-complement gives — a conscious 1981 design choice.
 
-## AD. The Day-2 reference card (one screen)
+## AD. The Doc-2 reference card (one screen)
 
 ```
 INTERNET CHECKSUM (RFC 1071)
@@ -1567,7 +1567,7 @@ MODULES
 
 ## AE. Clean-architecture principles this refactor demonstrates
 
-The Day-2 module split is a small but real lesson in structuring code.
+The Doc-2 module split is a small but real lesson in structuring code.
 
 ### AE.1 — Single responsibility
 Each module does one thing: `utils` = the checksum primitive; `ip` = IPv4 header concerns; `icmp` =
@@ -1585,12 +1585,12 @@ shouldn't, so you can refactor a module's guts without breaking others. The comp
 boundary.
 
 ### AE.4 — Tests as a safety net for refactoring
-Because every module ships tests, the Day-1→Day-2 refactor (moving parse code into modules) was
+Because every module ships tests, the Doc-1→Doc-2 refactor (moving parse code into modules) was
 provably behavior-preserving: move code, run `cargo test`, green = safe. Refactoring without tests is
 guessing; with them it's mechanical.
 
 ### AE.5 — Refactor at the right time
-Day 1 had one caller → one file (no premature structure). Day 2's second caller crossed the threshold
+Doc 1 had one caller → one file (no premature structure). Doc 2's second caller crossed the threshold
 → split. "Refactor when duplication/▽callers appear, not before" avoids both copy-paste rot and
 speculative over-engineering. The codebase's structure tracks its actual needs.
 
@@ -1610,7 +1610,7 @@ It doesn't prove the *kernel/peer accepts* it (delivery), or that timing/orderin
 you handle weird inputs (a fragmented ping, a ping with options, a huge ping). Those need integration
 and property/fuzz testing.
 
-### AF.3 — Property tests for Day 2
+### AF.3 — Property tests for Doc 2
 - *Reply preserves payload:* for any echo request, `build_echo_reply` returns a packet whose data
   region equals the request's.
 - *Reply checksums valid:* for any echo request, both regions of the reply verify to 0.
@@ -1620,7 +1620,7 @@ and property/fuzz testing.
 ### AF.4 — Fuzzing `build_echo_reply`
 Feed random byte strings as "requests"; assert it never panics and never returns a packet with an
 invalid checksum. The length guard is what makes it pass on short/garbage input. This is the same
-hardening step as the parser (day1 §U.3), applied to the builder.
+hardening step as the parser (doc1 §U.3), applied to the builder.
 
 ### AF.5 — Live conformance with packetdrill
 Script: inject an echo request, expect an echo reply with swapped addresses, type 0, valid checksums.
@@ -1628,7 +1628,7 @@ packetdrill asserts the exact response bytes — RFC-conformance for your reply 
 
 ---
 
-## AG. Day 2 and the security track, in depth
+## AG. Doc 2 and the security track, in depth
 
 Building an ICMP responder puts you on both sides of several real techniques.
 
@@ -1659,7 +1659,7 @@ the difference is scale and a rule language on top.
 - Reading: Snort's ICMP preprocessor; the Smurf/Ping-of-Death CVE writeups.
 
 ### AG.5 — The mindset transfer
-Day 1 taught "a parser is a trust boundary." Day 2 adds "a *responder* is an attack surface": every
+Doc 1 taught "a parser is a trust boundary." Doc 2 adds "a *responder* is an attack surface": every
 packet you emit can be observed, abused (amplification), or fingerprinted. Designing responders that
 are correct *and* hard to abuse (validate, rate-limit, fail closed) is the security-engineering
 discipline this project is quietly teaching. Both red and blue start from the byte-level fluency you
@@ -1696,7 +1696,7 @@ words.)
 These five exercise: options-length headers, the −0 case, a single max word, carry folding, and
 verification. If all five are easy, the checksum is genuinely yours.
 
-## AI. Mini-project — build your own `ping` (uses all of Day 1 + Day 2)
+## AI. Mini-project — build your own `ping` (uses all of Doc 1 + Doc 2)
 
 A satisfying capstone that proves you can both *originate* and *parse*. Outline (you write the core).
 
@@ -1706,10 +1706,10 @@ your own `ping`. (Target a real host on a real interface for replies, or have a 
 your stack reply.)
 
 ### AI.2 — The pieces you already have
-- **Build an echo request** (day1 §AX, day2 §R.5): IP header (proto 1, your src, target dst) + ICMP
+- **Build an echo request** (doc1 §AX, doc2 §R.5): IP header (proto 1, your src, target dst) + ICMP
   (type 8, id = your pid, seq = counter, a timestamp in the data), both checksums.
 - **Send** it via `iface.send`.
-- **Parse** the reply (day1 §E, §10): IP header → protocol 1 → ICMP → type 0, matching id/seq.
+- **Parse** the reply (doc1 §E, §10): IP header → protocol 1 → ICMP → type 0, matching id/seq.
 - **Checksum** (`utils::checksum`) to build and to validate.
 
 ### AI.3 — The new glue
@@ -1717,11 +1717,11 @@ your stack reply.)
   reply, read it back and compute RTT = now − that.
 - A **sequence counter** incremented per request.
 - A **loop** sending one request per second, printing each reply (or "timeout" if none in 1s — which
-  needs the non-blocking/timeout pattern, a nice motivation for the event loop, day1 §AI).
+  needs the non-blocking/timeout pattern, a nice motivation for the event loop, doc1 §AI).
 
 ### AI.4 — Why it's the right exercise here
-It uses *every* Day-1/Day-2 skill at once — parse, build, checksum (both directions), send, recv — and
-nothing from Day 3+. Completing it means the foundation is solid before TCP's complexity. It's also
+It uses *every* Doc-1/Doc-2 skill at once — parse, build, checksum (both directions), send, recv — and
+nothing from Doc 3+. Completing it means the foundation is solid before TCP's complexity. It's also
 genuinely useful and a great portfolio artifact ("I wrote ping from scratch over a userspace stack").
 
 ### AI.5 — Stretch goals
@@ -1733,7 +1733,7 @@ genuinely useful and a great portfolio artifact ("I wrote ping from scratch over
 
 ---
 
-## AJ. Day-2 FAQ II (deeper questions)
+## AJ. Doc-2 FAQ II (deeper questions)
 
 **1. Could I compute the checksum left-to-right or right-to-left — does order matter?** No — addition
 is commutative/associative (§B.4), so any order/grouping gives the same result. That's also why
@@ -1799,13 +1799,13 @@ total_length consistent with the actual bytes.
 an ICMP socket; the kernel demultiplexes by ICMP id to the right socket. We're just the peer that
 produced the reply.
 
-**19. Could I implement Day 2 without modules?** Yes, but with two callers of IP/checksum logic the
+**19. Could I implement Doc 2 without modules?** Yes, but with two callers of IP/checksum logic the
 single file would duplicate or tangle; modules keep it clean (§AE).
 
-**20. What's the very next new concept in Day 3?** State across packets (the TCB) and building a
+**20. What's the very next new concept in Doc 3?** State across packets (the TCB) and building a
 packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this checksum + a pseudo-header.
 
-## AK. Day 2 — deeper facts (81–150)
+## AK. Doc 2 — deeper facts (81–150)
 
 81. The checksum's weakness and speed both come from addition being commutative.
 82. CRC-32 catches all burst errors up to 32 bits; the Internet checksum doesn't.
@@ -1830,7 +1830,7 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 101. Echo reply = mutate the request (swap, TTL, two checksums).
 102. The data payload echoes for free because we copy the request.
 103. Build-from-scratch is for responses with no matching request.
-104. A SYN-ACK (Day 3) is build-from-scratch.
+104. A SYN-ACK (Doc 3) is build-from-scratch.
 105. Order: edit a region's fields, then its checksum.
 106. Zero the checksum field before computing.
 107. Write checksum (and all multi-byte fields) big-endian.
@@ -1872,8 +1872,8 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 143. The verify trick turns checking into "sum to 0."
 144. Fletcher/Adler are position-sensitive (catch reorders) but uncommon in IP.
 145. The build technique scales from echo reply to TCP segments.
-146. Day 2 = the write half of "bytes in, bytes out."
-147. Day 1's read + Day 2's write = full duplex over TUN.
+146. Doc 2 = the write half of "bytes in, bytes out."
+147. Doc 1's read + Doc 2's write = full duplex over TUN.
 148. The checksum + pseudo-header reappears unchanged in TCP.
 149. Clean modules now make tcp.rs slot in cleanly later.
 150. Build the offline test before touching the wire — every time.
@@ -1883,7 +1883,7 @@ packet from scratch (the SYN-ACK) — plus the TCP checksum, which is this check
 ---
 ---
 
-# VOLUME III — Reference Tables (Day 2)
+# VOLUME III — Reference Tables (Doc 2)
 
 > Checksum and reply lookup material. Memorize the bold rows.
 
@@ -1944,7 +1944,7 @@ Input to the TCP/UDP checksum only; never transmitted.
 | CRC-32 | 32 | strong | yes | table/HW | Ethernet, ZIP |
 | HMAC-SHA256 | 256 | cryptographic | yes | high | TLS |
 
-## RT2.6 — Symptom → cause (Day 2, consolidated)
+## RT2.6 — Symptom → cause (Doc 2, consolidated)
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
@@ -1956,7 +1956,7 @@ Input to the TCP/UDP checksum only; never transmitted.
 | reply storms | replying to non-echo | guard type == 8 |
 | off-by-byteswap checksum | to_ne_bytes used | use to_be_bytes |
 
-## RT2.7 — Day-2 commands
+## RT2.7 — Doc-2 commands
 
 ```bash
 # build + verify offline
@@ -1997,7 +1997,7 @@ fn build_echo_reply(request, header_len):
 
 ---
 
-## RT2.10 — Protocol / ICMP recap (Day-2 relevant)
+## RT2.10 — Protocol / ICMP recap (Doc-2 relevant)
 
 | IP proto | name | checksum'd how |
 |----------|------|----------------|
@@ -2014,9 +2014,9 @@ fn build_echo_reply(request, header_len):
 
 ---
 
-## AM. `main.rs` ICMP dispatch arm — line by line (Day 2)
+## AM. `main.rs` ICMP dispatch arm — line by line (Doc 2)
 
-The Day-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
+The Doc-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
 
 ```rust
 1 => {
@@ -2061,12 +2061,12 @@ The Day-2 addition to the main loop is the ICMP arm that sends a reply. Walk it:
 Note what this arm does *not* do: no rate limiting, no broadcast check, no incoming-checksum
 validation. Those are the §AG/§H.7 hardening exercises. The arm is the minimal correct responder.
 
-## AN. Annotated source — `utils.rs` (complete, as of Day 2)
+## AN. Annotated source — `utils.rs` (complete, as of Doc 2)
 
 The whole file, reproduced with inline reference notes (the canonical artifact to read and re-type).
 
 ```rust
-//! Shared helpers. Day 2: the Internet Checksum (RFC 1071), reused by ip/icmp/(tcp).
+//! Shared helpers. Doc 2: the Internet Checksum (RFC 1071), reused by ip/icmp/(tcp).
 
 /// Internet checksum: 16-bit one's-complement of the one's-complement sum of `data`
 /// as 16-bit big-endian words.
@@ -2091,8 +2091,8 @@ pub fn checksum(data: &[u8]) -> u16 {
 Notes per line:
 - `pub` — used by other modules.
 - `sum: u32` — see §C.2; a `u16` would drop carries.
-- `chunks_exact(2)` + `by_ref()` — §G.14 (day1) and §O.1; lets us read the odd remainder after.
-- `from_be_bytes` — wire is big-endian (§D, day1).
+- `chunks_exact(2)` + `by_ref()` — §G.14 (doc1) and §O.1; lets us read the odd remainder after.
+- `from_be_bytes` — wire is big-endian (§D, doc1).
 - `(*last as u32) << 8` — RFC 1071's odd-byte rule (§C.1).
 - `while ... fold` — §B.2/§R.2 end-around carry; `while` because the fold can carry again.
 - `!(sum as u16)` — the final complement; no semicolon → it's the return value.
@@ -2121,19 +2121,19 @@ mod tests {
 
 This is the complete `utils.rs`. If you can reproduce it — function and tests — with this page
 closed, you own the checksum end to end. The same treatment of `ip.rs` and `icmp.rs` is in §E plus
-day1 §O.
+doc1 §O.
 
 ---
 
-## AO. Annotated source — `ip.rs` and `icmp.rs` (complete, as of Day 2)
+## AO. Annotated source — `ip.rs` and `icmp.rs` (complete, as of Doc 2)
 
 The two protocol files in full, with inline notes. Together with §AN (`utils.rs`) this is the whole
-Day-2 codebase to read and re-type.
+Doc-2 codebase to read and re-type.
 
 ### AO.1 — `ip.rs`
 
 ```rust
-//! IPv4 layer (RFC 791). Parse (day1) + header-checksum writer (day2).
+//! IPv4 layer (RFC 791). Parse (doc1) + header-checksum writer (doc2).
 use std::net::Ipv4Addr;     // free Display/eq/.octets() for addresses
 use crate::utils;            // for utils::checksum
 
@@ -2191,7 +2191,7 @@ cover parse fields, both rejections, the etherparse oracle, and the checksum rou
 ### AO.2 — `icmp.rs`
 
 ```rust
-//! ICMP layer (RFC 792). Parse (day1) + echo reply (day2).
+//! ICMP layer (RFC 792). Parse (doc1) + echo reply (doc2).
 use crate::{ip, utils};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -2256,10 +2256,10 @@ addresses, both regions verify to 0, payload preserved) and that non-echo reques
 ### AO.3 — Reading the whole codebase at once
 
 With §AN + §AO you have all three protocol files annotated, and §AM the main-loop dispatch. The
-entire Day-2 stack is ~4 small files: a checksum primitive, an IP parser+checksum-writer, an ICMP
+entire Doc-2 stack is ~4 small files: a checksum primitive, an IP parser+checksum-writer, an ICMP
 parser+reply-builder, and a loop that wires them. That smallness is the point — you can hold the
 whole thing in your head, which is exactly why building the 1% yourself makes the 99% (real stacks)
-readable later (day1 §N.6).
+readable later (doc1 §N.6).
 
 ---
 
@@ -2299,7 +2299,7 @@ live mirror of the `reply_is_well_formed` unit test.
 ### AP.4 — Cross-check with tcpdump
 Run `sudo tcpdump -i tun0 -n -vv` alongside. For each ping you should see the request (in) and the
 reply (out), and with `-vv` tcpdump will say the checksums are correct. Three views agreeing (your
-log, the assertions, tcpdump) = certainty. This is the §AT (day1) "look at the bytes" discipline made
+log, the assertions, tcpdump) = certainty. This is the §AT (doc1) "look at the bytes" discipline made
 into a routine.
 
 ### AP.5 — Removing it
@@ -2309,10 +2309,10 @@ in release and document the invariants.
 
 ## AQ. ICMP reply vs TCP segment construction — a preview
 
-Day 3 builds packets from scratch. Comparing it to the ICMP reply you just wrote shows what's the
+Doc 3 builds packets from scratch. Comparing it to the ICMP reply you just wrote shows what's the
 same and what's new.
 
-| Aspect | ICMP echo reply (Day 2) | TCP segment (Day 3) |
+| Aspect | ICMP echo reply (Doc 2) | TCP segment (Doc 3) |
 |---|---|---|
 | Strategy | mutate a copy of the request | build a zeroed buffer from scratch |
 | IP header | inherited from request (swap addrs) | written field by field |
@@ -2322,9 +2322,9 @@ same and what's new.
 | What varies | type, addresses | ports, seq, ack, flags, window, data |
 | Same skills | zero-field-then-checksum, big-endian, order | identical |
 
-The new things in Day 3 are (1) building rather than mutating, (2) the pseudo-header in the checksum,
+The new things in Doc 3 are (1) building rather than mutating, (2) the pseudo-header in the checksum,
 and (3) *state*. Everything else — the checksum function, the byte-layout discipline, big-endian, the
-"checksum last" order — transfers unchanged. That's why Day 2 is the right rung before Day 3: you've
+"checksum last" order — transfers unchanged. That's why Doc 2 is the right rung before Doc 3: you've
 practiced packet construction on the easy case (mutate, no pseudo-header, no state) before the hard
 one.
 
@@ -2418,7 +2418,7 @@ what would change if you extended toward real conditions (add fragmentation hand
 checksums + reassembly-then-verify; add NAT → incremental dual-checksum updates; add IPv6 → drop the
 IP checksum, keep the pseudo-header transport one).
 
-## AT. Day 2 — deeper facts (151–210)
+## AT. Doc 2 — deeper facts (151–210)
 
 151. Each IP fragment carries its own IP header checksum.
 152. The transport checksum is verified only after reassembly.
@@ -2450,7 +2450,7 @@ IP checksum, keep the pseudo-header transport one).
 178. ICMP id demultiplexes replies to the right ping process.
 179. id is the seed idea of TCP's 4-tuple demultiplexing.
 180. The reply build cost is dwarfed by the send syscall.
-181. Building from scratch (Day 3) replaces mutate-in-place.
+181. Building from scratch (Doc 3) replaces mutate-in-place.
 182. TCP's checksum = our checksum + a 12-byte pseudo-header.
 183. TCP construction needs state (the TCB); ICMP reply doesn't.
 184. The "checksum last per region" rule transfers to TCP.
@@ -2460,7 +2460,7 @@ IP checksum, keep the pseudo-header transport one).
 188. ICMP/UDP have no recovery; TCP does.
 189. A bad checksum is dropped silently — verify offline.
 190. Three-view debugging: your log, asserts, tcpdump.
-191. The whole Day-2 stack is ~4 small files.
+191. The whole Doc-2 stack is ~4 small files.
 192. Smallness is the point: hold it in your head.
 193. Building 1% yourself makes the 99% (real stacks) readable.
 194. utils::checksum is the most-reused function in the codebase.
@@ -2479,11 +2479,11 @@ IP checksum, keep the pseudo-header transport one).
 207. End-around carry makes the sum mod 2¹⁶−1.
 208. Two zeros: 0x0000 and 0xFFFF.
 209. UDP sends a computed-zero checksum as 0xFFFF.
-210. Day 2 = write half; Day 1 = read half; together = full duplex.
+210. Doc 2 = write half; Doc 1 = read half; together = full duplex.
 
 ---
 
-## AU. Full API reference — every public item (as of Day 2)
+## AU. Full API reference — every public item (as of Doc 2)
 
 The complete public surface of the codebase, with signatures and one-line purposes. This is the
 "what can I call" lookup.
@@ -2522,13 +2522,13 @@ The complete public surface of the codebase, with signatures and one-line purpos
 | `Ipv4HeaderSlice` | `etherparse` | the parsing oracle (cross-check) |
 | `Ipv4Addr` | `std::net` | IPv4 addresses with Display/eq/octets |
 
-This table is the contract between modules; everything not listed is private. When Day 3 adds `tcp`,
+This table is the contract between modules; everything not listed is private. When Doc 3 adds `tcp`,
 its public items (`Quad`, `State`, `TcpHeader`, `parse`, `Connection::{accept,on_packet,state}`,
 `flags_str`) join this reference.
 
 ## AV. Lab — reproduce the 0%-loss result, with checkpoints
 
-A guided run that proves Day 2 works, with a verification gate at each step.
+A guided run that proves Doc 2 works, with a verification gate at each step.
 
 ### AV.1 — Build and self-verify
 ```bash
@@ -2556,7 +2556,7 @@ ip addr show tun0
 ```bash
 ping -c3 192.168.0.2
 ```
-**Checkpoint:** **0% packet loss**, three replies with `ttl=64 time=…`. This is the Day-2 milestone.
+**Checkpoint:** **0% packet loss**, three replies with `ttl=64 time=…`. This is the Doc-2 milestone.
 If 100% loss, go to §AW.
 
 ### AV.5 — Observe both packets (terminal 3)
@@ -2653,7 +2653,7 @@ Data A: `00 05 00 05`. Data B: `00 06 00 04` (+1 then −1).
 A: 0x0005+0x0005 = 0x000A. B: 0x0006+0x0004 = 0x000A. **Same sum, same checksum** — undetected. This
 is why the checksum is "weak": structured canceling changes slip through.
 
-## AY. Day 2 — deeper facts (211–260)
+## AY. Doc 2 — deeper facts (211–260)
 
 211. The checksum sums 16-bit words regardless of field boundaries.
 212. Folding can iterate (a fold can produce a new carry).
@@ -2695,22 +2695,22 @@ is why the checksum is "weak": structured canceling changes slip through.
 248. iface.send = write(tun_fd); kernel treats it as arriving on tun0.
 249. The kernel verifies IP+ICMP checksums and matches by id.
 250. RTT = now − the timestamp echoed in the data.
-251. Day 2 split main.rs into utils/ip/icmp modules.
+251. Doc 2 split main.rs into utils/ip/icmp modules.
 252. mod X; compiles src/X.rs; pub defines the API.
 253. The dependency graph is acyclic: utils ← ip ← icmp ← main.
 254. The refactor preserved behavior (tests stayed green).
 255. utils::checksum is reused across all layers.
 256. Detection (checksum) precedes recovery (TCP retransmit).
-257. The whole Day-2 stack is ~4 small, readable files.
-258. The checksum + pseudo-header recur unchanged in TCP (Day 3).
+257. The whole Doc-2 stack is ~4 small, readable files.
+258. The checksum + pseudo-header recur unchanged in TCP (Doc 3).
 259. The build technique (zero, checksum-last, BE) transfers to TCP.
-260. Day 2 milestone: ping replies with 0% loss, verified three ways.
+260. Doc 2 milestone: ping replies with 0% loss, verified three ways.
 
 ---
 
 ## AZ. End-to-end consolidation — every checksum in one ping round trip
 
-Trace a single `ping` and note *every* checksum computed/verified along the way. This ties Day 2's
+Trace a single `ping` and note *every* checksum computed/verified along the way. This ties Doc 2's
 piece into the whole picture.
 
 ### AZ.1 — Outbound request (ping → us)
@@ -2723,7 +2723,7 @@ piece into the whole picture.
 5. We parse the IP header. (We *don't* validate its checksum by default — exercise H.7 adds it.)
 6. We parse the ICMP header, see type 8.
 7. We `build_echo_reply`: recompute the **IP header checksum** (addresses changed) and the **ICMP
-   checksum** (type changed) — the two Day-2 computations.
+   checksum** (type changed) — the two Doc-2 computations.
 
 ### AZ.3 — Inbound reply (us → ping)
 8. We `send` the reply → kernel ingress on tun0.
@@ -2746,7 +2746,7 @@ flips on a real wire, the NIC CRC (per hop) likely catches it first. Layered det
 corruption is caught at the first layer that covers the corrupted bytes. That's the defense-in-depth
 payoff of having multiple checks.
 
-## BA. How to study Day 2 (Learning-OS aligned)
+## BA. How to study Doc 2 (Learning-OS aligned)
 
 Per your Learning OS, here's the most effective way to internalize this chapter.
 
@@ -2761,21 +2761,21 @@ zero the field first?" If you mis-ordered the TTL edit and checksum, card the "c
 Cards from textbook facts you already knew are wasted; cards from your bugs stick.
 
 ### BA.3 — Compute by hand until it's automatic
-Do §AX and §H.1/§H.14 (day1) on paper until summing 16-bit words, folding, and complementing is
+Do §AX and §H.1/§H.14 (doc1) on paper until summing 16-bit words, folding, and complementing is
 reflexive. This is the one bit of arithmetic the whole rest of the project (and TCP) reuses; fluency
 pays off repeatedly.
 
 ### BA.4 — Teach it (the real finish line)
 Per rule #5, the finish line is "can I teach it?" Explain to someone (or rubber-duck): "why does a
 valid header checksum to zero, and why is the checksum recomputed when I swap addresses?" If you can
-teach both cleanly, Day 2 is owned. Use `/tcp-tutor` to have me grade your explanation.
+teach both cleanly, Doc 2 is owned. Use `/tcp-tutor` to have me grade your explanation.
 
 ### BA.5 — Connect to the daily lane
-Your WIP=2 includes a daily habit lane. A good Day-2 habit: one checksum-by-hand per day for a week
+Your WIP=2 includes a daily habit lane. A good Doc-2 habit: one checksum-by-hand per day for a week
 (varied inputs from §AX) until it's muscle memory, plus a LeetCode bit-manipulation problem (shifts/
 masks) to reinforce §C. Small, daily, compounding — the Learning-OS pattern.
 
-## BB. Day 2 — deeper facts (261–300)
+## BB. Doc 2 — deeper facts (261–300)
 
 261. The checksum is computed/verified at every hop and endpoint.
 262. It's the most-executed arithmetic on the internet (hence "must be cheap").
@@ -2812,11 +2812,11 @@ masks) to reinforce §C. Small, daily, compounding — the Learning-OS pattern.
 293. iface.send = write(tun_fd).
 294. The kernel matches the reply to ping by ICMP id.
 295. RTT = now − echoed timestamp.
-296. Day 2 split into utils/ip/icmp modules at the 2+-callers threshold.
+296. Doc 2 split into utils/ip/icmp modules at the 2+-callers threshold.
 297. The module graph is acyclic and mirrors the stack.
 298. The build technique transfers directly to TCP.
 299. Detection precedes recovery; TCP adds recovery later.
-300. Day 2 = the write half; ping replies, 0% loss, verified three ways.
+300. Doc 2 = the write half; ping replies, 0% loss, verified three ways.
 
 ---
 
@@ -2932,16 +2932,16 @@ languages.
 
 ---
 
-## BF. Cross-reference index (Day 2)
+## BF. Cross-reference index (Doc 2)
 
 | Concept | RFC | Code | Section |
 |---------|-----|------|---------|
-| Internet checksum | 1071 | `utils::checksum` | §3–§6 (V1), §B–§C, §R (day1) |
+| Internet checksum | 1071 | `utils::checksum` | §3–§6 (V1), §B–§C, §R (doc1) |
 | Incremental update | 1624 | (routers; not us) | §C.5, §R.7 |
 | One's complement | — | `!` in checksum | §B, §R |
 | IP header checksum | 791 | `ip::write_header_checksum` | §E.2, §AO.1 |
 | ICMP echo reply | 792 | `icmp::build_echo_reply` | §5, §E.3, §AO.2 |
-| Pseudo-header | 9293/768 | (tcp, day3) | §C.7, §M, RT2.3 |
+| Pseudo-header | 9293/768 | (tcp, doc3) | §C.7, §M, RT2.3 |
 | Mutate vs build | — | echo reply / (tcp) | §D.1, §AQ |
 | Module refactor | — | `mod`/`use crate::` | §L, §AE |
 | iface.send | — | `iface.send(&reply)` | §F, §V |
@@ -2979,7 +2979,7 @@ To reply Port Unreachable to an offending packet `orig` (full IP packet):
 
 ### BG.3 — Why this is build-from-scratch
 There's no request to mutate — the offending packet is a *different* protocol (UDP) going the *other*
-way; you synthesize the entire ICMP error. This is exactly the technique Day 3 uses for the SYN-ACK
+way; you synthesize the entire ICMP error. This is exactly the technique Doc 3 uses for the SYN-ACK
 (build, don't mutate). The reused skills: zero-field-then-checksum, big-endian, checksum-last,
 length consistency. The new wrinkle: assembling a packet from multiple parts (new headers + quoted
 bytes).
@@ -3010,7 +3010,7 @@ fn icmp_port_unreachable(orig: &[u8], orig_ihl: usize, me: Ipv4Addr) -> Vec<u8> 
 ### BG.5 — Why it matters
 Generating errors is half of being a real network endpoint (TCP must send RSTs; routers send Time
 Exceeded). Doing it once for ICMP Port Unreachable teaches the build-from-scratch pattern you'll use
-for every generated packet from Day 3 on, and it's a satisfying exercise that exercises the new
+for every generated packet from Doc 3 on, and it's a satisfying exercise that exercises the new
 "assemble from parts + quote the original" skill.
 
 ## BH. Exercises IV (with solutions)
@@ -3047,7 +3047,7 @@ the error is the build-from-scratch case (like TCP).
 
 ## BI. UDP, exhaustively (the checksum's other consumer)
 
-UDP (RFC 768) is the simplest transport and a perfect Day-2 add: it reuses the checksum (with a
+UDP (RFC 768) is the simplest transport and a perfect Doc-2 add: it reuses the checksum (with a
 pseudo-header) and needs no state. Implementing a UDP echo is a smaller cousin of the TCP work ahead.
 
 ### BI.1 — The header (8 bytes)
@@ -3104,7 +3104,7 @@ This contrast is the clearest way to see *what TCP adds* — every TCP feature i
 
 ## BJ. A UDP echo server — implementation walkthrough
 
-Smaller than TCP echo; uses everything from Day 2.
+Smaller than TCP echo; uses everything from Doc 2.
 
 ### BJ.1 — Dispatch
 In the main loop's `17 =>` arm (protocol 17), parse the 8-byte UDP header, then echo.
@@ -3177,7 +3177,7 @@ the line between transport echo and application logic.)
 ## BL. A worked pseudo-header checksum (UDP/TCP preview)
 
 The pseudo-header is the one new thing in transport checksums. Work one fully so it's concrete before
-Day 3.
+Doc 3.
 
 ### BL.1 — The scenario
 A UDP datagram us(192.168.0.2)→peer(192.168.0.1), src port 7, dst port 4660, no data (8-byte UDP).
@@ -3211,11 +3211,11 @@ Re-sum with `0x6C4F` in the field: previous (field=0) folded sum was 0x93B0; add
 
 ### BL.5 — The takeaway
 The *only* difference from the ICMP checksum (§Z) is the 12-byte pseudo-header prepended to the sum.
-Everything else — sum, fold, complement, verify-to-zero — is identical. When Day 3's TCP checksum
+Everything else — sum, fold, complement, verify-to-zero — is identical. When Doc 3's TCP checksum
 appears, it's this exact computation with proto 6 instead of 17 and the TCP header/data instead of
 UDP's. You've now done it by hand once; the code (`tcp::tcp_checksum`) just automates this.
 
-## BM. Pitfalls when extending Day 2 (UDP echo / ICMP errors)
+## BM. Pitfalls when extending Doc 2 (UDP echo / ICMP errors)
 
 The build-from-scratch and pseudo-header additions introduce new failure modes.
 
@@ -3240,7 +3240,7 @@ Each maps to a `debug_assert`/offline test you can add: verify both checksums (w
 L4), assert total_length matches the buffer, assert the quoted bytes equal the original. Build the
 test, then the bug can't survive.
 
-## BN. Day 2 — deeper facts (301–340)
+## BN. Doc 2 — deeper facts (301–340)
 
 301. UDP (RFC 768) is the simplest transport: an 8-byte header, no state.
 302. UDP fields: src port, dst port, length, checksum.
@@ -3281,11 +3281,11 @@ test, then the bug can't survive.
 337. Python checksum is slow but obviously correct (explicit slicing).
 338. RFC 1071 is short, with example code; an ideal first RFC.
 339. RFC 1071's listed properties map to real optimizations.
-340. Day 2 = the write half; ping replies 0% loss; the checksum is the centerpiece.
+340. Doc 2 = the write half; ping replies 0% loss; the checksum is the centerpiece.
 
 ---
 
-## BO. The complete Day-2 data flow (annotated diagram)
+## BO. The complete Doc-2 data flow (annotated diagram)
 
 ```
   ping process                    KERNEL                         our stack (tun0 fd)
@@ -3310,7 +3310,7 @@ test, then the bug can't survive.
        │ RTT = now − ts; 0% loss    │                                   │
 ```
 `*` we don't validate the incoming IP checksum by default (exercise H.7). Every "cksum" label is a
-place the §B/§R arithmetic runs. The two **recompute** steps on our side are the entirety of Day-2's
+place the §B/§R arithmetic runs. The two **recompute** steps on our side are the entirety of Doc-2's
 new code; the two **VERIFY** steps on the kernel side are why a bad checksum vanishes silently.
 
 ## BP. Building the reply for a 1000-byte ping (the length math)
@@ -3346,9 +3346,9 @@ Offline: build the reply for a synthetic 1028-byte request; assert `utils::check
 `reply[28..] == request[28..]` (the 1000-byte payload echoed). Same assertions as the small ping,
 larger data — proving size-agnosticism by test.
 
-## BQ. Day 2 — deeper facts (341–380)
+## BQ. Doc 2 — deeper facts (341–380)
 
-341. The two "recompute" steps (IP + ICMP cksum) are Day-2's entire new code.
+341. The two "recompute" steps (IP + ICMP cksum) are Doc-2's entire new code.
 342. The kernel verifies our reply's checksums on ingress.
 343. A bad checksum is dropped before ping sees it.
 344. We don't validate the incoming IP checksum by default.
@@ -3384,14 +3384,14 @@ larger data — proving size-agnosticism by test.
 374. The checksum is the most-run arithmetic on the internet.
 375. It must be cheap because every packet pays for it.
 376. It's weak by design; strength lives in CRC/TLS where warranted.
-377. Day 2 split into modules at the 2+-callers threshold.
+377. Doc 2 split into modules at the 2+-callers threshold.
 378. Re-type the checksum (a core); re-type build_echo_reply (glue).
 379. Teach it (the finish line): why verify-to-zero, why recompute on swap.
-380. Day 2 milestone: ping 0% loss, verified by tests + tcpdump + by hand.
+380. Doc 2 milestone: ping 0% loss, verified by tests + tcpdump + by hand.
 
 ---
 
-## BR. Byte-layout reference tables (Day 2 messages)
+## BR. Byte-layout reference tables (Doc 2 messages)
 
 ### BR.1 — ICMP Echo (request and reply share this layout)
 | Offset (in ICMP message) | Bytes | Field | Request | Reply |
@@ -3439,7 +3439,7 @@ larger data — proving size-agnosticism by test.
 | 9 | 1 | protocol (17 UDP / 6 TCP) |
 | 10–11 | 2 | transport length |
 
-## BS. Day 2 — deeper facts (381–420)
+## BS. Doc 2 — deeper facts (381–420)
 
 381. ICMP echo request and reply share one layout; only type (and checksum) differ.
 382. The identifier correlates a reply to the sending process.
@@ -3480,9 +3480,9 @@ larger data — proving size-agnosticism by test.
 417. The refactor preserved behavior (tests green).
 418. UDP echo is the stateless warm-up before stateful TCP.
 419. The build technique (zero, checksum-last, BE) is universal.
-420. Day 2 = the write half; the checksum is the centerpiece.
+420. Doc 2 = the write half; the checksum is the centerpiece.
 
-## BT. Rust idioms used in Day 2 (quick reference)
+## BT. Rust idioms used in Doc 2 (quick reference)
 
 - **`&[u8]` / `&mut [u8]`** — shared/exclusive borrowed byte views; the parse/build inputs.
 - **`Vec<u8>` + `to_vec()`** — owned, growable buffer for an outgoing packet (mutate-a-copy).
@@ -3502,9 +3502,9 @@ Rust packet code you read next, e.g. smoltcp) legible at a glance.
 
 ---
 
-## BU. An annotated lab transcript (what a real Day-2 session looks like)
+## BU. An annotated lab transcript (what a real Doc-2 session looks like)
 
-A narrated walkthrough of bringing Day 2 up, with the actual output and what each line means.
+A narrated walkthrough of bringing Doc 2 up, with the actual output and what each line means.
 
 ### BU.1 — Build + test
 ```
@@ -3547,7 +3547,7 @@ PING 192.168.0.2 (192.168.0.2) 56(84) bytes of data.
 --- 192.168.0.2 ping statistics ---
 3 packets transmitted, 3 received, 0% packet loss
 ```
-*Meaning:* **0% loss** — the Day-2 milestone. The `64 bytes` and `ttl=64` confirm our reply's size and
+*Meaning:* **0% loss** — the Doc-2 milestone. The `64 bytes` and `ttl=64` confirm our reply's size and
 TTL; the sub-ms RTT is expected over a local TUN.
 
 ### BU.4 — The stack's log (terminal 1)
@@ -3571,12 +3571,12 @@ IP 192.168.0.2 > 192.168.0.1: ICMP echo reply,   id ..., seq 1, length 64
 `-vv` tcpdump would flag bad ones). Three views (test, log, tcpdump) agree → certainty.
 
 ### BU.6 — What you just proved
-The full Day-2 path works: receive → parse → build a valid reply (two checksums) → send → kernel
+The full Doc-2 path works: receive → parse → build a valid reply (two checksums) → send → kernel
 accepts → ping matches. You built a host that answers pings using a stack you wrote, and verified it
-three independent ways. That triangulated confidence is the habit to carry into Day 3, where the
+three independent ways. That triangulated confidence is the habit to carry into Doc 3, where the
 state machine makes "does it actually work?" a harder question.
 
-## BV. Day 2 — deeper facts (421–460)
+## BV. Doc 2 — deeper facts (421–460)
 
 421. `cargo test` proves the bytes before any network setup.
 422. If `reply_is_well_formed` is green, a live failure is environmental.
@@ -3594,17 +3594,17 @@ state machine makes "does it actually work?" a harder question.
 434. The pinger matches replies by ICMP id.
 435. The sequence number tracks per-packet loss.
 436. ping computes RTT from the echoed timestamp.
-437. 0% loss is the Day-2 milestone.
-438. Day 1 had 100% loss (no reply); Day 2 has 0% (reply sent).
-439. The two checksum recomputes are Day-2's entire new code.
+437. 0% loss is the Doc-2 milestone.
+438. Doc 1 had 100% loss (no reply); Doc 2 has 0% (reply sent).
+439. The two checksum recomputes are Doc-2's entire new code.
 440. The kernel verifies our reply's checksums on ingress.
 441. We don't validate the request's IP checksum by default.
 442. build_echo_reply mutates a copy; the payload echoes.
 443. It's size-agnostic; a 1000-byte ping echoes too.
 444. UDP echo is the stateless pseudo-header warm-up.
 445. ICMP error generation is build-from-scratch (quotes the original).
-446. TCP segments (Day 3) are build-from-scratch with state.
-447. The checksum + pseudo-header recur unchanged in Day 3.
+446. TCP segments (Doc 3) are build-from-scratch with state.
+447. The checksum + pseudo-header recur unchanged in Doc 3.
 448. The module structure makes tcp.rs slot in cleanly.
 449. Detection (checksum) precedes recovery (retransmit).
 450. The checksum is weak, cheap, endianness-independent, updatable.
@@ -3617,11 +3617,11 @@ state machine makes "does it actually work?" a harder question.
 457. Teach it — the real finish line.
 458. Daily habit: a hand-checksum + a bit-manipulation problem.
 459. /tcp-tutor grades your explanation against the code.
-460. Day 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% loss live.
+460. Doc 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% loss live.
 
-## BW. How Day 2 connects to the rest of the curriculum
+## BW. How Doc 2 connects to the rest of the curriculum
 
-- **To Day 3 (TCP):** the checksum + pseudo-header and the build technique are reused directly; the
+- **To Doc 3 (TCP):** the checksum + pseudo-header and the build technique are reused directly; the
   echo-server pattern foreshadows the TCP echo.
 - **To the security track:** packet construction (build-from-scratch) is the red-team primitive;
   responder hardening (rate-limit, validate, fail-closed) is the blue-team discipline; fuzzing the
@@ -3632,15 +3632,15 @@ state machine makes "does it actually work?" a harder question.
 - **To the daily lane:** hand-checksums and bit-manipulation LeetCode reinforce §C/§R; a blog post
   "how ping really works (and how I made it reply)" is the teach-it finish line and portfolio piece.
 - **To later projects:** every protocol you build (DNS, a TCP stack proper, an IDS) reuses the
-  parse/build/checksum trio. Day 2 is where construction (not just parsing) became a skill you own.
+  parse/build/checksum trio. Doc 2 is where construction (not just parsing) became a skill you own.
 
-Day 2 looks small (a checksum and a reply), but it's the hinge from *reading* the network to
+Doc 2 looks small (a checksum and a reply), but it's the hinge from *reading* the network to
 *participating* in it — the prerequisite for everything stateful and everything offensive/defensive
 that follows.
 
 ---
 
-## BX. Day-2 FAQ III
+## BX. Doc-2 FAQ III
 
 **1. Can I checksum a buffer that includes more than the region (e.g. trailing bytes)?** No — the
 checksum must cover exactly the defined region (IP header, or ICMP message, or pseudo-header+segment).
@@ -3668,7 +3668,7 @@ answer to *its* request. Changing it would make ping ignore the reply.
 message. The IP header has its own separate checksum. (TCP/UDP differ — they pull IP fields into the
 pseudo-header.)
 
-**8. Could I implement Day 2 with `etherparse` building the reply?** You could, but you'd learn the
+**8. Could I implement Doc 2 with `etherparse` building the reply?** You could, but you'd learn the
 crate, not the protocol. We use etherparse only as an oracle; building by hand is the point.
 
 **9. Why `debug_assert` and not `assert` for the checksum invariants?** `debug_assert` is compiled out
@@ -3691,8 +3691,8 @@ and that the destination is local before delivering. It treats our `write` like 
 value would need a compensating change to still sum correctly — possible but you'd have made two
 errors. Keep it consistent with the actual bytes.
 
-**15. Is there any state in Day 2?** No — echo is stateless (the `packet_count` is just a log
-counter). State arrives in Day 3 (the TCB). That statelessness is why Day 2 is simpler than Day 3.
+**15. Is there any state in Doc 2?** No — echo is stateless (the `packet_count` is just a log
+counter). State arrives in Doc 3 (the TCB). That statelessness is why Doc 2 is simpler than Doc 3.
 
 **16. Why is UDP's checksum optional but not IP's or TCP's?** UDP is "best effort" and predates some
 hardening; IPv4 let senders skip it for speed. IP's protects routing-critical header fields; TCP's is
@@ -3708,10 +3708,10 @@ you won't see them unless you introduce delay/loss (e.g. `tc netem`).
 **19. Why is the reply's TTL reset to 64 rather than copied?** A reply is a fresh packet originating
 from us; it should start with a full hop budget, not inherit the request's (possibly decremented) TTL.
 
-**20. What single Day-2 skill matters most for Day 3?** Building a valid packet (correct fields,
-checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a pseudo-header and state.
+**20. What single Doc-2 skill matters most for Doc 3?** Building a valid packet (correct fields,
+checksum last, big-endian) — Doc 3 builds SYN-ACKs the same way, just with a pseudo-header and state.
 
-## BY. Day 2 — deeper facts (461–500)
+## BY. Doc 2 — deeper facts (461–500)
 
 461. The checksum must cover exactly its region — no more, no less.
 462. The IP checksum is header-only to bound router cost.
@@ -3728,13 +3728,13 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 473. Reply size is bounded by the MTU in practice.
 474. The kernel verifies our reply before delivering.
 475. total_length is covered by the IP checksum.
-476. Day 2 is stateless; state begins Day 3.
+476. Doc 2 is stateless; state begins Doc 3.
 477. UDP checksum is optional in IPv4, mandatory in IPv6.
 478. Duplicated/reordered replies cause ping "DUP!"/reorder output.
 479. Our responder sends one in-order reply per request.
 480. Batching replies needs the event loop.
 481. The reply's TTL is reset to 64 (fresh packet).
-482. The key Day-3 skill from Day 2 is building a valid packet.
+482. The key Doc-3 skill from Doc 2 is building a valid packet.
 483. Checksum last; big-endian; field zeroed first.
 484. IP checksum over the header; transport over pseudo+segment.
 485. One's complement: invert; two zeros; end-around carry.
@@ -3751,10 +3751,10 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 496. UDP echo = pseudo-header checksum, no state (warm-up).
 497. ICMP error generation = build-from-scratch + quote (like SYN-ACK).
 498. Three-view debugging: test, log, tcpdump.
-499. Teach it (verify-to-zero, recompute-on-swap) = Day 2 owned.
-500. Day 2 milestone: ping 0% loss; the write half of the stack.
+499. Teach it (verify-to-zero, recompute-on-swap) = Doc 2 owned.
+500. Doc 2 milestone: ping 0% loss; the write half of the stack.
 
-## BZ. Debugging tools, deeper (Day-2 specific)
+## BZ. Debugging tools, deeper (Doc-2 specific)
 
 - **`cargo test`** — the first and fastest check; offline, deterministic. Run on every change.
 - **`tcpdump -i tun0 -n -vv`** — see request + reply; `-vv` flags bad checksums.
@@ -3768,7 +3768,7 @@ checksum last, big-endian) — Day 3 builds SYN-ACKs the same way, just with a p
 - **`ip -s link show tun0`** — rx/tx packet and error counters; confirms packets are flowing.
 - **`getcap <binary>`** — confirm `cap_net_admin` is set (empty after a rebuild → re-setcap).
 - **`tc qdisc add dev tun0 root netem loss 10% delay 50ms`** — inject loss/delay to test robustness
-  (and to *see* the difference between detection and recovery — Day 2 detects/drops, doesn't recover).
+  (and to *see* the difference between detection and recovery — Doc 2 detects/drops, doesn't recover).
 
 The workflow: `cargo test` (bytes) → run + `tcpdump` (wire) → Wireshark if a generated packet is
 silently dropped (checksum) → `tc netem` to stress. Each tool answers a specific question; knowing
@@ -3776,7 +3776,7 @@ which to reach for is the debugging skill.
 
 ---
 
-## CA. Reference card II — the complete Day-2 mental model on one screen
+## CA. Reference card II — the complete Doc-2 mental model on one screen
 
 ```
 GOAL: make ping reply (0% loss) → first WRITE to the wire.
@@ -3797,9 +3797,9 @@ DETECTION (cksum, drop) ≠ RECOVERY (TCP retransmit, later)
 MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 ```
 
-## CB. Day 2 — deeper facts (501–580)
+## CB. Doc 2 — deeper facts (501–580)
 
-501. Day 2's goal: make ping reply, 0% loss.
+501. Doc 2's goal: make ping reply, 0% loss.
 502. It's the first time we write to the wire.
 503. The checksum is the centerpiece concept.
 504. RFC 1071 defines it; RFC 1624 the incremental update.
@@ -3834,7 +3834,7 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 533. A bad checksum is dropped silently.
 534. The pinger matches replies by ICMP id.
 535. RTT from the echoed timestamp.
-536. Day 2 split into utils/ip/icmp modules.
+536. Doc 2 split into utils/ip/icmp modules.
 537. mod X; compiles src/X.rs.
 538. pub defines the cross-module API.
 539. Tests live per module.
@@ -3867,7 +3867,7 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 566. UDP echo is the stateless pseudo-header warm-up.
 567. The pseudo-header is the one new checksum wrinkle.
 568. The build technique transfers to TCP.
-569. The checksum + pseudo-header recur unchanged in Day 3.
+569. The checksum + pseudo-header recur unchanged in Doc 3.
 570. The module structure makes tcp.rs slot in cleanly.
 571. ping (1983, Muuss); ICMP (1981, Postel).
 572. traceroute reuses Time Exceeded.
@@ -3877,12 +3877,12 @@ MILESTONE: ping 0% loss, verified by cargo test + tcpdump + by hand
 576. Type the checksum; re-type build_echo_reply; Anki from slips; teach it.
 577. /tcp-tutor grades your explanation.
 578. Three-view debugging: test, log, tcpdump.
-579. Day 2 = the write half; Day 1 = read; together = full duplex.
+579. Doc 2 = the write half; Doc 1 = read; together = full duplex.
 580. Milestone: ping 0% loss, verified three ways.
 
-## CC. What's truly new in Day 3 (deep preview)
+## CC. What's truly new in Doc 3 (deep preview)
 
-Day 3 (TCP handshake) adds exactly three new things; everything else is Day-1/Day-2 skills reused.
+Doc 3 (TCP handshake) adds exactly three new things; everything else is Doc-1/Doc-2 skills reused.
 
 ### CC.1 — New thing 1: state across packets (the TCB)
 ICMP/UDP echo are stateless — handle a packet, forget it. TCP must *remember*: which connections
@@ -3908,14 +3908,14 @@ heart of TCP.
 - `iface.recv`/`send` — the same I/O.
 
 ### CC.5 — The honest difficulty curve
-Day 1: read. Day 2: write (stateless). Day 3+: write with *state and arithmetic*. The jump is real,
-which is why Days 1–2 built the foundation carefully. With packet parsing, construction, and the
-checksum owned, Day 3's only genuinely hard part is the state machine — and that's where the learning
+Doc 1: read. Doc 2: write (stateless). Doc 3+: write with *state and arithmetic*. The jump is real,
+which is why Docs 1–2 built the foundation carefully. With packet parsing, construction, and the
+checksum owned, Doc 3's only genuinely hard part is the state machine — and that's where the learning
 payoff is highest.
 
 ---
 
-## CD. Final consolidated tables (Day 2)
+## CD. Final consolidated tables (Doc 2)
 
 ### CD.1 — Every checksum the stack computes/verifies
 | Where | Layer | Range | Pseudo? | Action |
@@ -3943,15 +3943,15 @@ payoff is highest.
 | UDP | optional (0=none) | mandatory |
 | TCP | mandatory | mandatory |
 
-### CD.4 — The Day-2 code map
-| File | Adds in Day 2 | Lines (approx) |
+### CD.4 — The Doc-2 code map
+| File | Adds in Doc 2 | Lines (approx) |
 |------|---------------|----------------|
 | utils.rs | `checksum` | the core |
 | ip.rs | `write_header_checksum` | small |
 | icmp.rs | `build_echo_reply` | medium |
 | main.rs | ICMP reply arm; `mod` decls | small |
 
-## CE. Day 2 — deeper facts (581–650)
+## CE. Doc 2 — deeper facts (581–650)
 
 581. The kernel computes the request's checksums; we (could) verify them.
 582. We recompute the reply's IP + ICMP checksums.
@@ -4002,7 +4002,7 @@ payoff is highest.
 627. The refactor preserved behavior.
 628. UDP echo = pseudo-header, no state.
 629. The build technique transfers to TCP.
-630. Day 3 adds state, build-from-scratch, sequence arithmetic.
+630. Doc 3 adds state, build-from-scratch, sequence arithmetic.
 631. State (the TCB) is the biggest jump.
 632. SYN-ACK is build-from-scratch + pseudo-header.
 633. Sequence numbers are 32-bit and wrap.
@@ -4021,12 +4021,12 @@ payoff is highest.
 646. Anki from your slips; teach it.
 647. /tcp-tutor grades your explanation.
 648. Three-view debugging: test, log, tcpdump.
-649. Day 2 = the write half; ping 0% loss.
-650. Day 2 owned: re-type both, hand-checksum, teach verify-to-zero, 0% live.
+649. Doc 2 = the write half; ping 0% loss.
+650. Doc 2 owned: re-type both, hand-checksum, teach verify-to-zero, 0% live.
 
-## CF. Day-2 self-exam (50 questions, no answers)
+## CF. Doc-2 self-exam (50 questions, no answers)
 
-1. What is Day 2's milestone? 2. What's the first thing Day 2 does that Day 1 didn't?
+1. What is Doc 2's milestone? 2. What's the first thing Doc 2 does that Doc 1 didn't?
 3. State the checksum algorithm. 4. Why a u32 accumulator? 5. What is end-around carry?
 6. Why two zeros in one's complement? 7. State the verify rule. 8. How do you compute (4 steps)?
 9. What range does the IP checksum cover? 10. The ICMP checksum? 11. The TCP/UDP checksum?
@@ -4037,15 +4037,15 @@ type? 21. Why does the payload echo for free? 22. Why is the reply size-agnostic
 mutate-in-place vs build-from-scratch? 24. When use each? 25. What does an ICMP error quote, and why?
 26. Port Unreachable type/code? 27. Time Exceeded type? 28. What does iface.send do? 29. Why does a
 bad checksum vanish silently? 30. How does the kernel match a reply to ping? 31. How is RTT computed?
-32. Why did Day 2 justify modules? 33. Draw the module dependency graph. 34. What does `mod X;` do?
+32. Why did Doc 2 justify modules? 33. Draw the module dependency graph. 34. What does `mod X;` do?
 35. What does `pub` control? 36. Where do tests live? 37. Why was the refactor safe? 38. Detection vs
 recovery? 39. Who recovers from loss? 40. Why is the checksum weak, and why is that OK? 41. Name two
 errors it misses. 42. How do routers update it cheaply? 43. What must NAT fix? 44. What did IPv6
 change? 45. What is checksum offload? 46. Why is a red checksum on TUN a real bug? 47. What's new in
-Day 3 (three things)? 48. What transfers unchanged to Day 3? 49. What's the single most important
-Day-2 skill for Day 3? 50. How do you know Day 2 is *owned*, not just read?
+Doc 3 (three things)? 48. What transfers unchanged to Doc 3? 49. What's the single most important
+Doc-2 skill for Doc 3? 50. How do you know Doc 2 is *owned*, not just read?
 
-If you can answer all 50 cold, Day 2 is yours.
+If you can answer all 50 cold, Doc 2 is yours.
 
 ---
 
@@ -4087,7 +4087,7 @@ A checksum turns "silently act on corrupt data" into "detect and drop." Detectio
 recovery (resend) is TCP's. Watching one bit flip get caught (or slip through a canceling pair) is the
 most concrete way to internalize both the *value* and the *limits* of the Internet checksum.
 
-## CH. Day 2 — deeper facts (651–720)
+## CH. Doc 2 — deeper facts (651–720)
 
 651. A single bit flip changes the one's-complement sum → detected.
 652. The receiver's checksum comes out nonzero → drop.
@@ -4120,7 +4120,7 @@ most concrete way to internalize both the *value* and the *limits* of the Intern
 679. The payload echoes for free.
 680. iface.send = write(tun_fd); kernel verifies, drops if bad.
 681. Ping matches by id; RTT from echoed timestamp.
-682. Day 2 is stateless; Day 3 adds the TCB.
+682. Doc 2 is stateless; Doc 3 adds the TCB.
 683. SYN-ACK is build-from-scratch + pseudo-header.
 684. Sequence numbers wrap mod 2³².
 685. SYN/FIN each consume a sequence number.
@@ -4155,12 +4155,12 @@ most concrete way to internalize both the *value* and the *limits* of the Intern
 714. Type the checksum; re-type build_echo_reply.
 715. Anki from your slips; teach it (the finish line).
 716. /tcp-tutor grades your explanation.
-717. Day 2 = the write half; Day 1 = the read half.
+717. Doc 2 = the write half; Doc 1 = the read half.
 718. Together = full duplex over TUN.
-719. Day 2 milestone: ping 0% loss, verified three ways.
-720. Day 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% live.
+719. Doc 2 milestone: ping 0% loss, verified three ways.
+720. Doc 2 owned = re-type both, hand-checksum, teach verify-to-zero, 0% live.
 
-## CI. Consolidated glossary (Day 2, alphabetical)
+## CI. Consolidated glossary (Doc 2, alphabetical)
 
 - **Adler-32 / Fletcher** — stronger, position-sensitive checksums (catch reorders); uncommon in IP.
 - **build-from-scratch** — synthesize a packet in a zeroed buffer (SYN-ACK, ICMP error).
@@ -4225,7 +4225,7 @@ generalizes: TCP/UDP add a pseudo-header (more summands — same group), routers
 what modulus?" and its properties follow. This is the kind of structural understanding the curriculum
 is after — not memorizing steps, but seeing why they're forced.
 
-## CK. Day 2 — deeper facts (721–800)
+## CK. Doc 2 — deeper facts (721–800)
 
 721. One's-complement 16-bit addition is arithmetic mod 65535.
 722. It forms an abelian group under addition.
@@ -4284,9 +4284,9 @@ is after — not memorizing steps, but seeing why they're forced.
 775. Anki from your slips.
 776. Teach it (the finish line).
 777. /tcp-tutor grades your explanation.
-778. Day 1 = read; Day 2 = write; together = full duplex.
-779. Day 3 adds state, build-from-scratch, sequence arithmetic.
-780. Day 2 milestone: ping 0% loss, verified three ways.
+778. Doc 1 = read; Doc 2 = write; together = full duplex.
+779. Doc 3 adds state, build-from-scratch, sequence arithmetic.
+780. Doc 2 milestone: ping 0% loss, verified three ways.
 781. The group framing explains every checksum property from one principle.
 782. Ask "what group, what modulus?" of any checksum variant.
 783. Structural understanding > memorized steps (the curriculum's goal).
@@ -4302,11 +4302,11 @@ is after — not memorizing steps, but seeing why they're forced.
 793. Single bytes need no endianness.
 794. The reply's TTL is reset to 64 (fresh packet).
 795. ICMP id demultiplexes replies to the right process.
-796. The 4-tuple (Day 3) generalizes id-based demux.
+796. The 4-tuple (Doc 3) generalizes id-based demux.
 797. SYN/FIN each consume a sequence number.
 798. ACK is cumulative.
 799. The checksum + pseudo-header recur unchanged in TCP.
-800. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+800. Doc 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
 ## CL. Reference card III — the math in one screen
 
@@ -4328,7 +4328,7 @@ PSEUDO-HEADER (12B): srcIP dstIP 0 proto len   (input only)
 
 ## CM. The UDP-echo and RST code, annotated (shipped in PR #6)
 
-The stack grew two real features that put Day-2's construction skills to work. Both are now in the
+The stack grew two real features that put Doc-2's construction skills to work. Both are now in the
 code and tested (24 tests green).
 
 ### CM.1 — `udp::build_echo_reply` (UDP echo)
@@ -4367,14 +4367,14 @@ pub fn build_rst(ip_src, ip_dst, th, payload_len) -> Vec<u8> {
 Two cases from the RFC: if the offending segment carried an ACK, the peer already has a sequence
 context, so reset with `seq = SEG.ACK` and no ACK flag; otherwise acknowledge the offending segment's
 sequence span (`SEG.SEQ + SEG.LEN`, with SYN/FIN counting as 1) and set RST+ACK. It's build-from-
-scratch (no request to mutate), so it exercises the §BG/Day-3 construction technique. Wired into the
+scratch (no request to mutate), so it exercises the §BG/Doc-3 construction technique. Wired into the
 TCP `None =>` (no connection) branch.
 
 ### CM.3 — Why these two, now
 UDP echo completes the *stateless* transport story (the pseudo-header checksum on a real reply, §BJ).
 RST makes the TCP responder *polite and correct* — a scanner or a stale client gets a definitive
 "no connection here" instead of timing out, which is both proper behavior and a security-relevant
-signal-reduction (no silent black hole). Both are small, well-tested, and reuse Day-2 skills — the
+signal-reduction (no silent black hole). Both are small, well-tested, and reuse Doc-2 skills — the
 right kind of increment.
 
 ### CM.4 — The tests that guard them
@@ -4389,11 +4389,11 @@ test goes red.
 ### CM.5 — What they teach
 UDP echo proves you can do the pseudo-header checksum on a *generated* reply (not just verify it).
 RST proves you can build a packet *from scratch* with spec-driven seq/ack logic — the exact muscle
-Day 3's SYN-ACK needs. So these aren't detours: they're Day-2-skill consolidation that front-loads
-two of Day-3's three new things (build-from-scratch, pseudo-header), leaving only *state* genuinely
-new in Day 3.
+Doc 3's SYN-ACK needs. So these aren't detours: they're Doc-2-skill consolidation that front-loads
+two of Doc-3's three new things (build-from-scratch, pseudo-header), leaving only *state* genuinely
+new in Doc 3.
 
-## CN. Day 2 — deeper facts (801–870)
+## CN. Doc 2 — deeper facts (801–870)
 
 801. UDP echo mirrors ICMP echo with two differences.
 802. Difference 1: swap ports, not flip a type.
@@ -4416,9 +4416,9 @@ new in Day 3.
 819. It also reduces a silent-timeout signal for scanners.
 820. build_rst window is 0.
 821. rst_for_stray_ack test: seq = SEG.ACK, valid checksums.
-822. UDP echo front-loads Day-3's pseudo-header skill.
-823. RST front-loads Day-3's build-from-scratch skill.
-824. Only *state* is genuinely new in Day 3.
+822. UDP echo front-loads Doc-3's pseudo-header skill.
+823. RST front-loads Doc-3's build-from-scratch skill.
+824. Only *state* is genuinely new in Doc 3.
 825. 24 tests pass after these additions.
 826. Tests encode the spec as executable checks.
 827. Break construction order → a test goes red.
@@ -4463,7 +4463,7 @@ new in Day 3.
 866. tcpdump shows the echo/RST on the wire.
 867. The Rust code is safe (iterators/bounds) and fast.
 868. Type the cores; re-type the builders; teach it.
-869. Day 2 = the write half; the checksum is the centerpiece.
+869. Doc 2 = the write half; the checksum is the centerpiece.
 870. The stack now answers ping, echoes UDP, and resets stray TCP.
 
 ## CO. Final reference — the stack's response behavior (post-PR #6)
@@ -4484,7 +4484,7 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 
 ---
 
-## CP. Day 2 — deeper facts (871–960)
+## CP. Doc 2 — deeper facts (871–960)
 
 871. The stack now answers ping, echoes UDP, and resets stray TCP.
 872. Each response carries valid IP + (where applicable) transport checksums.
@@ -4529,14 +4529,14 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 911. Tests encode the spec as executable checks.
 912. PR #6 carries the stack + the teaching books.
 913. The doc loop continues on the feature branch.
-914. UDP echo front-loads Day-3's pseudo-header skill.
-915. RST front-loads Day-3's build-from-scratch skill.
-916. Only *state* is genuinely new in Day 3.
+914. UDP echo front-loads Doc-3's pseudo-header skill.
+915. RST front-loads Doc-3's build-from-scratch skill.
+916. Only *state* is genuinely new in Doc 3.
 917. SYN/FIN each consume a sequence number.
 918. ACK is cumulative ("next expected").
 919. The 4-tuple identifies a TCP connection.
 920. ICMP id / UDP+TCP ports demultiplex.
-921. The connection table (Day 3) is TCP's memory.
+921. The connection table (Doc 3) is TCP's memory.
 922. Sequence numbers are 32-bit and wrap.
 923. The checksum + pseudo-header recur unchanged in TCP.
 924. build_packet synthesizes IP + TCP.
@@ -4565,16 +4565,16 @@ stack now *participates* in three protocols (ICMP, TCP, UDP), not just observes 
 947. tc netem stresses with loss/delay.
 948. debug_assert checksums in build fns.
 949. tracing + RUST_LOG for structured logs.
-950. Day 1 = read; Day 2 = write; together = full duplex.
-951. Day 2 milestone: ping 0% loss, UDP echo, TCP RST.
-952. Day 3 milestone: a TCP connection reaches ESTABLISHED.
+950. Doc 1 = read; Doc 2 = write; together = full duplex.
+951. Doc 2 milestone: ping 0% loss, UDP echo, TCP RST.
+952. Doc 3 milestone: a TCP connection reaches ESTABLISHED.
 953. The build discipline is universal across protocols.
 954. The checksum function is reused everywhere.
 955. Modules mirror the protocol stack.
 956. The stack is ~5 small, readable files.
 957. Smallness makes real stacks (smoltcp/Linux) readable later.
 958. Structural understanding > memorized steps.
-959. Day 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
+959. Doc 2 owned = re-type code, hand-checksum, teach verify-to-zero, 0% live.
 960. The stack now genuinely participates in the network, not just observes.
 
 ## CR. Answer key to the §CF self-exam (50 questions)
@@ -4608,7 +4608,7 @@ closed-book, hand-compute a checksum, teach verify-to-zero, and get 0% loss live
 
 ---
 
-## CS. Every Day-2 formula and constant
+## CS. Every Doc-2 formula and constant
 
 ### CS.1 — Formulas
 - Checksum: `c = ~( foldcarries( Σ be16(words) + (odd_byte << 8) ) )`
@@ -4669,9 +4669,9 @@ value; re-summing with it → 0.
 **A.** A RST tears down; there's no flow to advertise a window for. The receiver ignores the window on
 a RST. Setting it to 0 is conventional and harmless.
 
-## CU. Day 2 — final facts (961–1000)
+## CU. Doc 2 — final facts (961–1000)
 
-961. CS.1 lists every Day-2 formula.
+961. CS.1 lists every Doc-2 formula.
 962. CS.2 lists every constant (protocols, types, offsets, flags).
 963. The checksum modulus is 65535.
 964. Checksum field offsets: IP 10-11, ICMP 2-3, UDP 6-7, TCP 16-17.
@@ -4697,10 +4697,10 @@ a RST. Setting it to 0 is conventional and harmless.
 984. The one's-complement sum is an abelian group mod 65535.
 985. Its properties (order/group independence, reorder-blindness) follow.
 986. UDP echo front-loads the pseudo-header; RST front-loads build-from-scratch.
-987. Only *state* is genuinely new in Day 3.
+987. Only *state* is genuinely new in Doc 3.
 988. The TCB is TCP's memory; the 4-tuple is the key.
 989. SYN/FIN consume a sequence number; ACK is cumulative.
-990. The checksum + pseudo-header recur unchanged in Day 3.
+990. The checksum + pseudo-header recur unchanged in Doc 3.
 991. 24 tests pass; PR #6 carries code + books.
 992. cargo test proves bytes offline.
 993. tcpdump/Wireshark verify the wire.
@@ -4709,12 +4709,12 @@ a RST. Setting it to 0 is conventional and harmless.
 996. Type the cores; re-type the builders; Anki from slips; teach it.
 997. /tcp-tutor grades your explanation.
 998. Three-view debugging: test, log, tcpdump.
-999. Day 1 = read; Day 2 = write; Day 3 = state.
-1000. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% loss live.
+999. Doc 1 = read; Doc 2 = write; Doc 3 = state.
+1000. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% loss live.
 
-## CV. Closing note — Day 2
+## CV. Closing note — Doc 2
 
-Day 1 taught you to *read* the network; Day 2 taught you to *write* to it. The hinge was a single
+Doc 1 taught you to *read* the network; Doc 2 taught you to *write* to it. The hinge was a single
 piece of arithmetic — the one's-complement Internet checksum — and a single discipline — build a
 packet by laying out bytes big-endian and checksumming last. With those, you made `ping` reply (0%
 loss), echoed UDP, and learned to reset stray TCP. You also saw, in `§CJ`, that the checksum's every
@@ -4723,22 +4723,22 @@ flip get caught — and a canceling pair slip through — so you know both its p
 
 The one habit to carry: **build the offline test before the live run.** A reply's correctness is a
 claim about specific bytes; a `#[cfg(test)]` that asserts the type, the addresses, and that each
-region's checksum verifies to 0 catches almost every Day-2 bug *before* you touch `tun0`. When the
+region's checksum verifies to 0 catches almost every Doc-2 bug *before* you touch `tun0`. When the
 test is green and the live link still misbehaves, it's the environment (PI header, setcap, interface),
 not your bytes — and you'll know which to fix.
 
 Now do the conversion-to-knowing: **re-type `utils::checksum` and `build_echo_reply` from this book
 with it closed, run `cargo test`, hand-compute one checksum, and make an Anki card from every line you
-peeked at.** Then turn to `day3-book.md`, where the stack grows a *memory* — the TCB — and a `SYN`
+peeked at.** Then turn to `doc3-book.md`, where the stack grows a *memory* — the TCB — and a `SYN`
 becomes a `SYN-ACK`. The checksum and the build discipline you own now are exactly what build that
 SYN-ACK; the only genuinely new thing waiting is *state*.
 
-— End of Day 2 (Volume I narrative + Volume II reference + Volume III tables). On to Day 3.
+— End of Doc 2 (Volume I narrative + Volume II reference + Volume III tables). On to Doc 3.
 
 ---
 ---
 
-# VOLUME IV — Appendix (Day 2)
+# VOLUME IV — Appendix (Doc 2)
 
 ## A2.1 — Binary / hex / decimal for 0–63 (the checksum drill table)
 
@@ -4775,7 +4775,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 0xEDCB. 20. `[ca fe ba be]` → fold(0x185BC)→0x85BD → 0x7A42. (Verify each: sum incl. its complement
 = 0xFFFF.)
 
-## A2.3 — Day 2 — final facts (1001–1190)
+## A2.3 — Doc 2 — final facts (1001–1190)
 
 1001. The Internet checksum is RFC 1071.
 1002. It is one's-complement sum then complement.
@@ -4843,7 +4843,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1064. The build discipline is universal.
 1065. The checksum function is reused everywhere.
 1066. Only byte range and pseudo-header presence differ.
-1067. Day 1 = read; Day 2 = write; Day 3 = state.
+1067. Doc 1 = read; Doc 2 = write; Doc 3 = state.
 1068. The stack answers ping, echoes UDP, resets stray TCP.
 1069. Each response has valid checksums.
 1070. Each inbound is length-guarded.
@@ -4863,7 +4863,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1084. RST avoids a silent black hole.
 1085. UDP echo front-loads the pseudo-header skill.
 1086. RST front-loads build-from-scratch.
-1087. Only state is genuinely new in Day 3.
+1087. Only state is genuinely new in Doc 3.
 1088. The TCB is TCP's memory.
 1089. SYN/FIN consume a sequence number.
 1090. ACK is cumulative.
@@ -4889,7 +4889,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1110. The verify trick turns checking into "sum to 0."
 1111. Fletcher/Adler catch reorders; uncommon in IP.
 1112. The build technique scales from echo to TCP.
-1113. Day 1 read + Day 2 write = full duplex.
+1113. Doc 1 read + Doc 2 write = full duplex.
 1114. The checksum reappears in TCP unchanged.
 1115. Clean modules make tcp.rs slot in cleanly.
 1116. Build the offline test before the wire.
@@ -4930,7 +4930,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1151. Each response is built with valid checksums.
 1152. Each inbound is parsed with guards (no panic).
 1153. The stack participates in ICMP/TCP/UDP.
-1154. It does not yet do retransmission (Day 5+ roadmap).
+1154. It does not yet do retransmission (Doc 5+ roadmap).
 1155. Retransmission needs the event-loop refactor.
 1156. Flow/congestion control are roadmap items.
 1157. Active open (connect) is a roadmap item.
@@ -4945,7 +4945,7 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1166. Building 1% yourself makes the 99% readable.
 1167. The stack is ~5 small files.
 1168. Smallness is the point.
-1169. The checksum is the centerpiece of Day 2.
+1169. The checksum is the centerpiece of Doc 2.
 1170. It's the most-run arithmetic on the internet.
 1171. It must be cheap; every packet pays.
 1172. Detection turns "act on garbage" into "drop."
@@ -4956,19 +4956,19 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1177. Reorder-blindness is the cost of commutativity.
 1178. CRC trades cost for reorder-detection.
 1179. The right check depends on the threat.
-1180. Day 2 = the write half; ping 0% loss.
+1180. Doc 2 = the write half; ping 0% loss.
 1181. Plus UDP echo and TCP RST.
 1182. The stack now participates, not just observes.
-1183. Day 3 adds state, build-from-scratch, sequence arithmetic.
+1183. Doc 3 adds state, build-from-scratch, sequence arithmetic.
 1184. Build-from-scratch was front-loaded by RST.
 1185. The pseudo-header was front-loaded by UDP.
 1186. Only state is genuinely new.
-1187. The TCB and connection table are Day 3's core.
+1187. The TCB and connection table are Doc 3's core.
 1188. The handshake's +1s are SYN consuming a seq.
 1189. ACK numbers mean "next expected."
-1190. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+1190. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
-## A2.4 — Day 2 — final facts (1191–1230)
+## A2.4 — Doc 2 — final facts (1191–1230)
 
 1191. The RST seq logic has two RFC cases (ACK / no ACK).
 1192. RST with ACK present uses seq = SEG.ACK.
@@ -5000,15 +5000,15 @@ dec hex bin        dec hex bin        dec hex bin        dec hex bin
 1218. 24 tests pass; PR #6 carries code + books.
 1219. UDP echo front-loads the pseudo-header skill.
 1220. RST front-loads build-from-scratch.
-1221. Only state is genuinely new in Day 3.
+1221. Only state is genuinely new in Doc 3.
 1222. The TCB is TCP's memory; the 4-tuple is the key.
 1223. SYN/FIN consume a sequence number; ACK is cumulative.
 1224. The checksum + pseudo-header recur unchanged in TCP.
 1225. cargo test proves bytes offline.
 1226. tcpdump/Wireshark verify the wire.
 1227. Type the cores; re-type the builders; teach it.
-1228. Day 1 = read; Day 2 = write; Day 3 = state.
-1229. Day 2 milestone: ping 0% loss + UDP echo + TCP RST.
-1230. Day 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
+1228. Doc 1 = read; Doc 2 = write; Doc 3 = state.
+1229. Doc 2 milestone: ping 0% loss + UDP echo + TCP RST.
+1230. Doc 2 owned: re-type code, hand-checksum, teach verify-to-zero, 0% live.
 
-*Day 2 complete (5,000+ lines). The stack writes to the wire. On to Day 3 — the stack grows a memory.*
+*Doc 2 complete (5,000+ lines). The stack writes to the wire. On to Doc 3 — the stack grows a memory.*

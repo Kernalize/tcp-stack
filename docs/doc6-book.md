@@ -1,11 +1,11 @@
-# Day 6 — TCP, Part 4: Reliability (Retransmission, the Event Loop & the Adaptive RTO)
+# Doc 6 — TCP, Part 4: Reliability (Retransmission, the Event Loop & the Adaptive RTO)
 
 > Goal: make the connection **reliable**. Until now every byte we sent was assumed to arrive. A real
 > network drops packets. So we keep a copy of every segment we send, start a clock, and if its
 > acknowledgement doesn't come back in time we **resend** it. The "in time" part is the subtle one — too
 > eager and we flood the link with needless copies; too patient and a lost segment stalls the connection
 > for a second. So we *measure* the round-trip time and let the timeout track the path. This is the
-> chapter Day 5 §10 promised as "the right Step 6," and it required a structural change: moving off
+> chapter Doc 5 §10 promised as "the right Step 6," and it required a structural change: moving off
 > blocking I/O to an event loop.
 
 This is the day TCP earns the word "reliable." It is also the day the *architecture* changes — a
@@ -57,7 +57,7 @@ Volume II — the exhaustive reference
 
 TCP promises the application a **reliable, ordered byte stream** over an **unreliable** packet network.
 The network may drop, duplicate, reorder, or corrupt any packet. Corruption we already catch (the
-checksum, Day 2). Reordering and gaps are a later chapter (Day 9). *Loss* is this one.
+checksum, Doc 2). Reordering and gaps are a later chapter (Doc 9). *Loss* is this one.
 
 The only tool TCP has against loss is **redundancy in time**: send a segment, and if you don't hear
 that it arrived, send it again. Two pieces of machinery fall out of that one sentence:
@@ -82,7 +82,7 @@ more about *measurement* than about *resending*.
 
 ## 2. Why the blocking loop could not do this (the design change)
 
-Through Day 5 the main loop was, in essence:
+Through Doc 5 the main loop was, in essence:
 
 ```text
    loop { let n = iface.recv(&mut buf)?;  // BLOCKS until a packet arrives
@@ -92,7 +92,7 @@ Through Day 5 the main loop was, in essence:
 `recv()` parks the thread until the kernel hands it a packet. That is fine for a pure request/response
 echo — but a retransmission timer has to fire **when nothing is arriving** (the whole point is that the
 expected ACK *didn't* come). In a blocking loop there is no moment to check a clock: the thread is
-asleep inside `recv()`, possibly forever. This is exactly the "blocker" Day 5 §10 named.
+asleep inside `recv()`, possibly forever. This is exactly the "blocker" Doc 5 §10 named.
 
 The fix is structural, not a patch: switch the interface to **non-blocking** I/O. Now `recv()` returns
 immediately — either a packet, or a `WouldBlock` error meaning "nothing right now." That frees the loop
@@ -139,7 +139,7 @@ loop literally could not express.
 
 ## 4. The retransmission queue
 
-`RetxQueue` is a list of segments we've sent but not yet seen acknowledged. The day-6 entry (it grows
+`RetxQueue` is a list of segments we've sent but not yet seen acknowledged. The doc-6 entry (it grows
 two fields later — §12):
 
 ```rust
@@ -159,7 +159,7 @@ whole thing is unit-testable without sleeping:
 - **`ack(una, now_ms) -> Option<u64>`** — drop every segment the cumulative ACK now covers, and return
   an RTT sample for one of them (see §5). "Covered" is the wraparound-safe test
   `!seq::before(una, end_seq)` — `una` has reached or passed `end_seq` on the 32-bit circle (that
-  `seq::before` is the modular comparison from Day 3).
+  `seq::before` is the modular comparison from Doc 3).
 - **`due(now_ms, rto_ms) -> Vec<packet>`** — return clones of every segment whose timer has elapsed
   (`now_ms − sent_at_ms ≥ rto_ms`), and for each, **reset its timer and bump `retries`**. Resetting is
   what makes the next resend wait another full RTO instead of firing every tick.
@@ -199,7 +199,7 @@ per RTT"). `saturating_sub` guards the degenerate `now < sent_at` (impossible wi
 but free insurance against a 0-stamped test segment).
 
 Karn's *other* half — exponentially backing off the RTO on each retransmit and holding it until a clean
-sample arrives — is the second half of the algorithm, added later as `RttEstimator::back_off` (Day 12 /
+sample arrives — is the second half of the algorithm, added later as `RttEstimator::back_off` (Doc 12 /
 §C). Without it, a path that suddenly slows would retransmit at the old (too-short) RTO repeatedly;
 with it, each timeout doubles the RTO, so the sender stops hammering a congested or stalled path.
 
@@ -300,7 +300,7 @@ The data path for one echoed segment, tracing the bytes:
    2. retx.record(SND.NXT, echo_bytes, now)        # remember it, stamp the time
    3. ...time passes, no ACK...
    4. on_tick(now): retx.due(now, rtt.rto())        # now − sent_at ≥ rto? resend, retries++
-   5. peer's ACK arrives, SND.UNA < ACK ≤ SND.NXT   # acceptable (Day 3's seq::between)
+   5. peer's ACK arrives, SND.UNA < ACK ≤ SND.NXT   # acceptable (Doc 3's seq::between)
    6. SND.UNA = ACK; if let Some(r) = retx.ack(SND.UNA, now) { rtt.sample(r) }
            # segment cleared from the queue; if retries==0, r adapts the RTO
 ```
@@ -336,7 +336,7 @@ Live (your hands): run the stack, `nc 192.168.0.2 8080`, type a line. Then add l
 | Store for resend | whole packet bytes per segment | a byte buffer + rebuild header (lets you re-segment / refresh ACK & window) |
 | RTO before first sample | fixed 200 ms default | RFC 6298 initial RTO = 1 s until first measurement |
 | `MIN_RTO` | 200 ms (local link) | 1 s (RFC SHOULD), to survive internet jitter |
-| Karn's backoff | sample-suppression at day 6; backoff added Day 12 | suppress **and** double RTO per retransmit, hold until a clean sample |
+| Karn's backoff | sample-suppression at doc 6; backoff added Doc 12 | suppress **and** double RTO per retransmit, hold until a clean sample |
 | Retransmit unit | each segment on its own timer | one timer per connection for the oldest unacked (RFC 6298 §5) |
 | Float vs integer SRTT | integer ms + right-shifts | same in practice — kernels use fixed-point too |
 
@@ -345,21 +345,21 @@ Live (your hands): run the stack, `nc 192.168.0.2 8080`, type a line. Then add l
 - **One timer per segment vs one per connection.** RFC 6298 §5 runs a *single* retransmission timer for
   the oldest unacked segment, restarted as ACKs arrive. We give each segment its own deadline — simpler
   to reason about, slightly more timers. Same observable behavior for the common case.
-- **Backoff (Karn's second half) arrived Day 12.** `RttEstimator::back_off` doubles the RTO per
-  consecutive timeout (capped) and holds it until a clean sample clears it (RFC 6298 §5.5). Day 6
-  suppresses samples; Day 12 adds the doubling — needed so we stop hammering a stalled path.
-- **Control segments became reliable on Day 12.** Day 6 queues *data*; a lost SYN-ACK or FIN could
-  still hang the handshake/teardown. Day 12 queues those too.
-- **The `Unacked` struct grew.** Day 18 (SACK) added `start_seq` and a `sacked` flag so loss recovery
-  can skip selectively-acked ranges; Day 6's struct is the four-field original shown in §4.
-- **Fast retransmit (Day 10) beats the RTO.** Waiting a whole RTO is slow; three duplicate ACKs let a
-  sender resend *immediately* without a timeout (RFC 5681). Day 6 is timer-driven only; Day 10 adds the
+- **Backoff (Karn's second half) arrived Doc 12.** `RttEstimator::back_off` doubles the RTO per
+  consecutive timeout (capped) and holds it until a clean sample clears it (RFC 6298 §5.5). Doc 6
+  suppresses samples; Doc 12 adds the doubling — needed so we stop hammering a stalled path.
+- **Control segments became reliable on Doc 12.** Doc 6 queues *data*; a lost SYN-ACK or FIN could
+  still hang the handshake/teardown. Doc 12 queues those too.
+- **The `Unacked` struct grew.** Doc 18 (SACK) added `start_seq` and a `sacked` flag so loss recovery
+  can skip selectively-acked ranges; Doc 6's struct is the four-field original shown in §4.
+- **Fast retransmit (Doc 10) beats the RTO.** Waiting a whole RTO is slow; three duplicate ACKs let a
+  sender resend *immediately* without a timeout (RFC 5681). Doc 6 is timer-driven only; Doc 10 adds the
   ACK-driven path (§F).
 - **No giving up.** We retransmit forever; a real stack caps retries and resets (exercise E1).
 - **Real timers are O(1) wheels.** We scan all connections each tick; kernels use a timer wheel /
   hashed timers to fire in O(1) (§E, §I).
 
-None of these change the day-6 contract (lost data is resent on an adaptive timeout); they are the
+None of these change the doc-6 contract (lost data is resent on an adaptive timeout); they are the
 hardening the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -378,10 +378,10 @@ hardening the later days add.
 
 - **E1.** Cap `retries`: after N (say 5) resends of the same segment, give up and `RST` the connection.
   Today an unanswered segment retransmits forever.
-- **E2.** ✅ *Done* (`RttEstimator::back_off`, Day 12): the RTO doubles on each retransmit (capped ×64)
+- **E2.** ✅ *Done* (`RttEstimator::back_off`, Doc 12): the RTO doubles on each retransmit (capped ×64)
   and the backed-off value holds until a fresh, non-retransmitted RTT sample clears it — the second half
   of Karn's algorithm (RFC 6298 §5.5).
-- **E3.** ✅ *Done* (Day 12): retransmit the **SYN-ACK** and **FIN** too — they consume sequence space
+- **E3.** ✅ *Done* (Doc 12): retransmit the **SYN-ACK** and **FIN** too — they consume sequence space
   and can be lost. Queue them in `accept`/`close` and watch the handshake/teardown survive loss.
 - **E4.** Replace the 5 ms sleep with a real `poll()` whose timeout is the nearest segment's deadline,
   so the loop wakes exactly on a packet or a timer (§E).
@@ -390,9 +390,9 @@ hardening the later days add.
 
 ## 14. What the next step adds
 
-Day 7 adds the **active close** (our side initiating the FIN) with FIN_WAIT_1/2, CLOSING, and TIME_WAIT
-— now that the event loop exists to drive the 2·MSL timer. Day 8 adds **flow control** (gating
-transmission on the peer's advertised window). Day 9 adds **out-of-order reassembly**. Day 10 adds
+Doc 7 adds the **active close** (our side initiating the FIN) with FIN_WAIT_1/2, CLOSING, and TIME_WAIT
+— now that the event loop exists to drive the 2·MSL timer. Doc 8 adds **flow control** (gating
+transmission on the peer's advertised window). Doc 9 adds **out-of-order reassembly**. Doc 10 adds
 **congestion control** — slow start, AIMD, and *fast retransmit* (the ACK-driven loss detection that
 beats the RTO). Retransmission tells you *that* to resend; congestion control governs *how fast* you may
 send into a shared network — the next big conceptual leap.
@@ -459,7 +459,7 @@ Van Jacobson and Michael Karels's 1988 paper "Congestion Avoidance and Control" 
 the **mean deviation** term (RTTVAR) — cheap to compute (no multiply/divide, just shifts and an absolute
 value) and a good proxy for standard deviation. `RTO = SRTT + 4·RTTVAR` tracks both the mean *and* the
 variance, so a jittery path automatically gets a looser timeout. The same paper introduced slow start
-and congestion avoidance (Day 10). This day's estimator is, almost verbatim, the Jacobson/Karels
+and congestion avoidance (Doc 10). This day's estimator is, almost verbatim, the Jacobson/Karels
 algorithm that saved the Internet.
 
 ## C. Karn's algorithm in depth (the two halves)
@@ -476,8 +476,8 @@ Phil Karn and Craig Partridge's 1987 algorithm has **two** rules, and both matte
 Why the freeze (rule 2's second clause)? Because rule 1 means you *can't* get a new sample while you're
 retransmitting — every segment in flight is a retransmission. Without the freeze, you'd revert to the
 old (too-short) RTO the instant a cumulative ACK cleared a never-retransmitted segment behind the loss,
-re-triggering the storm. Backoff + freeze together give the path time to recover. Day 6 implements rule
-1; Day 12's `back_off` implements rule 2. The exponential backoff (1×, 2×, 4×, …) is the same shape as
+re-triggering the storm. Backoff + freeze together give the path time to recover. Doc 6 implements rule
+1; Doc 12's `back_off` implements rule 2. The exponential backoff (1×, 2×, 4×, …) is the same shape as
 Ethernet's collision backoff — a general principle for probing a contended resource without piling on.
 
 ## D. The fixed-point arithmetic — why right-shifts, no floats
@@ -508,8 +508,8 @@ The progression of I/O models, and where we sit:
 ```text
    model              wakeups                         our analogue
    ────────────────   ─────────────────────────────   ─────────────────────────
-   blocking recv      one thread parked per socket     Day 1–5 (no timers possible)
-   non-blocking+poll  spin or sleep, check readiness    Day 6 (recv + 5 ms nap)
+   blocking recv      one thread parked per socket     Doc 1–5 (no timers possible)
+   non-blocking+poll  spin or sleep, check readiness    Doc 6 (recv + 5 ms nap)
    select/poll        wake on any of N fds, w/ timeout  exercise E4
    epoll/kqueue       O(1) readiness, scalable to 10⁵   real servers
    io_uring           batched async submission/complete  modern Linux high-perf
@@ -533,20 +533,20 @@ There are two ways to learn a segment was lost:
 - **Timer-driven (RTO) — this day.** Wait for the deadline; if no ACK, resend. Robust (works even if
   *all* later segments are also lost) but *slow* — you pay a whole RTO (≥ 200 ms here, ≥ 1 s on the
   internet), during which the pipe is idle.
-- **ACK-driven (fast retransmit) — Day 10.** When the receiver gets out-of-order data it sends a
+- **ACK-driven (fast retransmit) — Doc 10.** When the receiver gets out-of-order data it sends a
   *duplicate ACK* (the same cumulative number again). Three duplicate ACKs strongly imply the next
   segment was lost (not merely reordered), so the sender resends it *immediately* — no timeout. This
   recovers a single loss in ~1 RTT instead of ~1 RTO.
 
 A modern stack uses both, plus newer time-based detection (RACK-TLP, §I) that largely replaces the
-3-dup-ACK heuristic. Day 6 builds the RTO floor (always correct, sometimes slow); Day 10 adds the fast
+3-dup-ACK heuristic. Doc 6 builds the RTO floor (always correct, sometimes slow); Doc 10 adds the fast
 path (usually faster, needs enough ACKs to trigger). The RTO is the safety net the fast path falls back
 to.
 
 ## G. A full retransmission episode with backoff, worked numerically
 
 A segment is sent at t=0 with `SRTT=100, RTTVAR=50 → RTO=300`, and the path has gone dark (no ACKs).
-With Karn backoff (Day 12 behavior):
+With Karn backoff (Doc 12 behavior):
 
 ```text
    t=0      send X (retries=0), RTO=300
@@ -592,7 +592,7 @@ the ACK answers; the timer and Karn's guard are what make the stack do the right
    initial RTO         1 s (RFC 6298)                             200 ms default
    timers              hashed timer wheel, O(1)                   linear scan per tick
    retransmit timer    one per socket (oldest unacked)            one per segment
-   loss detection      RACK-TLP (time-based) + dupACK + RTO       RTO (Day 6) + 3-dupACK (Day 10)
+   loss detection      RACK-TLP (time-based) + dupACK + RTO       RTO (Doc 6) + 3-dupACK (Doc 10)
    tail loss           Tail Loss Probe (TLP) before RTO           RTO only
    resend granularity  repacketize on retransmit                  resend identical bytes
 ```
@@ -600,7 +600,7 @@ the ACK answers; the timer and Karn's guard are what make the stack do the right
 The headline modern change is **RACK-TLP** (RFC 8985): instead of the 3-duplicate-ACK heuristic, mark a
 segment lost if a segment sent *later* has been ACKed and enough time has passed (using per-segment send
 timestamps) — more robust to reordering and small flights. We implement the classical RTO + dupACK
-path; RACK is the natural advanced exercise once timestamps (Day 16) are in place.
+path; RACK is the natural advanced exercise once timestamps (Doc 16) are in place.
 
 ## J. Security — low-rate "shrew" DoS and RTT manipulation
 
@@ -612,7 +612,7 @@ path; RACK is the natural advanced exercise once timestamps (Day 16) are in plac
 - **RTT manipulation via forged ACKs.** An on-path attacker (or a lying receiver) can ACK data
   *early* — before it's actually received — to shrink the sender's RTT estimate and RTO, or "ACK
   division"/"optimistic ACKing" to make the sender transmit faster than safe (a congestion-control
-  attack, more relevant on Day 10). Timestamps (Day 16) make the RTT sample harder to forge because the
+  attack, more relevant on Doc 10). Timestamps (Doc 16) make the RTT sample harder to forge because the
   echoed TSecr must match.
 - **Retransmission amplification.** A too-low RTO that retransmits aggressively wastes the sender's own
   bandwidth and can be induced; capping retries (E1) and backoff (§C) bound the damage.
@@ -626,15 +626,15 @@ it, validate samples (Karn + timestamps), and bound retransmission.
   have or will get anyway; *goodput* (useful bytes/sec) falls as loss rises. A well-tuned RTO minimizes
   *spurious* retransmissions (resending data that wasn't actually lost), which is why the variance term
   matters.
-- **MIN_RTO too low** → spurious timeouts on a jittery path → retransmission storms and (with Day 10)
+- **MIN_RTO too low** → spurious timeouts on a jittery path → retransmission storms and (with Doc 10)
   needless `cwnd` collapse. **MIN_RTO too high** → a real loss stalls the connection for the whole
-  floor (1 s on the internet) before recovery — which is why fast retransmit (Day 10) exists to avoid
+  floor (1 s on the internet) before recovery — which is why fast retransmit (Doc 10) exists to avoid
   paying the RTO at all for common single losses.
 - **Timer cost.** Our per-tick linear scan is O(connections); at thousands of connections that's real
   CPU. A timer wheel makes expiry O(1). The 5 ms nap also bounds timer *resolution* to ±5 ms, fine for
   a 200 ms RTO, too coarse for sub-ms LAN RTTs (we'd never want a sub-5ms RTO anyway, hence MIN_RTO).
 - **Memory.** The retransmission queue holds whole-packet copies of all unacked data — up to a window's
-  worth. With window scaling (Day 17) that can be megabytes; a real stack stores the data once and
+  worth. With window scaling (Doc 17) that can be megabytes; a real stack stores the data once and
   rebuilds headers to halve the footprint.
 
 ## L. Extended FAQ
@@ -661,12 +661,12 @@ it, validate samples (Karn + timestamps), and bound retransmission.
 14. **What is MIN_RTO and why 200 ms here?** The RTO floor; 200 ms suits a LAN (RFC SHOULDs 1 s for the
     internet).
 15. **What's the RTO before the first sample?** 200 ms (our default; RFC uses 1 s).
-16. **What's RTO backoff?** Doubling the RTO on each consecutive timeout (Karn part 2, Day 12).
+16. **What's RTO backoff?** Doubling the RTO on each consecutive timeout (Karn part 2, Doc 12).
 17. **Why freeze the backed-off RTO?** You can't get a clean sample while retransmitting; freezing
     avoids reverting to a too-short RTO.
-18. **Does Day 6 retransmit SYN-ACK/FIN?** No — only data; control-segment retransmission is Day 12.
+18. **Does Doc 6 retransmit SYN-ACK/FIN?** No — only data; control-segment retransmission is Doc 12.
 19. **What is fast retransmit and how does it differ?** ACK-driven (3 dup ACKs) immediate resend; beats
-    the RTO (Day 10).
+    the RTO (Doc 10).
 20. **Why does `on_tick` expire TIME_WAIT before checking `due`?** TIME_WAIT is a clock-only transition;
     do state first, then timers.
 21. **How is the RTO tested without sleeping?** Time is passed in as `now_ms`; tests use synthetic
@@ -694,7 +694,7 @@ Q: Why update RTTVAR before SRTT?  A: RTTVAR uses |old SRTT − R|; updating SRT
 Q: α and β gains?  A: 1/8 (SRTT) and 1/4 (RTTVAR) — powers of two → right-shifts, no floats.
 Q: Our MIN_RTO and why?  A: 200 ms for a LAN (RFC SHOULDs 1 s for the internet).
 Q: Whose 1988 algorithm is the RTO?  A: Jacobson/Karels (mean + variance), which fixed congestion collapse.
-Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (fast, Day 10).
+Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (fast, Doc 10).
 ```
 
 ## N. Glossary
@@ -711,7 +711,7 @@ Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (f
 - **Non-blocking I/O / `WouldBlock`** — `recv` returns immediately; "nothing ready" is an error value.
 - **`Instant`** — Rust's monotonic clock; the right RTO time source.
 - **Timer wheel** — an O(1) kernel data structure for firing many timers.
-- **Fast retransmit** — ACK-driven (3 dup ACKs) resend that beats the RTO (Day 10).
+- **Fast retransmit** — ACK-driven (3 dup ACKs) resend that beats the RTO (Doc 10).
 
 ## O. Reference tables
 
@@ -750,6 +750,6 @@ Q: RTO vs fast retransmit?  A: timer-driven (slow, robust) vs 3-dupACK-driven (f
 ```
 
 > Re-type `RetxQueue` and `RttEstimator` from this chapter with the book closed, then `cargo test`. You
-> now hold reliability end to end: parsing (Day 1), checksums (Day 2), handshake (Day 3), data (Day 4),
-> close (Day 5), and now retransmission + the adaptive RTO (Day 6). When the connection survives
+> now hold reliability end to end: parsing (Doc 1), checksums (Doc 2), handshake (Doc 3), data (Doc 4),
+> close (Doc 5), and now retransmission + the adaptive RTO (Doc 6). When the connection survives
 > `netem loss 30%`, you've built the control loop that makes TCP *reliable*.

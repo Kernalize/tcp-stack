@@ -1,4 +1,4 @@
-# Day 27 — TCP, Part 25: SYN Cookies — A Stateless Handshake Under Flood (RFC 4987)
+# Doc 27 — TCP, Part 25: SYN Cookies — A Stateless Handshake Under Flood (RFC 4987)
 
 > Goal: survive a SYN flood. Every passive open so far allocates a Transmission Control Block the
 > instant a SYN arrives — a TCB in SYN_RCVD, holding sequence numbers, buffers, timers — and waits
@@ -63,7 +63,7 @@ MSS). Normally that memory is a TCB. SYN cookies ask: **what if we didn't keep t
 on the wire instead?**
 
 The SYN-ACK already carries a 32-bit field the server chooses freely: its **initial sequence number**
-(ISS). Normally the ISS is random (Day 3, RFC 6528). SYN cookies make the ISS *carry information* — a
+(ISS). Normally the ISS is random (Doc 3, RFC 6528). SYN cookies make the ISS *carry information* — a
 **cookie** that encodes the handshake parameters and a cryptographic-ish signature. The server sends
 this cookie as its ISS and discards all state. The TCP protocol then does the server's bookkeeping
 *for free*: the client must acknowledge the SYN-ACK by sending `ack = ISS + 1 = cookie + 1`. That
@@ -505,7 +505,7 @@ ESTABLISHED or on reaping.
 ## F. Comparison to real stacks — the sysctls
 
 ```text
-   aspect                Linux                              ours (Day 27)
+   aspect                Linux                              ours (Doc 27)
    ───────────────────   ────────────────────────────────   ──────────────────────────
    enable                net.ipv4.tcp_syncookies (0/1/2)    cookies on backlog overflow
    backlog limit         net.ipv4.tcp_max_syn_backlog       SYN_BACKLOG = 128

@@ -1,11 +1,11 @@
-# Day 1 — From Zero to Reading Real Packets
+# Doc 1 — From Zero to Reading Real Packets
 
 > A from-scratch teaching text for `src/main.rs`. The goal: after reading this with the
 > file closed, you can re-type the whole thing and explain every line, every byte, and
 > every design choice — including the ones I rejected and why.
 >
-> Scope of Day 1: open a TUN device, receive raw packets, and **decode** the IPv4 header
-> (plus peek at ICMP and TCP). We do not *reply* yet — that is Day 2 (and it needs
+> Scope of Doc 1: open a TUN device, receive raw packets, and **decode** the IPv4 header
+> (plus peek at ICMP and TCP). We do not *reply* yet — that is Doc 2 (and it needs
 > checksums, which get their own chapter). 100% ping loss today is the correct result.
 
 **Contents**
@@ -23,7 +23,7 @@
 12. The code, walked end to end
 13. Design choices and alternatives (the "why this, not that" table)
 14. Rebuild it yourself — blank-file checklist + exercises
-15. What Day 2 adds
+15. What Doc 2 adds
 - Appendix A — Troubleshooting (symptom → cause)
 - Appendix B — Glossary
 
@@ -42,21 +42,21 @@ interface where, instead of bytes going out a physical NIC, they get handed to *
 process* as plain reads and writes on a file descriptor.
 
 ```
-   Normal path                          Our path (Day 1)
+   Normal path                          Our path (Doc 1)
    ───────────                          ────────────────
    ping ──► kernel TCP/IP ──► NIC       ping ──► kernel routing ──► tun0 ──► OUR process
                                                                             (we read bytes)
 ```
 
 So the entire project is: *a program that reads byte buffers, interprets them as network
-protocols, and writes byte buffers back.* Day 1 is only the **read + interpret** half.
+protocols, and writes byte buffers back.* Doc 1 is only the **read + interpret** half.
 
 Layers, bottom to top, and where we sit:
 
 | Layer | Example | Who handles it in this project |
 |---|---|---|
 | L2 Link | Ethernet, MAC, ARP | **Skipped** — TUN is L3, so no Ethernet header exists |
-| L3 Network | **IPv4**, ICMP | **Us, Day 1** (parse) → Day 2 (reply) |
+| L3 Network | **IPv4**, ICMP | **Us, Doc 1** (parse) → Doc 2 (reply) |
 | L4 Transport | **TCP**, UDP | Us, Weeks 5–10 |
 | L7 Application | HTTP, DNS | The test tools (`ping`, `nc`, `curl`) |
 
@@ -120,7 +120,7 @@ The `tun-tap` crate just wraps those syscalls so you don't write the `ioctl` by 
 
 ## 3. The 4-byte gotcha that breaks the manual (`IFF_NO_PI`)
 
-This is the single most important thing in Day 1, and the project's own `day1.md` gets it
+This is the single most important thing in Doc 1, and the project's own `doc1.md` gets it
 wrong, so internalize it.
 
 The `tun-tap` crate has two constructors:
@@ -186,7 +186,7 @@ Three things worth understanding:
 - **`recv` blocks.** The thread parks in the kernel until a packet is ready; it consumes no
   CPU while waiting. The program "hanging" after startup is correct — it's waiting. (Later,
   for handling many connections, you'd switch to non-blocking + `epoll`; the crate exposes
-  `set_non_blocking()`. Day 1 doesn't need it.)
+  `set_non_blocking()`. Doc 1 doesn't need it.)
 - **`n` is the real length.** `buf` is always 1504 bytes; only `buf[..n]` is this packet.
   Slicing to `&buf[..n]` once and parsing the slice prevents the classic bug of reading
   stale bytes from a previous, longer packet.
@@ -221,13 +221,13 @@ Byte-offset table — this is what `parse_ipv4` walks:
 |---|---|---|
 | `[0]` hi nibble | **Version** | `>> 4`. Always 4 here. |
 | `[0]` lo nibble | **IHL** | `& 0x0f`. Header length in 32-bit words; ×4 = bytes. |
-| `[1]` | DSCP + ECN | QoS / congestion marking. Ignored Day 1. |
+| `[1]` | DSCP + ECN | QoS / congestion marking. Ignored Doc 1. |
 | `[2..4]` | **Total Length** | `u16` BE. Whole datagram (header+payload) in bytes. |
 | `[4..6]` | Identification | Fragment group id (reassembly, later). |
 | `[6..8]` | Flags + Frag Offset | top 3 bits flags (DF/MF), low 13 bits offset. |
 | `[8]` | **TTL** | Hops remaining; each router decrements; 0 ⇒ dropped. |
 | `[9]` | **Protocol** | 1=ICMP, 6=TCP, 17=UDP. Tells us how to read the payload. |
-| `[10..12]` | Header Checksum | One's-complement over the header (see Day 2). |
+| `[10..12]` | Header Checksum | One's-complement over the header (see Doc 2). |
 | `[12..16]` | **Source IP** | 4 octets. |
 | `[16..20]` | **Destination IP** | 4 octets. |
 
@@ -410,8 +410,8 @@ The fixed 8-byte head (sits right after the IP header):
 ```
 
 Why today's ping reports **100% loss**: we *receive* the Echo Requests but never send Echo
-Replies. `ping` waits, hears nothing, reports loss. That's success for Day 1 — it proves
-packets reach our code. Day 2 is: read the request, build a reply (swap src/dst, set type
+Replies. `ping` waits, hears nothing, reports loss. That's success for Doc 1 — it proves
+packets reach our code. Doc 2 is: read the request, build a reply (swap src/dst, set type
 0, **recompute the checksum**), and `iface.send()` it. The checksum is the new concept and
 why reply waits a day.
 
@@ -506,7 +506,7 @@ Close this book. From an empty `main.rs`, you should be able to:
 If any step needs a peek, that step is your weak spot — drill it (and make an Anki card from
 it, per your Learning OS).
 
-**Exercises (do at least 1–2 before Day 2):**
+**Exercises (do at least 1–2 before Doc 2):**
 - **E1.** Print the IP header **checksum** field and the **identification** field. (You read
   the bytes; you don't validate yet.)
 - **E2.** Add UDP (protocol 17): print source/dest ports (first 4 bytes of its payload).
@@ -520,7 +520,7 @@ it, per your Learning OS).
 
 ---
 
-## 15. What Day 2 adds
+## 15. What Doc 2 adds
 
 - **ICMP Echo Reply** so `ping` finally succeeds (0% loss). Build the reply: copy the
   request, swap source/dest IPs, set ICMP type 0, **recompute both checksums**, `send()`.
@@ -547,7 +547,7 @@ it, per your Learning OS).
 | `Error: ... ResourceBusy` creating tun0 | a `tun0` already exists | `sudo ip link delete tun0`, retry |
 | `Error: ... NotFound` opening tun | `/dev/net/tun` missing | `sudo modprobe tun` |
 | program prints nothing and "hangs" | normal — `recv` is blocking, waiting for a packet | ping it from terminal 2 |
-| `ping` says 100% packet loss | we receive but don't reply yet | expected until Day 2 (ICMP echo reply) |
+| `ping` says 100% packet loss | we receive but don't reply yet | expected until Doc 2 (ICMP echo reply) |
 | multi-byte field is a wild/huge number | used `from_ne_bytes` instead of `from_be_bytes` (§7) | always `from_be_bytes` for wire data |
 | L4 fields look shifted/garbage | hardcoded payload start at byte 20 instead of `ihl*4` (§8) | slice `&packet[header_len..]` |
 | `⚠ MISMATCH vs etherparse` printed | your hand parser disagrees with the oracle | a real bug — check byte indices / endianness |
@@ -572,7 +572,7 @@ it, per your Learning OS).
 - **TTL** — Time To Live; per-hop counter; 0 ⇒ drop + ICMP Time Exceeded (how traceroute works).
 - **ICMP** — IP's control/diagnostic protocol (RFC 792); ping = Echo Request/Reply.
 - **Internet checksum** — the one's-complement 16-bit sum (RFC 1071) used by IP/ICMP/TCP/UDP;
-  built on Day 2.
+  built on Doc 2.
 - **differential testing** — running two independent implementations on the same input and
   comparing; divergence localizes a bug. Here: our parser vs `etherparse`.
 - **zero-copy / slice** — a `&[u8]` is a borrowed `(pointer, length)` view; parsing in place
@@ -589,7 +589,7 @@ it, per your Learning OS).
 
 > Volume I above is the *narrative* that gets you to working code. Volume II is the *reference*
 > that makes you not need the narrative again: every bit, every field value, every Rust
-> mechanism, every debugging technique, exhaustively, so you can re-derive the whole of Day 1
+> mechanism, every debugging technique, exhaustively, so you can re-derive the whole of Doc 1
 > from first principles. Read it once slowly; return to it as a lookup.
 
 ## Contents of Volume II
@@ -781,7 +781,7 @@ bitwise NOT (`!`) and any signed arithmetic obey it.
 
 One's complement is an *older* representation where negation is **just invert all bits** (no
 "+1"). Its key arithmetic feature is **end-around carry**: when an addition overflows the top
-bit, the carry is added back at the bottom. The Internet checksum (Day 2) is defined in terms
+bit, the carry is added back at the bottom. The Internet checksum (Doc 2) is defined in terms
 of one's-complement *addition* precisely because end-around carry gives it the endianness-
 independence property. So:
 
@@ -789,14 +789,14 @@ independence property. So:
 - **One's complement** → the arithmetic of the Internet checksum (invert; carries wrap around).
 
 Rust's `!x` operator computes the bitwise NOT, which *is* the one's complement of the bit
-pattern — that is exactly the final step of `utils::checksum` on Day 2.
+pattern — that is exactly the final step of `utils::checksum` on Doc 2.
 
 ### B.4 — Why packet fields are unsigned
 
 A TTL of 64, a port of 443, a window of 65535, a sequence number — none of these are ever
 negative. Representing them as unsigned (a) doubles the positive range for the same bits
 (0–255 instead of −128–127 for a byte), and (b) makes wrap-around well-defined and meaningful
-(TCP sequence numbers *rely* on `u32` wrap-around — Day 3). Using a signed type for a packet
+(TCP sequence numbers *rely* on `u32` wrap-around — Doc 3). Using a signed type for a packet
 field is a latent bug: a "large" value would read as negative.
 
 ---
@@ -843,7 +843,7 @@ a b | a|b
 ```
 
 Use: **set** bits / **combine** flags. TCP flags are individual bits; `SYN | ACK` =
-`0x02 | 0x10` = `0x12` builds the combined flag byte for a SYN-ACK (Day 3). Building a value
+`0x02 | 0x10` = `0x12` builds the combined flag byte for a SYN-ACK (Doc 3). Building a value
 out of named bits is OR; that is why our flag constants are powers of two.
 
 ### C.3 — XOR ( `^` ) — toggling / difference
@@ -922,7 +922,7 @@ Reading is shift+mask; writing is shift+OR. They are inverses.
 
 ## D. Endianness, completely
 
-Endianness caused the silent bug that would have broken Day 1 if we'd used the wrong
+Endianness caused the silent bug that would have broken Doc 1 if we'd used the wrong
 conversion. Here is the whole topic.
 
 ### D.1 — The problem statement
@@ -1060,7 +1060,7 @@ Redefined by RFC 2474/3168 into:
   *without dropping* a packet: `00` not-ECT, `01`/`10` ECT(1)/ECT(0) (endpoints support ECN),
   `11` CE (congestion experienced). TCP then echoes this back to slow down.
 
-We ignore byte 1 on Day 1 (it doesn't affect parsing), but you should know it is *not*
+We ignore byte 1 on Doc 1 (it doesn't affect parsing), but you should know it is *not*
 reserved — it carries QoS and congestion signaling that real networks act on.
 
 ### E.5 — Field 4: Total Length (16 bits, bytes 2–3, big-endian)
@@ -1076,7 +1076,7 @@ MTU: links cap the *physical* frame (1500 on Ethernet), so a 65,535-byte IP data
 
 A unique-ish id the sender stamps on a datagram so that, if it is fragmented, the receiver can
 group the fragments that belong together (all fragments of one datagram share the
-Identification). We don't reassemble on Day 1, but you'll need this field when you implement
+Identification). We don't reassemble on Doc 1, but you'll need this field when you implement
 fragmentation. Historically also (ab)used for other purposes; modern stacks often set it to 0
 for DF packets.
 
@@ -1108,7 +1108,7 @@ packets from looping forever in a routing loop. Common initial values: 64 (Linux
 (Windows), 255 (some routers). Two consequences you can observe: (1) the TTL in a reply hints
 at the sender's OS and distance; (2) **traceroute** sends packets with TTL = 1, 2, 3, … and
 collects the Time-Exceeded replies to map every router on the path. We set TTL = 64 on packets
-we generate (Day 2+).
+we generate (Doc 2+).
 
 ### E.10 — Field 9: Protocol (8 bits, byte 9)
 
@@ -1131,7 +1131,7 @@ is the demultiplexing key from L3 to L4.
 
 The Internet checksum (RFC 1071) computed over **the header only** (not the payload — TCP/UDP
 checksum their own data). A router that decrements TTL must recompute (or incrementally update)
-this. We *parse* it on Day 1 and *compute/validate* it on Day 2. Note IPv6 dropped the header
+this. We *parse* it on Doc 1 and *compute/validate* it on Doc 2. Note IPv6 dropped the header
 checksum entirely (relying on L2 and L4 checks) to save router work — a deliberate design
 reversal worth knowing.
 
@@ -1290,7 +1290,7 @@ When `IFF_NO_PI` is *not* set (i.e. `Iface::new`), every `read` is prefixed with
 
 Two ways to live with it: set `IFF_NO_PI` (our choice — the prefix vanishes, `buf[0]` is the IP
 version), or keep it and parse from `buf[4..]` after checking the EtherType. The whole
-Day-1-breaking bug (version reads as 0) is this prefix shifting every offset by 4 — see Volume
+Doc-1-breaking bug (version reads as 0) is this prefix shifting every offset by 4 — see Volume
 I §3. The docs literally tell you to size your buffer "MTU + 4" because of these bytes.
 
 ### F.7 — Capabilities and isolation, deeper
@@ -1312,7 +1312,7 @@ into your buffer and wakes you. This is fine for a single-connection toy. A real
 many connections plus timers can't block on one fd, so it switches to **non-blocking** mode
 (`set_non_blocking`, which sets `O_NONBLOCK`): now `read` returns `EWOULDBLOCK` immediately if
 nothing is ready, and you use `epoll`/`poll` to wait on the fd *and* timers simultaneously.
-That event-loop change is exactly the prerequisite for retransmission (see day5-book.md §10).
+That event-loop change is exactly the prerequisite for retransmission (see doc5-book.md §10).
 
 ### F.9 — TUN vs the other ways to touch packets
 
@@ -1399,7 +1399,7 @@ At any moment, for a given value, you may have **either**:
 never both. This "shared XOR mutable" rule, enforced at compile time, is what statically
 eliminates data races and iterator-invalidation bugs. It's why you sometimes restructure code
 to satisfy it (e.g. compute `state = conn.state()` *before* `connections.remove(&quad)` in
-Day 5 — the `&mut conn` borrow must end before we touch the map again). The checker is not
+Doc 5 — the `&mut conn` borrow must end before we touch the map again). The checker is not
 being difficult; it's proving the absence of a class of bugs.
 
 ### G.5 — Slices (`&[u8]`) — the parser's core type
@@ -1499,7 +1499,7 @@ introduce a borrowed header type with a lifetime tying it to the packet.
 
 ### G.14 — Iterators (`chunks_exact`) and why they're zero-cost
 
-The checksum (Day 2) uses `data.chunks_exact(2)` to walk 16-bit words, plus `.remainder()` for
+The checksum (Doc 2) uses `data.chunks_exact(2)` to walk 16-bit words, plus `.remainder()` for
 a trailing odd byte. Rust iterators are **zero-cost abstractions**: they compile to the same
 machine code as a hand-written loop, but read declaratively and avoid off-by-one bugs.
 `for w in chunks.by_ref()` consumes the even pairs; `chunks.remainder()` then yields the leftover.
@@ -1588,7 +1588,7 @@ The diagnostic everyone knows. Layout of the 8-byte echo header + data:
 ```
 
 - **Echo Request = type 8, code 0.** Sent by `ping`.
-- **Echo Reply = type 0, code 0.** The required answer (what we build on Day 2).
+- **Echo Reply = type 0, code 0.** The required answer (what we build on Doc 2).
 - **Identifier** — lets the sending process match replies to itself (often the PID on Linux, or
   a fixed value). Multiple pings on one host are told apart by id.
 - **Sequence** — increments each request (1, 2, 3…), so `ping` can compute per-packet loss and
@@ -1701,7 +1701,7 @@ This section makes you fluent in both, focused on `tun0`.
 
 Your stack's `println!` shows *what your code thinks happened*. A sniffer shows *what was
 actually on the wire*, decoded by a mature, correct implementation. The gap between the two is
-exactly your bug. The Day-1 `IFF_NO_PI` trap is the perfect example: your code prints nothing
+exactly your bug. The Doc-1 `IFF_NO_PI` trap is the perfect example: your code prints nothing
 (it skipped everything), but `tcpdump -i tun0` clearly shows the ICMP requests arriving — so the
 problem is in your parse, not the network. That triangulation is the core debugging loop.
 
@@ -1738,7 +1738,7 @@ sudo tcpdump -i tun0 -n -vv -X
 - `seq 1` — Sequence number.
 - `length 64` — ICMP payload length (64 = 8-byte header is *not* counted here; tcpdump shows the
   ICMP data length differently per version — verify against your `total_len`).
-After Day 2 you should see a *second* line, `ICMP echo reply`, from .2 > .1 — proof your reply
+After Doc 2 you should see a *second* line, `ICMP echo reply`, from .2 > .1 — proof your reply
 went out.
 
 ### I.4 — Reading a tcpdump TCP line
@@ -1757,7 +1757,7 @@ went out.
   `-S` (`--absolute-tcp-sequence-numbers`) to see the raw 32-bit values your code actually puts
   on the wire.
 
-This is your Day-3/4/5 verification: the three handshake lines, then `[P.]` data + your echo,
+This is your Doc-3/4/5 verification: the three handshake lines, then `[P.]` data + your echo,
 then the `[F.]` exchanges, with seq/ack numbers matching your TCB math.
 
 ### I.5 — BPF capture filters
@@ -1794,7 +1794,7 @@ The habit that makes you fast: for each packet, line up three views — your sta
 tcpdump's decoded line, and the `-X` hex dump — and confirm they agree byte for byte. When the
 `agrees_with_etherparse` test passes but the live link misbehaves, it's almost always a
 *generated* packet (checksum, length, or a field you set wrong); Wireshark's field tree + bad-
-checksum flag finds it in seconds. Reading your own packets is a skill; by Day 5 it should be
+checksum flag finds it in seconds. Reading your own packets is a skill; by Doc 5 it should be
 reflexive.
 
 ### I.8 — A field-mapping cheat sheet (your code ↔ the tools)
@@ -1816,7 +1816,7 @@ reflexive.
 ## J. Extended exercises with full worked solutions
 
 Work each one on paper or in code *before* reading the solution. These are graded from
-warm-up to genuinely tricky; together they re-derive all of Day 1.
+warm-up to genuinely tricky; together they re-derive all of Doc 1.
 
 ### J.1 — Decode a header cold
 
@@ -1943,7 +1943,7 @@ if utils::checksum(&packet[..header_len]) != 0 {
 ```
 (add `BadChecksum` to the enum). Recall the verify-trick: a valid header *including* its
 checksum field sums to 0. Test: take a known-good header → expect Ok; flip one byte → expect
-`BadChecksum`. (Needs the Day-2 `utils::checksum`.)
+`BadChecksum`. (Needs the Doc-2 `utils::checksum`.)
 
 ### J.12 — Count protocols seen (code, design)
 
@@ -1951,14 +1951,14 @@ checksum field sums to 0. Test: take a known-good header → expect Ok; flip one
 
 **Solution.** A `HashMap<u8, u64>` or three counters incremented in the dispatch; print every N
 packets. The point: per-connection/aggregate *state* is what turns a parser into a stack — a
-warm-up for the TCP connection table (Day 3).
+warm-up for the TCP connection table (Doc 3).
 
-### J.13 — Why does ping show 100% loss on Day 1 but 0% on Day 2?
+### J.13 — Why does ping show 100% loss on Doc 1 but 0% on Doc 2?
 
-**Solution.** Day 1 only *parses*; it never calls `iface.send`, so no Echo Reply is produced —
-`ping` waits and times out → 100% loss. Day 2 builds an Echo Reply (type 0, swapped addresses,
+**Solution.** Doc 1 only *parses*; it never calls `iface.send`, so no Echo Reply is produced —
+`ping` waits and times out → 100% loss. Doc 2 builds an Echo Reply (type 0, swapped addresses,
 recomputed checksums) and sends it → `ping` matches it by id/seq → 0% loss. The visible behavior
-is identical to "a reply with a bad checksum," which is why Day 2 tests the checksum offline.
+is identical to "a reply with a bad checksum," which is why Doc 2 tests the checksum offline.
 
 ### J.14 — The hardest one: hand-compute an IP header checksum
 
@@ -1972,18 +1972,18 @@ zeroed), compute the checksum.
 Add step by step (hex): 4500+0028=4528; +4000=8528; +4006=C52E; +0A00=CF2E; +0001=CF2F;
 +0A00=D92F; +0002=D931. (The 0000 words add nothing.) Sum = 0xD931, no carry above 16 bits, so
 no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` in place:
-`0xD931 + 0x26CE = 0xFFFF` → `~0xFFFF = 0`. ✓ (This is the Day-2 algorithm done by hand.)
+`0xD931 + 0x26CE = 0xFFFF` → `~0xFFFF = 0`. ✓ (This is the Doc-2 algorithm done by hand.)
 
 ---
 
 ## K. Extended glossary and the RFC reading list
 
-### K.1 — Extended glossary (Day 1 scope, exhaustive)
+### K.1 — Extended glossary (Doc 1 scope, exhaustive)
 
 - **ARPANET** — the 1969 packet-switched research network that evolved into the internet; origin
   of TCP/IP.
 - **ACK (acknowledgement)** — confirmation that data was received; a TCP flag and a 32-bit field
-  (Day 3+).
+  (Doc 3+).
 - **bit** — a binary digit, 0 or 1; the atom of all data.
 - **big-endian** — most-significant byte first; **network byte order**; all IP/TCP/UDP fields.
 - **BPF (Berkeley Packet Filter)** — kernel bytecode for matching packets; powers tcpdump
@@ -1992,7 +1992,7 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **CAP_NET_ADMIN** — Linux capability for network-interface/route administration; needed to
   create `tun0`.
 - **CIDR** — Classless Inter-Domain Routing; the `a.b.c.d/n` notation; `n` = network-prefix bits.
-- **checksum (Internet)** — RFC 1071 one's-complement 16-bit sum for error detection (Day 2).
+- **checksum (Internet)** — RFC 1071 one's-complement 16-bit sum for error detection (Doc 2).
 - **character device** — a file you read/write as a byte stream; `/dev/net/tun` is one.
 - **datagram** — a self-contained packet (IP datagram, UDP datagram); routed independently.
 - **DF (Don't Fragment)** — IP flag forbidding fragmentation; drives Path MTU Discovery.
@@ -2009,7 +2009,7 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **Identifier (ICMP)** — field matching echo replies to the sending process.
 - **IFF_NO_PI** — TUN flag disabling the 4-byte packet-information prefix.
 - **ioctl** — the "I/O control" syscall for device-specific operations; `TUNSETIFF` creates a TUN.
-- **ISN/ISS/IRS** — Initial Sequence Number (and send/recv variants); TCP (Day 3).
+- **ISN/ISS/IRS** — Initial Sequence Number (and send/recv variants); TCP (Doc 3).
 - **little-endian** — least-significant byte first; x86/ARM internal order.
 - **loopback** — 127.0.0.0/8; traffic to oneself.
 - **MTU** — Maximum Transmission Unit; largest L3 packet a link carries unfragmented (1500 Ethernet).
@@ -2036,17 +2036,17 @@ no fold needed. Checksum = `~0xD931 = 0x26CE`. Verify by re-summing with `26CE` 
 - **wrapping arithmetic** — modular `wrapping_add` etc.; defined overflow (TCP seq numbers wrap at 2³²).
 - **zero-copy** — processing data in place via borrows instead of copying.
 
-### K.2 — The RFC reading list (Day 1 relevant, in reading order)
+### K.2 — The RFC reading list (Doc 1 relevant, in reading order)
 
 RFCs are the primary sources. Read the *introduction* and the *header-format* sections first;
 the prose is dense but precise, and learning to read it is a skill in itself (look for the
 ASCII header diagrams and the MUST/SHOULD/MAY keywords from RFC 2119).
 
-| RFC | Title | Why for Day 1 |
+| RFC | Title | Why for Doc 1 |
 |-----|-------|---------------|
 | 791 | Internet Protocol | the IPv4 header you parse — read §3.1 (header format) |
 | 792 | Internet Control Message Protocol | ICMP echo + errors |
-| 1071 | Computing the Internet Checksum | the Day-2 algorithm, with worked examples |
+| 1071 | Computing the Internet Checksum | the Doc-2 algorithm, with worked examples |
 | 1122 | Requirements for Internet Hosts — Communication Layers | what a host MUST do; the "host rules" |
 | 2474 | Definition of the DiffServ Field (DSCP) | what IP byte 1 became |
 | 3168 | The Addition of ECN to IP | the low 2 bits of byte 1 |
@@ -2061,9 +2061,9 @@ Beej's *Guide to Network Programming* (the sockets side you're reimplementing).
 
 ---
 
-## L. Complete annotated hex dumps of every Day-1 packet type
+## L. Complete annotated hex dumps of every Doc-1 packet type
 
-Memorizing these three dumps means you can read any Day-1 packet instantly. Offsets are decimal
+Memorizing these three dumps means you can read any Doc-1 packet instantly. Offsets are decimal
 byte indices from the start of the IP packet (TUN, no PI prefix).
 
 ### L.1 — ICMP Echo Request (a ping), 98 bytes shown as 84 (IP) — the canonical Linux ping
@@ -2094,7 +2094,7 @@ Read it: "DF TCP-less ICMP echo, id 0x1234 seq 1, 192.168.0.1→.2, 64 hops left
 takes bytes 0/9/12-19 (IP) and 20-27 (ICMP); the reply flips byte 20 to 0x00 and fixes the two
 checksums.
 
-### L.2 — ICMP Echo Reply (our Day-2 output) — what changed from L.1
+### L.2 — ICMP Echo Reply (our Doc-2 output) — what changed from L.1
 
 ```
  same 84 bytes as L.1, with these edits:
@@ -2289,7 +2289,7 @@ and a polished socket API — all without a heap. It will show you idiomatic Rus
 | Address families | IPv4 only | IPv4 + IPv6 + dual stack |
 
 This table is also a study plan: each row is a thing you can add to *this* stack (the roadmap in
-day5-book.md §10) and then go read how `smoltcp`/lwIP/Linux do it properly.
+doc5-book.md §10) and then go read how `smoltcp`/lwIP/Linux do it properly.
 
 ### N.6 — Why build a toy at all
 
@@ -2304,7 +2304,7 @@ transfer — from your toy to real systems — is the entire point.
 ## O. Line-by-line walkthrough — `utils.rs` and `ip.rs`
 
 This section reads the foundational files one construct at a time, so you can account for every
-character. (`icmp.rs`, `main.rs`, and `tcp.rs` get the same treatment in their day-books.)
+character. (`icmp.rs`, `main.rs`, and `tcp.rs` get the same treatment in their doc-books.)
 
 ### O.1 — `utils.rs`, line by line
 
@@ -2533,7 +2533,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Diagnosis:** the panic message gives the exact index and length.
 - **Fix:** the up-front length guards (`< 20`, `< header_len`); after them, indices are safe.
 
-### P.8 — ping stays at 100% loss after you "added" the reply (Day 2)
+### P.8 — ping stays at 100% loss after you "added" the reply (Doc 2)
 
 - **Symptom:** you build and send an Echo Reply, but `ping` still reports loss; tcpdump shows the
   reply going out.
@@ -2545,7 +2545,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Fix:** zero the field, checksum the correct range, write `to_be_bytes`. (Our
   `reply_is_well_formed` test asserts both regions verify to 0.)
 
-### P.9 — handshake never completes (Day 3)
+### P.9 — handshake never completes (Doc 3)
 
 - **Symptom:** SYN-ACK goes out, but the connection never reaches ESTABLISHED; client retransmits
   SYN or RSTs.
@@ -2556,7 +2556,7 @@ and the **fix**. These are the failures this project produces in practice.
 - **Fix:** `ack = recv.nxt = client_seq + 1`; checksum over pseudo-header + segment; data offset
   `5 << 4`.
 
-### P.10 — echo works once, then stalls (Day 4)
+### P.10 — echo works once, then stalls (Doc 4)
 
 - **Symptom:** the first data segment echoes, later ones are ignored.
 - **Cause:** sequence-number bookkeeping drift — not advancing `RCV.NXT`/`SND.NXT` by the payload
@@ -2579,9 +2579,9 @@ looking before theorizing.
 
 ---
 
-## Q. From-absolute-scratch reconstruction — build Day 1 from an empty directory
+## Q. From-absolute-scratch reconstruction — build Doc 1 from an empty directory
 
-If you can do this from a blank folder without copying, you own Day 1. Commands assume WSL Ubuntu.
+If you can do this from a blank folder without copying, you own Doc 1. Commands assume WSL Ubuntu.
 
 ### Q.1 — Toolchain
 
@@ -2642,7 +2642,7 @@ sudo setcap cap_net_admin=eip "$(echo $HOME)/.tcp-stack-target/debug/tcp-stack" 
 ```bash
 # terminal 2
 sudo ip addr add 192.168.0.1/24 dev tun0 && sudo ip link set tun0 up
-ping -c3 192.168.0.2          # Day 1: 100% loss is correct
+ping -c3 192.168.0.2          # Doc 1: 100% loss is correct
 sudo tcpdump -i tun0 -n -v    # terminal 3: see the requests
 ```
 
@@ -2656,7 +2656,7 @@ means. If any step needed a peek, that step is your weak spot — drill it and m
 
 ## R. The mathematics of the Internet checksum
 
-This is the "why it works" behind Day 2's code. None of it is needed to *use* the checksum, but
+This is the "why it works" behind Doc 2's code. None of it is needed to *use* the checksum, but
 understanding it is the difference between memorizing an algorithm and owning it.
 
 ### R.1 — One's-complement integers as a number system
@@ -2775,13 +2775,13 @@ needs.
 
 None of these change correctness; all trade simplicity for throughput. The single change that's
 not just performance but *capability* is blocking→event-loop, because retransmission timers need
-it — which is why it heads the day5-book.md §10 roadmap.
+it — which is why it heads the doc5-book.md §10 roadmap.
 
 ### S.4 — Big-O of the data structures
 
 - IPv4/ICMP/TCP parse: **O(1)** (fixed offsets).
 - Checksum: **O(n)** in packet length (unavoidable; one pass).
-- Connection lookup (Day 3+): **O(1)** average via `HashMap<Quad, _>`.
+- Connection lookup (Doc 3+): **O(1)** average via `HashMap<Quad, _>`.
 - Echo/reply build: **O(payload)** for the copy + checksum.
 Nothing in the design is worse than linear in the packet size, which is the floor — you must at
 least look at each byte you checksum.
@@ -2809,7 +2809,7 @@ Bigger-than-needed is harmless; too small truncates.
 **6. Why does `recv` block?** `read()` on the fd sleeps the thread until a packet arrives — 0% CPU
 while waiting. The apparent "hang" at startup is correct.
 
-**7. Why is ping 100% loss on Day 1?** We receive but never send an Echo Reply. Day 2 fixes it.
+**7. Why is ping 100% loss on Doc 1?** We receive but never send an Echo Reply. Doc 2 fixes it.
 
 **8. Why must I re-run `setcap` after every build?** A new binary is a new inode; file
 capabilities live in the inode's xattrs and don't carry over.
@@ -2910,7 +2910,7 @@ anyway.
 **39. Could a malicious packet crash my stack?** Only if you index without guarding — which is the
 whole reason for the up-front length checks. A short/garbage packet must be rejected, not panic.
 
-**40. What's the single most important habit from Day 1?** Compare three views (your output,
+**40. What's the single most important habit from Doc 1?** Compare three views (your output,
 tcpdump, the hex) before theorizing. The bytes never lie.
 
 ---
@@ -2918,7 +2918,7 @@ tcpdump, the hex) before theorizing. The bytes never lie.
 ## U. This project and the security track — every parser is an attack surface
 
 You're building toward offensive/defensive security research; a packet parser is exactly where
-those worlds meet. This section maps Day-1 concepts to the security mindset.
+those worlds meet. This section maps Doc-1 concepts to the security mindset.
 
 ### U.1 — A parser is a trust boundary
 
@@ -2940,7 +2940,7 @@ same class of check that would have prevented it. Internalize: *the parser is th
 - **ICMP tunneling / covert channels** — arbitrary data in echo payloads to exfiltrate past
   firewalls. Relevant to both red (build it) and blue (detect anomalous echo sizes/rates).
 - **IP spoofing** — forging the source address. IP has no authentication; this is why TCP's
-  random ISN (Day 3) and sequence checks matter, and why ingress filtering (BCP 38) exists.
+  random ISN (Doc 3) and sequence checks matter, and why ingress filtering (BCP 38) exists.
 - **TTL games** — low TTL to map networks (traceroute), or to evade IDS that reassemble differently
   than the target (insertion/evasion attacks, Ptacek & Newsham 1998). Parsing TTL is step one.
 
@@ -3003,7 +3003,7 @@ rand = "0.8"
 - `tracing` / `tracing-subscriber` — structured logging (better than `println!` for real use);
   `features = ["env-filter"]` enables `RUST_LOG`-style filtering. We mostly use `println!` for
   teaching clarity, but the deps are present for when you switch.
-- `rand = "0.8"` — for ISN randomization (the secure version of Day 3's ISS); use `OsRng`, not
+- `rand = "0.8"` — for ISN randomization (the secure version of Doc 3's ISS); use `OsRng`, not
   `thread_rng`, for anything security-relevant.
 
 ```toml
@@ -3045,8 +3045,8 @@ src/
   tcp.rs     — TCP parse + connection state   (uses ip, utils)
   ethernet.rs, arp.rs — placeholders (TAP-only path; not `mod`-declared)
 docs/
-  Manual.md, day1.md      — the original 12-week plan + day-1 walkthrough
-  day1-book.md … day5-book.md — these teaching books
+  Manual.md, doc1.md      — the original 12-week plan + doc-1 walkthrough
+  doc1-book.md … doc5-book.md — these teaching books
 ```
 Dependency direction is strictly upward: `utils` depends on nothing; `ip` on `utils`; `icmp`/`tcp`
 on `ip`+`utils`; `main` on all. No cycles — a clean layering that mirrors the protocol stack
@@ -3054,7 +3054,7 @@ itself.
 
 ---
 
-## W. Anki starter deck — Day 1 (drawn from this chapter)
+## W. Anki starter deck — Doc 1 (drawn from this chapter)
 
 Per your Learning OS, make cards from *your own* slips first; this deck seeds the rest. Format is
 Q → A. Keep cards atomic.
@@ -3111,8 +3111,8 @@ A: Avoid a panic/over-read on hostile input (the Heartbleed class of bug).
 Q: TCP checksum covers what beyond the segment?
 A: A 12-byte pseudo-header (src/dst IP, proto=6, TCP length) — ties it to the addresses.
 
-Q: Why is ping 100% loss on Day 1 but 0% on Day 2?
-A: Day 1 only parses (no reply sent); Day 2 builds+sends the Echo Reply.
+Q: Why is ping 100% loss on Doc 1 but 0% on Doc 2?
+A: Doc 1 only parses (no reply sent); Doc 2 builds+sends the Echo Reply.
 
 Q: Data offset nibble for a 20-byte TCP header, as a byte value?
 A: 5 words → 5 << 4 = 0x50.
@@ -3125,28 +3125,28 @@ Add ~10 more from whatever *you* got wrong while reading — those stick best.
 
 ---
 
-## X. Closing synthesis — the one-page mental model of Day 1
+## X. Closing synthesis — the one-page mental model of Doc 1
 
 If you forget everything else, keep this:
 
 > A network stack is **a program that reads a byte buffer, interprets it as nested protocol
 > headers, and writes a byte buffer back.** A **TUN** device makes that possible from userspace:
 > the kernel routes IP packets to `tun0`, and `read(fd)` hands them to us; `write(fd)` injects our
-> replies. Day 1 is the *read + interpret* half.
+> replies. Doc 1 is the *read + interpret* half.
 
 The interpret step, in one breath: the first byte's nibbles give **version** and **IHL**; multi-
 byte fields are **big-endian** (`from_be_bytes`); the **protocol** byte says how to read the
 payload, which starts at **IHL × 4**; you **guard lengths before indexing** so hostile input can't
 crash you. **ICMP** is the control plane (ping = type 8 → 0). The **Internet checksum**
-(one's-complement sum, Day 2) is how integrity is checked, and a valid header sums to 0.
+(one's-complement sum, Doc 2) is how integrity is checked, and a valid header sums to 0.
 
 The discipline, in one line: **guard, then parse; convert endianness explicitly; verify against an
 oracle and tcpdump; never panic on input.**
 
-Everything in days 2–5 (checksums, the handshake, data, teardown) is the *write* half and the
+Everything in docs 2–5 (checksums, the handshake, data, teardown) is the *write* half and the
 addition of *state* — but it all rests on this: bytes in, bytes out, with the headers understood.
 
-You now have the complete Day-1 picture, narrative (Volume I) and reference (Volume II). Re-type
+You now have the complete Doc-1 picture, narrative (Volume I) and reference (Volume II). Re-type
 the code with the books closed; you own it when you can.
 
 ---
@@ -3161,7 +3161,7 @@ Cover the right column, decode from the hex, then check. By packet ten this is a
 
 ### Y.2 — ICMP echo reply (pong)
 `45 00 00 54 00 00 40 00 40 01 b8 6a c0 a8 00 02 c0 a8 00 01 | 00 00 ...`
-→ same but addresses **swapped** and ICMP **type 0** (reply). This is what our Day-2 code emits.
+→ same but addresses **swapped** and ICMP **type 0** (reply). This is what our Doc-2 code emits.
 
 ### Y.3 — ICMP destination port unreachable
 `45 00 00 38 ... 40 01 .. .. <router> <you> | 03 03 ...`
@@ -3178,7 +3178,7 @@ probe. Traceroute prints that source as a hop.
 → proto **6 TCP**; TCP flags byte `0x02` = **SYN**; ack 0; data offset `0xA0`→40-byte header (options:
 MSS/SACK/wscale). Connection start.
 
-### Y.6 — TCP SYN-ACK (our Day-3 reply)
+### Y.6 — TCP SYN-ACK (our Doc-3 reply)
 `45 00 00 28 ... 40 06 .. .. <server> <client> | <dp> <sp> <ISS=0> <ack=clientseq+1> 50 12 0400 ...`
 → flags `0x12` = **SYN+ACK**; data offset `0x50`→20-byte header (no options); window 0x0400=1024.
 
@@ -3209,40 +3209,40 @@ no seq, no ack, no state. The simplicity contrast that makes TCP's machinery leg
 
 ---
 
-## Z. Cross-reference index — concept → RFC, code, and day-book
+## Z. Cross-reference index — concept → RFC, code, and doc-book
 
-A lookup table tying every Day-1 concept to its authoritative source, where it lives in the code,
+A lookup table tying every Doc-1 concept to its authoritative source, where it lives in the code,
 and the chapter that develops it.
 
 | Concept | RFC / source | Code location | Developed in |
 |---|---|---|---|
-| IPv4 header format | RFC 791 §3.1 | `ip::parse` | day1 V1 §5, V2 §E |
-| Version / IHL nibbles | RFC 791 | `ip::parse` (byte 0) | day1 §5.5, §C.8, §O.2 |
-| Total length | RFC 791 | `ip::Ipv4Header.total_len` | day1 §E.5 |
-| Fragmentation (flags/offset) | RFC 791, 1191 | (parsed, not used) | day1 §E.7–E.8 |
-| TTL | RFC 791, 1122 | `ip::Ipv4Header.ttl` | day1 §E.9, §H.5 |
-| Protocol numbers | IANA registry | dispatch `match` | day1 §E.10 |
-| IP header checksum | RFC 791, 1071 | `ip::write_header_checksum`, `utils::checksum` | day1 §E.11, day2, day1 §R |
-| Addresses / CIDR | RFC 791, 4632 | `Ipv4Addr` fields | day1 §E.12 |
-| Endianness | RFC 1700 (assigned numbers), Cohen 1980 | `from_be_bytes` everywhere | day1 §D, §7 |
-| Internet checksum algorithm | RFC 1071, 1624 | `utils::checksum` | day2, day1 §R |
-| ICMP message format | RFC 792 | `icmp::parse` | day1 §10, §H.2 |
-| Echo request/reply | RFC 792 | `icmp::build_echo_reply` | day2, day1 §H.3 |
-| Dest Unreachable / Time Exceeded | RFC 792 | (recognized) | day1 §H.4–H.5 |
-| TUN device | Linux `tuntap.txt` | `Iface::without_packet_info` | day1 §2, §F |
-| IFF_NO_PI / PI header | Linux tun driver | `without_packet_info` | day1 §3, §F.6 |
-| CAP_NET_ADMIN / setcap | `capabilities(7)` | run instructions | day1 §2, §F.7 |
-| Bounds-checking / safety | (Rust) | length guards in `parse` | day1 §9, §G.6, §U |
-| Result/Option/enums | (Rust) | `ParseError`, `parse` | day1 §9, §G.7–G.9 |
-| Slices / zero-copy | (Rust) | `&packet[..]` | day1 §9, §G.5 |
-| Differential testing | (testing practice) | `agrees_with_etherparse` | day1 §11, §I |
-| TCP header / handshake | RFC 9293 | `tcp::parse`, `Connection::accept` | day3 |
-| TCP checksum + pseudo-header | RFC 9293 §3.1 | `tcp::tcp_checksum` | day3 §8 |
-| Sequence numbers | RFC 9293 §3.3 | `SendSequence`/`RecvSequence` | day3 §3–4 |
-| Data transfer / ACK | RFC 9293 | `Connection::on_packet` | day4 |
-| Teardown / FIN / states | RFC 9293 §3.5–3.6 | `State`, `on_packet` | day5 |
-| Retransmission / RTO | RFC 6298 | (roadmap) | day5 §10 |
-| Congestion control | RFC 5681, 8312, 9438 | (roadmap) | day5 §10 |
+| IPv4 header format | RFC 791 §3.1 | `ip::parse` | doc1 V1 §5, V2 §E |
+| Version / IHL nibbles | RFC 791 | `ip::parse` (byte 0) | doc1 §5.5, §C.8, §O.2 |
+| Total length | RFC 791 | `ip::Ipv4Header.total_len` | doc1 §E.5 |
+| Fragmentation (flags/offset) | RFC 791, 1191 | (parsed, not used) | doc1 §E.7–E.8 |
+| TTL | RFC 791, 1122 | `ip::Ipv4Header.ttl` | doc1 §E.9, §H.5 |
+| Protocol numbers | IANA registry | dispatch `match` | doc1 §E.10 |
+| IP header checksum | RFC 791, 1071 | `ip::write_header_checksum`, `utils::checksum` | doc1 §E.11, doc2, doc1 §R |
+| Addresses / CIDR | RFC 791, 4632 | `Ipv4Addr` fields | doc1 §E.12 |
+| Endianness | RFC 1700 (assigned numbers), Cohen 1980 | `from_be_bytes` everywhere | doc1 §D, §7 |
+| Internet checksum algorithm | RFC 1071, 1624 | `utils::checksum` | doc2, doc1 §R |
+| ICMP message format | RFC 792 | `icmp::parse` | doc1 §10, §H.2 |
+| Echo request/reply | RFC 792 | `icmp::build_echo_reply` | doc2, doc1 §H.3 |
+| Dest Unreachable / Time Exceeded | RFC 792 | (recognized) | doc1 §H.4–H.5 |
+| TUN device | Linux `tuntap.txt` | `Iface::without_packet_info` | doc1 §2, §F |
+| IFF_NO_PI / PI header | Linux tun driver | `without_packet_info` | doc1 §3, §F.6 |
+| CAP_NET_ADMIN / setcap | `capabilities(7)` | run instructions | doc1 §2, §F.7 |
+| Bounds-checking / safety | (Rust) | length guards in `parse` | doc1 §9, §G.6, §U |
+| Result/Option/enums | (Rust) | `ParseError`, `parse` | doc1 §9, §G.7–G.9 |
+| Slices / zero-copy | (Rust) | `&packet[..]` | doc1 §9, §G.5 |
+| Differential testing | (testing practice) | `agrees_with_etherparse` | doc1 §11, §I |
+| TCP header / handshake | RFC 9293 | `tcp::parse`, `Connection::accept` | doc3 |
+| TCP checksum + pseudo-header | RFC 9293 §3.1 | `tcp::tcp_checksum` | doc3 §8 |
+| Sequence numbers | RFC 9293 §3.3 | `SendSequence`/`RecvSequence` | doc3 §3–4 |
+| Data transfer / ACK | RFC 9293 | `Connection::on_packet` | doc4 |
+| Teardown / FIN / states | RFC 9293 §3.5–3.6 | `State`, `on_packet` | doc5 |
+| Retransmission / RTO | RFC 6298 | (roadmap) | doc5 §10 |
+| Congestion control | RFC 5681, 8312, 9438 | (roadmap) | doc5 §10 |
 
 ---
 
@@ -3349,7 +3349,7 @@ the call yet — `main` is the implicit socket layer.
 
 `bind(fd, addr, port)` claims a local address/port. A server binds to e.g. `0.0.0.0:8080`. In our
 stack, "bound port 8080" is the `local` port we accept SYNs for. We currently accept on *any* port
-(no real `bind`); a listening-socket abstraction (day3 exercise E3) is where `bind` would live.
+(no real `bind`); a listening-socket abstraction (doc3 exercise E3) is where `bind` would live.
 
 ### AB.3 — `listen()`
 
@@ -3388,7 +3388,7 @@ core of this; the missing parts (a send buffer, retransmission) are exactly the 
 ### AB.8 — `close()` / `shutdown()`
 
 `close(fd)` initiates teardown (send FIN, walk the closing states) and releases the socket;
-`shutdown(fd, how)` can half-close one direction. Our Day-5 FIN handling is the *passive* close
+`shutdown(fd, how)` can half-close one direction. Our Doc-5 FIN handling is the *passive* close
 (responding to the peer's `close()`); an app-initiated `close()` (active close, with TIME_WAIT) is
 the counterpart we noted as future work.
 
@@ -3408,7 +3408,7 @@ knobs a mature version of our stack would expose (Nagle, window sizes). We hardc
 | `connect` | active open | roadmap (SYN_SENT path) |
 | `read` | consume rx bytes | data accepted in `on_packet` |
 | `write` | queue tx bytes | `build_packet` + `SND.NXT` |
-| `close` | teardown | Day-5 FIN handling (passive) |
+| `close` | teardown | Doc-5 FIN handling (passive) |
 
 Building a real `listen/accept/read/write` layer on top of our packet engine is the capstone that
 turns this from "a stack that echoes" into "a stack apps can use." It's the final roadmap item.
@@ -3421,7 +3421,7 @@ The curated sources behind this book, grouped by purpose. Start with the bold on
 
 ### AC.1 — Books
 - **W. Richard Stevens, *TCP/IP Illustrated, Volume 1: The Protocols*** — the canonical reference;
-  read ch. 1 (intro/layering), 3 (IP), 6 (ICMP) for Day 1. Vol. 2 annotates the BSD source line by
+  read ch. 1 (intro/layering), 3 (IP), 6 (ICMP) for Doc 1. Vol. 2 annotates the BSD source line by
   line (the "real stack" reading).
 - **Kurose & Ross, *Computer Networking: A Top-Down Approach*** — the best textbook; ch. 4
   (network layer) maps onto everything here. Top-down (apps→wire) complements our bottom-up build.
@@ -3461,7 +3461,7 @@ classify the very packets you can now build). Each reuses this foundation.
 
 ## AD. Self-test exam — fifty questions (no answers)
 
-If you can answer all fifty cold, you own Day 1 (and previews of 2–5). No peeking; check yourself
+If you can answer all fifty cold, you own Doc 1 (and previews of 2–5). No peeking; check yourself
 against the code, the RFCs, and earlier sections.
 
 1. Decode `0x45` into its two fields.
@@ -3489,7 +3489,7 @@ against the code, the RFCs, and earlier sections.
 23. ICMP types for echo request and reply.
 24. What are the ICMP id and sequence fields for?
 25. Which ICMP type/code drives Path MTU Discovery?
-26. Why does Day-1 ping show 100% loss?
+26. Why does Doc-1 ping show 100% loss?
 27. List the four edits that turn an Echo Request into an Echo Reply.
 28. Why does the data payload echo back "for free"?
 29. Why must `setcap` target a binary on native fs, not /mnt/c?
@@ -3529,7 +3529,7 @@ Honesty about what this book/stack glosses, so you know the edges of your knowle
 - **TUN/L3 only** — no Ethernet/ARP (TAP path unimplemented).
 - **Static addressing** — no DHCP; you assign `192.168.0.1/24` by hand.
 
-### AE.2 — TCP simplifications (developed in days 3–5)
+### AE.2 — TCP simplifications (developed in docs 3–5)
 - **ISN fixed at 0** — real stacks randomize (RFC 6528); ours is debuggable, not secure.
 - **In-order data only** — no out-of-order buffering/reassembly.
 - **`SND.UNA = seg.ack` unconditionally** — no modular validation of the ack window.
@@ -3615,7 +3615,7 @@ connection and the data offset, and hand the inner bytes (HTTP) to the applicati
 We are the **server's L3+L4** for a TUN-delivered packet: steps 5's IP and TCP handling. We parse
 the IP header (`ip::parse`), confirm it's TCP (`protocol == 6`), parse the TCP header
 (`tcp::parse`), match the connection (`Quad`), and — once we implement `read()` — would hand the
-HTTP bytes to an application. Everything in days 1–5 is building exactly the L3/L4 envelope
+HTTP bytes to an application. Everything in docs 1–5 is building exactly the L3/L4 envelope
 handling this picture requires. The HTTP layer is out of scope (it's "just data" to us), which is
 the whole point of layering: we made TCP work without knowing or caring it carried HTTP.
 
@@ -3640,7 +3640,7 @@ Context turns arbitrary-seeming details into the residue of real decisions.
 - **1983** — DNS designed (RFC 882/883; later 1034/1035) — names instead of memorized addresses.
 - **1984** — Saltzer, Reed, Clark formalize the **end-to-end argument**.
 - **1986** — Congestion collapse on the early internet; **1988** Van Jacobson's congestion control
-  (slow start, AIMD) saves it — the algorithms in our day-5 roadmap.
+  (slow start, AIMD) saves it — the algorithms in our doc-5 roadmap.
 - **1989–91** — Tim Berners-Lee invents the Web (HTTP/HTML/URLs) on top of TCP/IP.
 - **1990s** — Classful → **CIDR** (RFC 1519/4632, 1993) to slow routing-table growth and address
   exhaustion; **NAT** (RFC 1631, 1994) papers over IPv4 scarcity.
@@ -3702,13 +3702,13 @@ working), not the network.
 - **window (TCP)** — advertised receive capacity; basis of flow control; scaled via an option.
 - **window scaling** — TCP option extending the 16-bit window beyond 65535.
 
-(For Day-1-specific terms — bit, byte, endianness, nibble, checksum, TTL, TUN, etc. — see §K.1.)
+(For Doc-1-specific terms — bit, byte, endianness, nibble, checksum, TTL, TUN, etc. — see §K.1.)
 
 ---
 
 ## AI. Designing the event loop — the change that unblocks retransmission
 
-The single most important future change (named in day5 §10) is moving from a blocking `recv` loop
+The single most important future change (named in doc5 §10) is moving from a blocking `recv` loop
 to a non-blocking, event-driven one. This section is a concrete design so it's not just a TODO.
 
 ### AI.1 — Why the blocking loop can't do retransmission
@@ -3821,40 +3821,40 @@ For quick reference while reading the code (complements §G).
 
 ### AK.1 — How the five books fit together
 
-- **day1-book.md** (this one) — the foundation: packets, TUN, IPv4, ICMP, endianness, Rust
+- **doc1-book.md** (this one) — the foundation: packets, TUN, IPv4, ICMP, endianness, Rust
   parsing, the toolchain, plus this Volume-II reference. Read first, in full.
-- **day2-book.md** — the Internet checksum (with §R here as the deep math) and the first write
-  (ICMP echo reply). Read after Day-1 Volume I.
-- **day3-book.md** — TCP, part 1: the handshake, TCB, sequence numbers, the pseudo-header checksum.
-- **day4-book.md** — TCP, part 2: data transfer, cumulative ACK, the echo server.
-- **day5-book.md** — TCP, part 3: teardown, the full lifecycle, and the production roadmap (§10),
+- **doc2-book.md** — the Internet checksum (with §R here as the deep math) and the first write
+  (ICMP echo reply). Read after Doc-1 Volume I.
+- **doc3-book.md** — TCP, part 1: the handshake, TCB, sequence numbers, the pseudo-header checksum.
+- **doc4-book.md** — TCP, part 2: data transfer, cumulative ACK, the echo server.
+- **doc5-book.md** — TCP, part 3: teardown, the full lifecycle, and the production roadmap (§10),
   expanded by §AI here (the event-loop design).
 
 ### AK.2 — Suggested reading paths
 
-- **First pass (build intuition):** day1 Volume I → day2 §1–6 → day3 §1–6 → day4 → day5 §1–7. Skip
+- **First pass (build intuition):** doc1 Volume I → doc2 §1–6 → doc3 §1–6 → doc4 → doc5 §1–7. Skip
   the deep dives; get the working mental model and run the code.
-- **Mastery pass (own it):** day1 Volume II A–S → re-type each file closed-book → day2 §R math →
-  day3–5 in full → the §AD exam → fix every miss with an Anki card.
-- **Security-track pass:** day1 §U → §AI/§AE (the gaps are attack surface) → write the `cargo fuzz`
+- **Mastery pass (own it):** doc1 Volume II A–S → re-type each file closed-book → doc2 §R math →
+  doc3–5 in full → the §AD exam → fix every miss with an Anki card.
+- **Security-track pass:** doc1 §U → §AI/§AE (the gaps are attack surface) → write the `cargo fuzz`
   target → read Snort/Suricata as the blue-team mirror.
-- **Systems pass:** day1 §F (kernel datapath) → §S (performance) → §AI (event loop) → read
+- **Systems pass:** doc1 §F (kernel datapath) → §S (performance) → §AI (event loop) → read
   `smoltcp` as the production comparison.
 
 ### AK.3 — The concept index (where to look)
 
-- **Bits/hex/endianness:** day1 §A–§D.
-- **IPv4 every field:** day1 §E. **ICMP every type:** day1 §H. **TCP:** day3–5.
-- **Checksum (code → math):** day2 → day1 §R.
-- **Rust mechanisms:** day1 §G, §AJ. **Code line-by-line:** day1 §O (foundational files).
-- **Tooling (tcpdump/Wireshark):** day1 §I.
-- **Debugging:** day1 §P. **Exercises+solutions:** day1 §J. **Self-test:** day1 §AD.
-- **Roadmap/event loop:** day5 §10 + day1 §AI. **Sockets API:** day1 §AB.
-- **Security:** day1 §U. **Performance:** day1 §S. **History:** day1 §M, §AG.
+- **Bits/hex/endianness:** doc1 §A–§D.
+- **IPv4 every field:** doc1 §E. **ICMP every type:** doc1 §H. **TCP:** doc3–5.
+- **Checksum (code → math):** doc2 → doc1 §R.
+- **Rust mechanisms:** doc1 §G, §AJ. **Code line-by-line:** doc1 §O (foundational files).
+- **Tooling (tcpdump/Wireshark):** doc1 §I.
+- **Debugging:** doc1 §P. **Exercises+solutions:** doc1 §J. **Self-test:** doc1 §AD.
+- **Roadmap/event loop:** doc5 §10 + doc1 §AI. **Sockets API:** doc1 §AB.
+- **Security:** doc1 §U. **Performance:** doc1 §S. **History:** doc1 §M, §AG.
 
 ### AK.4 — The finish line, restated
 
-You have finished Day 1 when you can, book closed: re-type `utils.rs`/`ip.rs`/`icmp.rs`, explain
+You have finished Doc 1 when you can, book closed: re-type `utils.rs`/`ip.rs`/`icmp.rs`, explain
 every byte of an IPv4+ICMP packet, compute a checksum by hand, and answer the §AD fifty. You have
 finished the *project* when `ping` and `nc` work live, all tests are green, and you can teach the
 whole lifecycle (open→data→close) at a whiteboard. The books are the answer key; the keyboard and
@@ -3909,7 +3909,7 @@ times block size) gives the network. This turns subnetting into one division.
 ## AM. Flow control vs congestion control — preparing for the roadmap
 
 Two TCP mechanisms students constantly conflate. Both limit the sender, for *different reasons*.
-You'll implement these in the post-day-5 roadmap; here's the conceptual groundwork.
+You'll implement these in the post-doc-5 roadmap; here's the conceptual groundwork.
 
 ### AM.1 — Flow control: don't overrun the *receiver*
 
@@ -3945,7 +3945,7 @@ Modern algorithms: **CUBIC** (default; window grows as a cubic function of time 
 | Sender limit | `SND.WND` | `cwnd` |
 | Sender sends ≤ | `SND.WND` | `min(SND.WND, cwnd)` |
 | In our stack | hardcoded, ignored | absent |
-Both are in the day-5 roadmap; both need the event loop (§AI) because they're driven by ACK arrival
+Both are in the doc-5 roadmap; both need the event loop (§AI) because they're driven by ACK arrival
 and timers. Knowing the distinction now means the roadmap reads as "add these two limiters," not as
 mystery.
 
@@ -4010,7 +4010,7 @@ That's it. Four 16-bit fields:
 
 No connection, no handshake, no sequence numbers, no acknowledgements, no retransmission, no
 ordering, no flow control, no congestion control, no teardown. A UDP "datagram" is fire-and-forget:
-it may be lost, duplicated, or reordered, and UDP won't tell you. **All** the machinery of days 3–5
+it may be lost, duplicated, or reordered, and UDP won't tell you. **All** the machinery of docs 3–5
 is precisely what TCP adds on top of this. Seeing UDP's 8 bytes next to TCP's 20+ bytes and stateful
 machine is the clearest way to grasp "what reliability costs."
 
@@ -4027,14 +4027,14 @@ machine is the clearest way to grasp "what reliability costs."
 
 Protocol 17 → parse the 8-byte header, read ports/length. There's no state to keep (no TCB), so no
 connection table — you'd just deliver the datagram (or, for our echo theme, send it straight back
-with ports swapped and a fresh checksum). It's the day-1 exercise J.10 plus a checksum. The ease of
+with ports swapped and a fresh checksum). It's the doc-1 exercise J.10 plus a checksum. The ease of
 UDP versus the difficulty of TCP *is* the lesson about what transport reliability requires.
 
 ---
 
 ## AP. A complete annotated TCP connection trace
 
-The whole lifecycle (days 3–5) as one packet-by-packet trace with the TCB after each step. Numbers:
+The whole lifecycle (docs 3–5) as one packet-by-packet trace with the TCB after each step. Numbers:
 client ISN 100, our ISS 0, client sends "hi" (2 bytes).
 
 ```
@@ -4053,7 +4053,7 @@ client ISN 100, our ISS 0, client sends "hi" (2 bytes).
 9  C→U  [ACK]        seq=104 ack=4   len=0    → ack==SND.NXT(4) ⇒ state=CLOSED (TCB removed)
 ```
 
-Things to notice, each a concept from the day-books:
+Things to notice, each a concept from the doc-books:
 - **The two `+1`s** (packets 1→2 ack, 7→8 ack) are SYN and FIN each consuming a sequence number.
 - **Cumulative ACK:** packet 6's `ack=3` says "I have your bytes up to seq 2, send 3 next."
 - **Piggybacking:** packet 5 is one segment doing two jobs (send "hi" *and* ack the client's "hi").
@@ -4063,7 +4063,7 @@ Things to notice, each a concept from the day-books:
   CLOSED. This trace is literally what `passive_close_via_fin` + `established_echoes_data` verify.
 
 If you can produce this table from a blank page — every seq, ack, flag, and state — you understand
-TCP's core. It is the single most important diagram in days 3–5.
+TCP's core. It is the single most important diagram in docs 3–5.
 
 ---
 
@@ -4097,9 +4097,9 @@ Putting §AA, §AF, §AO, and this together — what happens when you load `http
 2. **DNS**: resolve `example.com` → `93.184.216.34` (UDP 53).
 3. **Routing** (§AA): `93.184.216.34` isn't on our subnet → send to the default gateway; (ARP to
    find the gateway's MAC on a real LAN).
-4. **TCP handshake** (days 3): SYN/SYN-ACK/ACK to `93.184.216.34:80`.
+4. **TCP handshake** (docs 3): SYN/SYN-ACK/ACK to `93.184.216.34:80`.
 5. **HTTP** (§AF): `GET / HTTP/1.1` as TCP payload; server replies with the page.
-6. **TCP teardown** (day 5): FINs close the connection.
+6. **TCP teardown** (doc 5): FINs close the connection.
 Every single step is something this project either implements (3–6, the IP/TCP parts) or explains
 (1–2). You now hold the complete chain from "typed a URL" to "bytes on the wire" — which is the real
 goal of building a stack from scratch.
@@ -4206,7 +4206,7 @@ plain `usize`, owning nothing). Then the shared borrow at (2) begins and lasts o
 `packet` alive *and* call `recv(&mut buf)` again, the checker would reject it (you'd be reading and
 writing `buf` at once) — which is exactly the bug it's preventing (parsing stale/overwritten bytes).
 
-### AS.2 — Why the Day-5 close needs a specific order
+### AS.2 — Why the Doc-5 close needs a specific order
 
 ```rust
 Some(conn) => {                       // conn: &mut Connection (exclusive borrow of the map entry)
@@ -4245,7 +4245,7 @@ its errors as "what conflict did I create?" turns frustration into a fast feedba
 
 ## AT. Cross-topic synthesis — how every piece connects
 
-Day 1 looks like many small topics; they are one system. This section draws the lines.
+Doc 1 looks like many small topics; they are one system. This section draws the lines.
 
 ### AT.1 — From a `ping` keystroke to a printed line (the whole chain)
 
@@ -4253,7 +4253,7 @@ Day 1 looks like many small topics; they are one system. This section draws the 
 builds an ICMP echo (§H) inside an IP packet (§E) and "transmits" it on `tun0`, i.e. `write`s it to
 the TUN fd (§F) → our `iface.recv` (§4) returns those bytes → `ip::parse` reads the header using
 bit ops (§C) and big-endian conversion (§D), guarding lengths first (§G.6) → protocol byte says
-ICMP → `icmp::parse` reads it → we print, and (Day 2) build a reply, recomputing the checksum (§R)
+ICMP → `icmp::parse` reads it → we print, and (Doc 2) build a reply, recomputing the checksum (§R)
 and `write`ing it back. Eleven sections, one packet. Every concept earns its place in this path.
 
 ### AT.2 — The recurring shape: read header → decide → maybe write
@@ -4270,11 +4270,11 @@ are its offsets, what's its key field, what response does it need?"
    safety invariant — it's why hostile input can't crash us.
 2. **Big-endian at the boundary** (§D): convert every multi-byte field with `from_be_bytes`/
    `to_be_bytes`. This is the correctness invariant — it's why our values match the wire.
-Almost every Day-1 bug violates one of these two.
+Almost every Doc-1 bug violates one of these two.
 
 ### AT.4 — State is what separates a parser from a stack
 
-Days 1–2 are stateless (parse, reply, forget). Day 3 introduces the **TCB** and the connection
+Docs 1–2 are stateless (parse, reply, forget). Doc 3 introduces the **TCB** and the connection
 table — *memory across packets* — and that single addition is what turns "a program that decodes
 packets" into "a TCP stack." Everything hard about TCP (handshake, reliability, ordering, teardown)
 is the management of that state over time. The progression of the five books *is* the progression
@@ -4476,7 +4476,7 @@ Originating a packet (vs replying) is the active half of every protocol: it's ho
 ping client, a port scanner, or the client side of TCP (`connect`). The discipline is identical —
 lay out bytes big-endian, checksum last with the field zeroed. Once you can craft an echo request
 *and* parse the reply, you've built a working `ping` from scratch — a satisfying capstone exercise
-that uses every Day-1/Day-2 skill.
+that uses every Doc-1/Doc-2 skill.
 
 ### AX.5 — Verifying a crafted packet
 Send it (`iface.send`), watch `tcpdump -i tun0` show your echo request, and — if the target is a
@@ -4525,7 +4525,7 @@ get separate networking.
 
 ## AZ. Closing note — the one habit to carry forward
 
-You have, in Day 1, gone from "a packet is an opaque wall of numbers" to "I can read any IPv4/ICMP
+You have, in Doc 1, gone from "a packet is an opaque wall of numbers" to "I can read any IPv4/ICMP
 header on sight, decode it by hand, write the parser that does it safely, compute its checksum, and
 explain where every field came from and why." Volume I gave you the working narrative; Volume II
 made you not need it.
@@ -4540,10 +4540,10 @@ the actual bytes* instead of theorizing. That single reflex — paired with "gua
 
 Now do the thing that converts reading into knowing: **re-type `utils.rs`, `ip.rs`, and `icmp.rs`
 from memory with this book closed, run `cargo test`, and make an Anki card from every line you had
-to peek at.** Then turn to day2-book.md, where the bytes start flowing the other way — and you write
+to peek at.** Then turn to doc2-book.md, where the bytes start flowing the other way — and you write
 your first packet onto the wire.
 
-— End of Day 1 (Volume I + Volume II). On to Day 2.
+— End of Doc 1 (Volume I + Volume II). On to Doc 2.
 
 ---
 ---
@@ -4797,10 +4797,10 @@ patterns plus the two high bits.
 | 768 | User Datagram Protocol | §AO |
 | 791 | Internet Protocol (IPv4) | §E, §5 |
 | 792 | Internet Control Message Protocol | §H, §10 |
-| 793 | Transmission Control Protocol (obsoleted by 9293) | §M.5, day3 |
+| 793 | Transmission Control Protocol (obsoleted by 9293) | §M.5, doc3 |
 | 826 | Address Resolution Protocol | arp.rs note |
 | 1034/1035 | Domain Names (DNS) | §AQ.1 |
-| 1071 | Computing the Internet Checksum | §R, day2 |
+| 1071 | Computing the Internet Checksum | §R, doc2 |
 | 1122 | Requirements for Internet Hosts | §K.2 |
 | 1191 | Path MTU Discovery | §E.7, §AC |
 | 1518/1519 | CIDR (obsoleted by 4632) | §AG |
@@ -4819,12 +4819,12 @@ patterns plus the two high bits.
 | 5681 | TCP Congestion Control | §AM.2 |
 | 5961 | Improving TCP's Robustness to Blind Attacks | §AR.13 |
 | 6298 | Computing TCP's Retransmission Timer | §AI.4 |
-| 6528 | Defending against Sequence Number Attacks (ISN) | §11, day3 |
+| 6528 | Defending against Sequence Number Attacks (ISN) | §11, doc3 |
 | 6633 | Deprecation of ICMP Source Quench | §H.6 |
 | 8200 | Internet Protocol, Version 6 | §M.6 |
 | 8312 | CUBIC | §AM.2 |
 | 9000 | QUIC | §AG |
-| 9293 | Transmission Control Protocol (current) | day3–5 |
+| 9293 | Transmission Control Protocol (current) | doc3–5 |
 | 9438 | CUBIC (updated) | §Z |
 
 ---
@@ -4857,7 +4857,7 @@ sysctl net.ipv4.ip_forward          # is forwarding on?
 cat /proc/net/dev                   # per-interface counters
 ```
 
-## RT.13 — Day 1 in 100 facts (rapid review)
+## RT.13 — Doc 1 in 100 facts (rapid review)
 
 1. A packet is just bytes; a stack reads bytes, interprets headers, writes bytes.
 2. TUN is an L3 virtual interface delivering IP packets to a userspace fd.
@@ -4915,7 +4915,7 @@ cat /proc/net/dev                   # per-interface counters
 54. ICMP id matches replies to the sending process; seq increments.
 55. ICMP checksum covers the whole message; no pseudo-header.
 56. Ping = send Echo Request, time the matching Echo Reply.
-57. Day 1 ping = 100% loss (we parse, don't reply).
+57. Doc 1 ping = 100% loss (we parse, don't reply).
 58. Dest Unreachable = type 3; Port Unreachable = code 3.
 59. Time Exceeded = type 11 (traceroute).
 60. ICMP errors carry the offending IP header + 8 bytes.
@@ -4972,7 +4972,7 @@ cat /proc/net/dev                   # per-interface counters
 - [ ] Compute an IP header checksum by hand and verify to 0.
 - [ ] Decode any ICMP type/code; explain ping and traceroute.
 - [ ] Re-type `icmp::build_echo_reply` (the four edits + two checksums).
-- [ ] Explain why Day-1 ping is 100% loss and Day-2 is 0%.
+- [ ] Explain why Doc-1 ping is 100% loss and Doc-2 is 0%.
 - [ ] Walk the three-way handshake's seq/ack numbers (the two +1s).
 - [ ] Explain the TCP pseudo-header and why it includes the IPs.
 - [ ] Produce the full §AP connection trace from a blank page.
@@ -4980,38 +4980,38 @@ cat /proc/net/dev                   # per-interface counters
 - [ ] Read a live capture in tcpdump and identify every packet.
 - [ ] State the two invariants: guard-then-parse; big-endian at the boundary.
 
-When every box is checked, Day 1 is yours — not read, *owned*.
+When every box is checked, Doc 1 is yours — not read, *owned*.
 
 ---
 
-## RT.15 — Bridge to Day 2
+## RT.15 — Bridge to Doc 2
 
-Day 1 was the **read + interpret** half of "bytes in, bytes out": you can now receive a packet and
-understand every field. Day 2 begins the **write** half and introduces the one piece of arithmetic
+Doc 1 was the **read + interpret** half of "bytes in, bytes out": you can now receive a packet and
+understand every field. Doc 2 begins the **write** half and introduces the one piece of arithmetic
 shared by every layer.
 
 What carries forward directly:
 - **The checksum** (here previewed in §R as math, and in `utils` as code) becomes the centerpiece of
-  Day 2 — first computed, then used to make a *valid* reply the kernel won't drop.
+  Doc 2 — first computed, then used to make a *valid* reply the kernel won't drop.
 - **`build_echo_reply`'s four edits** (§5, §L.2) are your first packet construction; the technique
   (lay out bytes, fix checksums last with the field zeroed, big-endian throughout) is reused for
-  every packet in days 3–5.
+  every packet in docs 3–5.
 - **The two invariants** (guard-then-parse; big-endian at the boundary) apply unchanged.
 - **The toolchain and habits** (cargo test offline, tcpdump for truth, re-type to retain) are the
   same every day.
 
-What's new in Day 2:
+What's new in Doc 2:
 - The **Internet checksum** algorithm in full, with its own worked proofs (you have a head start
   from §R here).
 - Your **first `iface.send`** — writing to the wire — and the satisfaction of `ping` finally
   replying with **0% loss**.
 - The **modular refactor** (utils/ip/icmp) that the growing code now justifies.
 
-Open `day2-book.md` and continue. The bytes start flowing both ways.
+Open `doc2-book.md` and continue. The bytes start flowing both ways.
 
 ---
 
-*That completes Day 1 in full — Volume I (narrative), Volume II (exhaustive reference, §A–§AZ),
+*That completes Doc 1 in full — Volume I (narrative), Volume II (exhaustive reference, §A–§AZ),
 Volume III (reference tables + rapid review, §RT). The deepest of the five books by design: it
-carries the foundations the others build on. Days 2–5 now receive the same Volume II/III expansion.
-— Day 1 complete (5,000+ lines).*
+carries the foundations the others build on. Docs 2–5 now receive the same Volume II/III expansion.
+— Doc 1 complete (5,000+ lines).*

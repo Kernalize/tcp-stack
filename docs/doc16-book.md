@@ -1,6 +1,6 @@
-# Day 16 — TCP, Part 14: Timestamps, RTT Measurement, and PAWS (RFC 7323)
+# Doc 16 — TCP, Part 14: Timestamps, RTT Measurement, and PAWS (RFC 7323)
 
-> Goal: spend the Day 15 options framework on the first option that rides on *every* segment — the
+> Goal: spend the Doc 15 options framework on the first option that rides on *every* segment — the
 > **Timestamps** option (RFC 7323 §3). One 12-byte option, two payoffs. First, **RTTM**: by stamping each
 > segment with our clock and having the peer echo it back, we can measure the round-trip time on *every* ACK
 > — not one sample per window, and without Karn's "don't time a retransmission" caveat. Second, **PAWS**
@@ -12,7 +12,7 @@ One option, two unrelated-seeming problems, both dissolved by the same idea: **a
 every segment.** RTTM gets dense, Karn-free samples because the peer echoes the timestamp of exactly the data
 it's acking; PAWS gets a wrap-proof "is this segment old?" test because an ancient segment carries an ancient
 timestamp no matter what its recycled sequence number says. Timestamps are also the quiet prerequisite for
-several later real-world features (safe TIME_WAIT reuse, Day 7; RACK loss detection, Day 6).
+several later real-world features (safe TIME_WAIT reuse, Doc 7; RACK loss detection, Doc 6).
 
 **Contents**
 
@@ -53,7 +53,7 @@ Volume II — the exhaustive reference
 
 ## 1. The mental model: two problems, one option
 
-By Day 6 our RTO adapted to a measured RTT, but the measurement was coarse: one sample per window (time the
+By Doc 6 our RTO adapted to a measured RTT, but the measurement was coarse: one sample per window (time the
 oldest unacked segment when its ACK lands), and **suppressed entirely for retransmitted data** (Karn's
 algorithm — you can't tell which copy an ACK answers). On a connection with one segment in flight that is
 fine; on a fat pipe it is one sample per round trip when you could have dozens.
@@ -89,7 +89,7 @@ putting the option in its SYN. Timestamps are used **only if both SYNs carried t
 Once enabled, the option appears on **every** segment for the life of the connection — data, pure ACKs, FIN,
 even the zero-window probe. This is the first per-segment option (MSS/window-scale/SACK-permitted are
 SYN-only), which is why it cost 12 of our 40 option bytes on every segment and shaped the SACK budget
-(Day 18 §5).
+(Doc 18 §5).
 
 ## 3. RTTM: an RTT sample on every ACK
 
@@ -103,7 +103,7 @@ acknowledges it. When that ACK arrives, the round-trip time is simply:
 No queue bookkeeping, no Karn exclusion: the echoed value pins the measurement to a specific send, even if
 that data was retransmitted, because the peer echoes the timestamp of the segment it *actually received*. So
 with timestamps on, we feed the estimator from TSecr on every data-acking ACK and let the queue's own
-(Karn-limited) sample lapse. Without timestamps we keep the Day 6 behavior. The code is a clean fork:
+(Karn-limited) sample lapse. Without timestamps we keep the Doc 6 behavior. The code is a clean fork:
 
 ```rust
 if self.ts_enabled {
@@ -117,14 +117,14 @@ if self.ts_enabled {
 ```
 
 The density matters: on a fat pipe with 50 segments in flight, timestamps give ~50 RTT samples per round
-trip vs Day 6's one — so SRTT/RTTVAR track a changing path far faster, and the RTO is both tighter and more
+trip vs Doc 6's one — so SRTT/RTTVAR track a changing path far faster, and the RTO is both tighter and more
 responsive (§B).
 
 ## 4. PAWS: rejecting a wrapped old duplicate
 
 `TS.Recent` holds the newest TSval we have accepted from the peer. PAWS (RFC 7323 §5) says: a segment whose
 TSval is **older** than `TS.Recent` is an old duplicate — drop it (but send an ACK so the peer re-syncs).
-"Older" is the wrapping serial comparison from Day 3, so it is correct across the timestamp clock's own
+"Older" is the wrapping serial comparison from Doc 3, so it is correct across the timestamp clock's own
 32-bit wrap:
 
 ```rust
@@ -168,7 +168,7 @@ time-aware entry point — `on_segment`, `on_tick`, `poll_transmit`, `close`, an
 `now_ms as u32` (milliseconds) gives a clock that advances steadily, which is all RFC 7323 requires; real
 stacks often use a coarser tick (and a *randomized per-connection offset* for privacy, §H), but ms is fine
 here and makes the RTT samples read in real units. The "refresh one field at each `&mut` entry point" pattern
-is the same trick as the persist timer (Day 14): keep the clock in state, refresh at the boundaries, so
+is the same trick as the persist timer (Doc 14): keep the clock in state, refresh at the boundaries, so
 `&self` builders can read it.
 
 ## 7. The Rust
@@ -183,7 +183,7 @@ is the same trick as the persist timer (Day 14): keep the clock in state, refres
   ESTABLISHED; RTTM in the new-data-acked branch.
 
 Nothing changes for a connection that didn't negotiate timestamps — `ts_enabled` is false, so every segment
-is byte-identical to Day 15 and all prior tests pass untouched. The `Option<(u32, u32)>` for `timestamps`
+is byte-identical to Doc 15 and all prior tests pass untouched. The `Option<(u32, u32)>` for `timestamps`
 encodes "present or not" in the type (like MSS's `Option<u16>`), so "no timestamp on this segment" is `None`,
 not a sentinel value.
 
@@ -214,7 +214,7 @@ alone could not tell them apart.
 - `on_segment` refreshes `ts_val`, enables timestamps when the SYN-ACK confirms, applies PAWS, keeps
   `TS.Recent`, and samples RTT from TSecr.
 - `segment()` carries the option on every outgoing segment when enabled.
-- `main.rs` already parses options and routes through `on_segment` (Day 15), so it needs no change beyond the
+- `main.rs` already parses options and routes through `on_segment` (Doc 15), so it needs no change beyond the
   progress note.
 
 ## 10. Verification
@@ -256,9 +256,9 @@ alone could not tell them apart.
   E2).
 - **Clock resolution.** Ms is fine for our RTTs; RFC 7323 §5.4 requires the clock tick between 1 ms and
   1 s and to wrap no faster than the MSL — ms satisfies both. A sub-ms LAN RTT can read as 0 ms, which our
-  MIN_RTO floor (200 ms, Day 6) absorbs.
+  MIN_RTO floor (200 ms, Doc 6) absorbs.
 
-None of these change the day-16 contract (per-ACK RTT, wrapped-duplicate rejection); they are privacy and
+None of these change the doc-16 contract (per-ACK RTT, wrapped-duplicate rejection); they are privacy and
 corner-case hardening.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -277,14 +277,14 @@ corner-case hardening.
   precisely (store the last ack you sent rather than approximating with `RCV.NXT`).
 - **E2.** Sample RTT from the SYN-ACK's TSecr to seed `SRTT` before the first data exchange.
 - **E3.** Implement the PAWS 24-day outdated-`TS.Recent` reset (RFC 7323 §5.5) for an idle connection.
-- **E4.** ✅ *Done* (Days 17–18): verify against a real Linux peer — capture its SYN options with
+- **E4.** ✅ *Done* (Docs 17–18): verify against a real Linux peer — capture its SYN options with
   `tcpdump -v` and confirm `parse_options` reads MSS, window-scale, SACK-permitted, and timestamps.
 - **E5.** Add a **random per-connection timestamp offset** (RFC 7323 §5.4) so TSval leaks neither uptime nor
   cross-connection identity (§H).
 
 ## 14. What the next step adds
 
-Day 17 adds the other half of RFC 7323: the **Window Scale** option. Our advertised receive window is a
+Doc 17 adds the other half of RFC 7323: the **Window Scale** option. Our advertised receive window is a
 16-bit field — at most 64 KB, far too small for a fast, high-latency "long fat" path. Window scaling
 negotiates a left-shift (0–14) applied to the window field, stretching the effective window to as much as
 ~1 GB. It is, like timestamps, negotiated once in the SYN exchange, and it forces `SND.WND` to widen from
@@ -323,10 +323,10 @@ enabling.
 
 ## B. RTTM in depth — why per-ACK samples beat Karn
 
-Day 6's RTT measurement had two limits, both removed by timestamps:
+Doc 6's RTT measurement had two limits, both removed by timestamps:
 
 ```text
-   limit (Day 6)                              timestamps fix
+   limit (Doc 6)                              timestamps fix
    ────────────────────────────────────────  ─────────────────────────────────────────
    one sample per window (time oldest unacked) one sample PER ACK (TSecr dates each one)
    Karn: NO sample from a retransmitted segment ANY ACK gives a sample (TSecr disambiguates
@@ -343,7 +343,7 @@ do this; timestamps make it unnecessary.
 The *density* win is large on fat pipes: with `W` segments in flight, you get ~`W` samples per RTT instead of
 1, so SRTT/RTTVAR converge in a fraction of the round trips and track a changing path (a route flap, a
 congestion onset) almost immediately. This sharper RTO is the difference between a stack that spuriously
-retransmits on a jittery path and one that rides it out. Timestamps also underpin **RACK** (Day 6 §F):
+retransmits on a jittery path and one that rides it out. Timestamps also underpin **RACK** (Doc 6 §F):
 per-segment send times (which timestamps provide) let a sender detect loss by *time* ("a later segment was
 acked and enough time passed") rather than by 3-dup-ACK counting — more robust to reordering.
 
@@ -368,7 +368,7 @@ a segment but cannot make it *younger*. So a wrapped old duplicate carries a tim
 The assumption that makes it sound: within the time it takes the sequence space to wrap (4 GiB / bandwidth),
 the timestamp clock advances by at least one tick (so a wrapped duplicate is reliably "older"). RFC 7323 §5.2
 formalizes this: the timestamp clock must tick at most once per `2³¹` bytes of the fastest expected send rate
-— ms resolution satisfies this for any realistic link. Without PAWS, window scaling (Day 17) would be
+— ms resolution satisfies this for any realistic link. Without PAWS, window scaling (Doc 17) would be
 *dangerous*: a bigger window means more in-flight data means faster wrapping means more chances for a wrapped
 duplicate to land in-window. This is why RFC 7323 packages timestamps and window scaling together — scaling
 *needs* PAWS to be safe on a long-fat network.
@@ -387,7 +387,7 @@ RFC 7323 §5.4 constrains the timestamp clock:
 ```
 
 Our `now_ms as u32` ticks every millisecond, wraps every ~49.7 days (far slower than the MSL), and is
-monotonic (from `Instant`, Day 6) — satisfying the first three. It does **not** add a random offset, so our
+monotonic (from `Instant`, Doc 6) — satisfying the first three. It does **not** add a random offset, so our
 TSval is essentially the host's milliseconds-since-start, which is the privacy problem of §H. Real stacks use
 a coarser tick (Linux historically 1 ms via jiffies, now finer) plus a per-connection random offset, so the
 value is monotonic *within* a connection (PAWS works) but reveals nothing *across* connections or about
@@ -410,7 +410,7 @@ The danger threshold is when the wrap time approaches the **MSL** (~2 minutes, t
 at 10 Gbit/s the space wraps in 3.4 s, so a segment delayed even a few seconds can reappear with an in-window
 (wrapped) sequence number while a *different* segment legitimately occupies that number now. Below ~17 Mbit/s
 the wrap takes longer than the MSL and the problem can't occur (an old segment dies before its number is
-reused). Above it, PAWS is mandatory — which is exactly the regime window scaling (Day 17) targets (fast,
+reused). Above it, PAWS is mandatory — which is exactly the regime window scaling (Doc 17) targets (fast,
 long-fat paths). The numbers show *why* timestamps and window scaling shipped together in RFC 1323/7323:
 scaling enables the high-speed/large-window regime, and that regime is precisely where sequence wrap becomes
 a corruption hazard that only PAWS catches.
@@ -451,11 +451,11 @@ rejected; the genuine data (TSval 5200) is accepted. Without PAWS, the t=400 "XX
    RACK loss detection    uses per-segment timestamps              not implemented
 ```
 
-A real-world payoff we don't exploit: **timestamps make `tcp_tw_reuse` safe** (Day 7 §C). Reusing a 4-tuple
+A real-world payoff we don't exploit: **timestamps make `tcp_tw_reuse` safe** (Doc 7 §C). Reusing a 4-tuple
 still in TIME_WAIT is dangerous because an old duplicate could be accepted by the new incarnation — but if
 both incarnations use timestamps, PAWS rejects the old one (its timestamp predates the new connection), so
 the kernel can safely reuse the 4-tuple. This is why `tcp_tw_reuse` requires timestamps and `tcp_tw_recycle`
-(which keyed off them per-host) broke NAT. Timestamps also feed **RACK** (Day 6 §F), modern loss detection.
+(which keyed off them per-host) broke NAT. Timestamps also feed **RACK** (Doc 6 §F), modern loss detection.
 So timestamps quietly enable two features (safe TW reuse, RACK) beyond the two (RTTM, PAWS) they advertise.
 
 ## H. Security — timestamp fingerprinting and the randomized-offset fix
@@ -476,7 +476,7 @@ So timestamps quietly enable two features (safe TW reuse, RACK) beyond the two (
   fingerprint (distinct machines have slightly different crystal frequencies — "remote physical device
   fingerprinting", Kohno et al.).
 - **PAWS as a defense.** On the positive side, PAWS *strengthens* security: it's part of the TIME_WAIT
-  assassination defense (Day 7 §I) and makes wrapped-sequence injection (an attacker timing an injected
+  assassination defense (Doc 7 §I) and makes wrapped-sequence injection (an attacker timing an injected
   segment to a sequence reuse) far harder, since the injected segment also needs a plausible timestamp.
 
 The theme: timestamps are a double-edged tool — they fix RTT and wrap-safety but, naively implemented, leak
@@ -489,7 +489,7 @@ stack.
   carries 12 fewer payload bytes (within the MSS) and 12 more header bytes. On bulk transfer that's ~0.8% of
   a 1500-byte packet — negligible. On pure ACKs it's 12 bytes added to a 40-byte segment (30% bigger ACKs),
   also negligible in bandwidth but a real factor in ACK-heavy workloads. This 12-byte cost is also what
-  squeezes SACK to 3 blocks (Day 18 §5).
+  squeezes SACK to 3 blocks (Doc 18 §5).
 - **The win: a tighter, more responsive RTO.** Dense per-ACK samples (§B) mean SRTT/RTTVAR track the path in
   ~1 RTT instead of ~`W` RTTs, so the RTO is both smaller (less wasted wait on a real loss) and more
   accurate (fewer spurious retransmits on a jittery path). For a long-lived bulk transfer this measurably
@@ -511,7 +511,7 @@ stack.
 5. **How does TSecr give an RTT?** `now − TSecr` — the echoed value dates the exact send being acked.
 6. **Why does that beat Karn?** The peer echoes the timestamp of the copy it *received*, disambiguating
    retransmissions.
-7. **How many RTT samples per RTT with timestamps?** ~one per ACK (≈ window size), vs Day 6's one.
+7. **How many RTT samples per RTT with timestamps?** ~one per ACK (≈ window size), vs Doc 6's one.
 8. **What is `TS.Recent`?** The newest TSval we've accepted from the peer; echoed as our TSecr.
 9. **When do we update `TS.Recent`?** TSval ≥ TS.Recent (passes PAWS) AND SEG.SEQ ≤ RCV.NXT (in order).
 10. **What is the PAWS rule?** Reject an in-window segment whose TSval < TS.Recent (an old duplicate).
@@ -525,16 +525,16 @@ stack.
     is a hazard; PAWS makes it safe.
 16. **What clock do we use?** `now_ms as u32` — monotonic, ms resolution.
 17. **Where is `ts_val` refreshed?** At every time-aware `&mut` entry point (`on_segment`, `on_tick`, etc.).
-18. **Does a non-timestamped connection change?** No — byte-identical to Day 15.
+18. **Does a non-timestamped connection change?** No — byte-identical to Doc 15.
 19. **What's the uptime leak?** A raw timestamp clock reveals time-since-boot to an observer (§H).
 20. **What's the fix?** A random per-connection offset (RFC 7323 §5.4) — we don't do it.
-21. **What other features do timestamps enable?** Safe `tcp_tw_reuse` (Day 7) and RACK loss detection
-    (Day 6) (§G).
+21. **What other features do timestamps enable?** Safe `tcp_tw_reuse` (Doc 7) and RACK loss detection
+    (Doc 6) (§G).
 22. **What does TSecr in our SYN equal?** 0 — we have nothing to echo yet.
 23. **What is the 24-day reset?** Suspending PAWS if `TS.Recent` is implausibly old on an idle connection
     (§12).
-24. **What does the option cost?** 12 bytes per segment (and it caps SACK at 3 blocks, Day 18).
-25. **Why is `on_segment` (Day 15) the key seam?** Timestamps ride every segment, and `on_segment` carries
+24. **What does the option cost?** 12 bytes per segment (and it caps SACK at 3 blocks, Doc 18).
+25. **Why is `on_segment` (Doc 15) the key seam?** Timestamps ride every segment, and `on_segment` carries
     the parsed options.
 
 ## K. Anki starter deck
@@ -580,10 +580,10 @@ Q: What else do timestamps enable?  A: safe tcp_tw_reuse and RACK loss detection
    TSecr = TS.Recent (latest peer TSval; 0 in our SYN)
 ```
 
-**M.2 — RTTM: Day 6 vs timestamps**
+**M.2 — RTTM: Doc 6 vs timestamps**
 
 ```text
-   aspect              Day 6 (queue)            timestamps
+   aspect              Doc 6 (queue)            timestamps
    ─────────────────   ──────────────────────   ─────────────────────────
    samples per RTT     1 (oldest unacked)        ~window size (per ACK)
    retransmits         no sample (Karn)          sample OK (TSecr disambiguates)

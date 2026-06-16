@@ -1,6 +1,6 @@
-# Day 29 — TCP, Part 27: Many Connections at Once — the Multi-Connection Socket Server
+# Doc 29 — TCP, Part 27: Many Connections at Once — the Multi-Connection Socket Server
 
-> Goal: serve *more than one* connection through the socket façade. Day 22 built a `std::net`-shaped
+> Goal: serve *more than one* connection through the socket façade. Doc 22 built a `std::net`-shaped
 > veneer — `TcpListener` / `TcpStream` over a `PacketIo` transport — that runs a full handshake →
 > transfer → close offline, with no TUN device. But it was deliberately **single-connection**: the
 > listener *moves* its one transport into the stream it accepts, so it can serve exactly one client and
@@ -12,8 +12,8 @@
 > a listening port, used to *open* a new one. The thing that makes this possible is that TCP already
 > gives every connection a globally unique name: the **4-tuple** `(remote IP, remote port, local IP,
 > local port)`. A server keeps a **table** keyed by that 4-tuple, and routing is a hash lookup. This is
-> exactly what `src/main.rs` already does for the live stack (its `HashMap<Quad, Connection>`); Day 29
-> lifts that pattern into the reusable, testable `TcpServer` in `src/socket.rs`, removing the Day-22
+> exactly what `src/main.rs` already does for the live stack (its `HashMap<Quad, Connection>`); Doc 29
+> lifts that pattern into the reusable, testable `TcpServer` in `src/socket.rs`, removing the Doc-22
 > "one connection at a time" limitation and completing the socket layer.
 >
 > We build `TcpServer<T: PacketIo>`: it owns one transport and a connection table, demuxes every
@@ -27,7 +27,7 @@
 
 Volume I — the chapter
 1. The mental model: one wire, many connections, demux by 4-tuple
-2. The Day 22 limitation: a transport owned by a single stream
+2. The Doc 22 limitation: a transport owned by a single stream
 3. The connection table: keyed by `Quad`
 4. Routing one datagram: parse, look up, dispatch — or accept
 5. The accept backlog: announce each connection once
@@ -76,9 +76,9 @@ up in a table.** Hit → hand the segment to that connection. Miss → if it's a
 listening on, create a new connection; otherwise drop (or RST). That hash-lookup is the whole idea;
 everything else in this chapter is bookkeeping around it.
 
-## 2. The Day 22 limitation: a transport owned by a single stream
+## 2. The Doc 22 limitation: a transport owned by a single stream
 
-Day 22's `TcpStream<T>` *owns* its transport `T` (the `PacketIo`), because a single connection driving
+Doc 22's `TcpStream<T>` *owns* its transport `T` (the `PacketIo`), because a single connection driving
 a single pipe is the simplest possible ergonomics:
 
 ```rust
@@ -121,7 +121,7 @@ connection appears in `backlog` exactly once, the first poll after it reaches ES
 ## 4. Routing one datagram: parse, look up, dispatch — or accept
 
 A free function `parse_any` turns raw bytes into `(Quad, header, payload, options)` with *no*
-per-connection filtering — the server routes by the returned `Quad`, unlike Day 22's `parse_for` which
+per-connection filtering — the server routes by the returned `Quad`, unlike Doc 22's `parse_for` which
 filtered against one connection's quad:
 
 ```rust
@@ -238,7 +238,7 @@ the server keeps demuxing everyone else's packets.
 
 ## 8. `PacketIo` and a shared medium for offline testing
 
-The façade abstracts the transport behind `PacketIo` (Day 22) precisely so it can be tested without a
+The façade abstracts the transport behind `PacketIo` (Doc 22) precisely so it can be tested without a
 TUN device. For *one* connection, two cross-wired queues (a `Pipe`) suffice. For *many* connections to
 one server, the test needs a **shared medium**: all clients write "up" to the server, and the server
 broadcasts "down" to every client inbox — and each client ignores datagrams not for its own 4-tuple,
@@ -303,7 +303,7 @@ buffer, because they hash to different `Quad`s.
 - **Routing** (`parse_any` + the `poll` step-2 match) is the demux: lookup-or-accept by 4-tuple.
 - **`accept_one`** drains the backlog FIFO; the app then drives that connection by quad.
 - **`send`/`recv`/`close`/`state`/`peer_closed`** are thin per-quad wrappers over the underlying
-  `Connection::{write, take_received, close, state, peer_closed}` — the same primitives Day 11 exposed,
+  `Connection::{write, take_received, close, state, peer_closed}` — the same primitives Doc 11 exposed,
   now selected by 4-tuple.
 - **Reaping** (`poll` step 4) removes connections that reached CLOSED and forgets their `announced`
   entry, bounding the table.
@@ -325,7 +325,7 @@ buffer, because they hash to different `Quad`s.
 
 This proves the three things that distinguish a server from a single connection: it **tracks** many
 connections at once, **accepts** each as a distinct endpoint, and **demuxes** their data without
-cross-talk. Together with the Day 22 single-connection handshake/transfer/close tests, the socket layer
+cross-talk. Together with the Doc 22 single-connection handshake/transfer/close tests, the socket layer
 is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
 
 ## 13. Why this, not that
@@ -334,7 +334,7 @@ is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
   is the natural key. Real stacks use a hash table with the same key (plus a separate listener lookup).
 - **Why return a `Quad` handle from `accept_one`, not an owned `TcpStream`?** Because the connection
   must stay in the server's table to keep receiving routed packets. Handing out an owned stream would
-  recreate the Day-22 ownership problem (the transport can't be in two places). The handle pattern is
+  recreate the Doc-22 ownership problem (the transport can't be in two places). The handle pattern is
   how a real server holds many fds and `select`s over them.
 - **Why announce-once with a `HashSet`?** A connection reaches ESTABLISHED on one specific poll; without
   a "seen" set, every later poll would re-enqueue it. The set makes the backlog a true event queue.
@@ -352,7 +352,7 @@ is fully exercised offline. 151 tests total, green, clippy `-D warnings` clean.
   differs.
 - **A separate listen socket and accept queue.** The kernel keeps a *listener* (matched by local
   port with a wildcard remote) distinct from established connections, with its own SYN queue and accept
-  queue, backlog limits, and SYN-cookie fallback (Day 27). We fold "is this a SYN to our port" into the
+  queue, backlog limits, and SYN-cookie fallback (Doc 27). We fold "is this a SYN to our port" into the
   same table lookup.
 - **Per-connection buffering limits, fairness, and backpressure.** A real server bounds memory per
   connection and across connections; ours has unbounded per-connection buffers.
@@ -373,20 +373,20 @@ Checklist (extending `src/socket.rs`):
 
 Exercises:
 - **(a)** Add a real RST for stray segments to no connection (mirror `main`'s behaviour) and test it.
-- **(b)** Bound the table: cap `conns.len()`, and fall back to SYN cookies (Day 27) when full —
-  wiring Day 27 into the façade.
+- **(b)** Bound the table: cap `conns.len()`, and fall back to SYN cookies (Doc 27) when full —
+  wiring Doc 27 into the façade.
 - **(c)** Give `accept_one` a blocking sibling `accept()` that polls until the backlog is non-empty.
-- **(d)** Run two **BBR** connections (Day 28) through one `TcpServer` and watch them share the
-  (simulated) bottleneck — the multi-flow experiment Day 28 set up.
+- **(d)** Run two **BBR** connections (Doc 28) through one `TcpServer` and watch them share the
+  (simulated) bottleneck — the multi-flow experiment Doc 28 set up.
 - **(e)** Add `0.0.0.0` wildcard binding: accept a SYN to *any* local IP on the bound port.
 
 ## 16. What comes after
 
-With BBR (Day 28) and the multi-connection `TcpServer`, the stack is **feature-complete** against its
+With BBR (Doc 28) and the multi-connection `TcpServer`, the stack is **feature-complete** against its
 own roadmap: every algorithm and façade the README listed is built and tested offline. What remains is
 not new code but *live* exercise that needs sudo + a TUN device + a real network — `packetdrill`
 conformance against the kernel, `iperf3` throughput under `tc netem` loss/reordering, flamegraph
-profiling, and actually rate-pacing the sender to BBR's computed rate (Day 28, exercise (a)). Those are
+profiling, and actually rate-pacing the sender to BBR's computed rate (Doc 28, exercise (a)). Those are
 the subjects no offline unit test can stand in for, and so they are where this book ends and a live lab
 begins.
 
@@ -418,7 +418,7 @@ to the listener; we fold both into one table plus the "SYN to our port" rule.
 ```
 
 The split between "SYN creates a SYN_RCVD connection" and "the ACK promotes it and announces it" is the
-server-side handshake, table-resident. Day 27's SYN cookies are the alternative path when the backlog
+server-side handshake, table-resident. Doc 27's SYN cookies are the alternative path when the backlog
 would overflow — not yet wired into `TcpServer` (exercise (b)), but present in `main`.
 
 ## C. A connection's lifecycle in the table
@@ -477,7 +477,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 
 ## G. Extended FAQ — twenty questions a careful reader asks
 
-1. **Why can the server share one transport across connections but Day 22 couldn't?** Day 22's stream
+1. **Why can the server share one transport across connections but Doc 22 couldn't?** Doc 22's stream
    *owns* the transport; `TcpServer` owns it centrally and routes — the opposite ownership.
 2. **What if two clients pick the same source port?** They can't collide unless they're also the same
    source IP — then they'd be the same connection. Different IP or port → different `Quad`.
@@ -498,7 +498,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 12. **Could two `TcpServer`s share a medium?** Yes (different `local`); each ignores the other's
     packets via the `quad.local != self.local` filter.
 13. **Does the server handle half-close per connection?** Yes — `peer_closed(quad)` and `close(quad)`
-    are per-connection, like Day 19's half-close.
+    are per-connection, like Doc 19's half-close.
 14. **What drives retransmission for all connections?** `poll` step 1 calls every connection's
     `on_tick(now_ms)`, which fires its RTO/RACK-TLP/persist/keepalive timers.
 15. **Why is the module `#![allow(dead_code)]`?** It's an embeddable API exercised by tests; the demo
@@ -509,7 +509,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
     `parse_for` drops datagrams whose quad isn't its own.
 18. **Does `TcpServer` support active open (connect)?** No — it's a passive server; the client side uses
     `TcpStream::connect`. Add a `connect`-into-the-table method if you want both.
-19. **What's the relationship to BBR (Day 28)?** Orthogonal: each `Connection` in the table has its own
+19. **What's the relationship to BBR (Doc 28)?** Orthogonal: each `Connection` in the table has its own
     congestion controller; you can `use_bbr()` per connection (exercise (d)).
 20. **Is this how `main` actually serves `nc`/`curl`?** Yes — `main` is the same demux plus ICMP/UDP and
     the echo/HTTP application; `TcpServer` is its TCP core, lifted out and unit-tested.
@@ -519,7 +519,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
 ```text
    Q: What uniquely identifies a TCP connection?  A: The 4-tuple (remote IP, remote port, local IP,
       local port).
-   Q: Why was Day 22's façade single-connection?  A: The stream OWNS its transport; the listener moves
+   Q: Why was Doc 22's façade single-connection?  A: The stream OWNS its transport; the listener moves
       it on accept, so it's spent after one.
    Q: What does TcpServer own?  A: One PacketIo transport + a HashMap<Quad, Connection> table.
    Q: How is an inbound datagram routed?  A: parse → 4-tuple → table lookup; hit = dispatch, miss+SYN =
@@ -564,7 +564,7 @@ loop, single-threaded, with the table in Rust instead of the kernel.
    connection_count()      conns.len()                          live connections in the table
 ```
 
-| Aspect | Day 22 `TcpListener`/`TcpStream` | Day 29 `TcpServer` |
+| Aspect | Doc 22 `TcpListener`/`TcpStream` | Doc 29 `TcpServer` |
 |---|---|---|
 | Connections | one | many (a table) |
 | Transport ownership | moved into the stream | held centrally, shared |

@@ -1,4 +1,4 @@
-# Day 15 — TCP, Part 13: TCP Options and MSS Negotiation
+# Doc 15 — TCP, Part 13: TCP Options and MSS Negotiation
 
 > Goal: open the door we have kept shut for fourteen days. Every segment we have built carries a bare
 > 20-byte TCP header, and every segment we received, we parsed only the fixed 20 bytes and *skipped* whatever
@@ -6,7 +6,7 @@
 > timestamps, SACK. This chapter builds the **machinery to parse and emit options**, then uses it for the
 > most fundamental one: **Maximum Segment Size** (RFC 9293 §3.7.1). We read the peer's MSS from its SYN,
 > advertise our own, and finally segment outgoing data to the *negotiated* size instead of a hardcoded 1460.
-> That framework is the foundation Days 16–18 (timestamps, window scaling, SACK) all build on.
+> That framework is the foundation Docs 16–18 (timestamps, window scaling, SACK) all build on.
 
 This is an *infrastructure* day: the single feature (MSS) is modest, but the **option-parsing and
 option-emitting machinery** it forces us to build is what the next three days stand on. Get the defensive
@@ -71,7 +71,7 @@ jumping over any options the peer sent. That was fine for a stack with no option
 something to say (our MSS) and something to hear (the peer's), so we must both **write** an option into our
 SYN/SYN-ACK and **read** one out of theirs. The 4-bit data-offset cap is the quiet constraint behind every
 option-design tradeoff: there are only 40 bytes, and every feature competes for them (the budget arithmetic
-that decides "3 SACK blocks with timestamps" is §A, and Day 18 §5).
+that decides "3 SACK blocks with timestamps" is §A, and Doc 18 §5).
 
 ## 2. The option wire format (kind / length / value, NOP, EOL)
 
@@ -83,10 +83,10 @@ Options are a sequence of TLV-ish entries. Two are special single-byte forms; th
 | 0 | End of Option List | 1 byte | stop parsing; pad the rest with zeros |
 | 1 | No-Operation (NOP) | 1 byte | filler, used to 4-byte-align the next option |
 | 2 | Maximum Segment Size | `[2, 4, hi, lo]` | the sender's receive MSS (SYN only) |
-| 3 | Window Scale | `[3, 3, shift]` | (Day 17) |
-| 4 | SACK-Permitted | `[4, 2]` | (Day 18) |
-| 5 | SACK | `[5, len, …]` | (Day 18) |
-| 8 | Timestamps | `[8, 10, …]` | (Day 16) |
+| 3 | Window Scale | `[3, 3, shift]` | (Doc 17) |
+| 4 | SACK-Permitted | `[4, 2]` | (Doc 18) |
+| 5 | SACK | `[5, len, …]` | (Doc 18) |
+| 8 | Timestamps | `[8, 10, …]` | (Doc 16) |
 
 For the length-prefixed kinds, **the length byte counts the kind and length bytes themselves**. So MSS is
 `length = 4`: one kind byte + one length byte + two value bytes. The whole options area must end on a 4-byte
@@ -104,7 +104,7 @@ Crucially:
   mid-connection).
 - Each side advertises its *own* receive MSS. So the peer's MSS option tells **us** the biggest segment **we**
   may send; our MSS option tells the peer the biggest it may send us. (Same per-direction asymmetry as the
-  window, Day 8, and window scaling, Day 17.)
+  window, Doc 8, and window scaling, Doc 17.)
 - The value is the link MTU minus 40 (20 IP + 20 TCP). On our 1500-byte TUN that is **1460**.
 
 If a SYN carries no MSS option, RFC 9293 §3.7.1 says assume 536 for IPv4. Real peers always send one, so in
@@ -139,7 +139,7 @@ The two guards that matter: `len < 2` rejects a zero/one length (a hostile `len 
 advance `i` — an infinite loop), and `i + len > opts.len()` rejects a length that claims more bytes than
 exist. Unknown kinds are skipped by their length, exactly as a real stack must, so adding timestamps/SACK
 later is just another `if kind == …` arm. `TcpOptions` starts with one field, `mss: Option<u16>`, and grows
-over the next three days into the multi-field struct Day 18 finishes (§14).
+over the next three days into the multi-field struct Doc 18 finishes (§14).
 
 ## 5. Emitting: generalizing `build_packet` and the data offset
 
@@ -208,9 +208,9 @@ noise. Instead:
   `&TcpOptions::default()`, so its ~30 existing test callers are untouched.
 
 `main` parses the options off the wire once (`&l4[20..data_offset]`) and calls `on_segment` / `accept` with
-them. This keeps the diff focused, and it is the right seam for Day 16: timestamps ride on *every* segment,
+them. This keeps the diff focused, and it is the right seam for Doc 16: timestamps ride on *every* segment,
 and `on_segment` is exactly where they will be read. (This is the same "evolve the API by adding a wrapper"
-move as Day 12's `_at` constructors — §10.)
+move as Doc 12's `_at` constructors — §10.)
 
 ## 9. Worked example: a handshake with options
 
@@ -235,10 +235,10 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
   The `len < 2` check is subtle but vital: `len` includes the kind+length bytes, so the minimum legal value
   is 2; a hostile `len = 0` or `1` would advance `i` by less than the bytes consumed (or not at all),
   risking an infinite loop. Slicing `&opts[i+2 .. i+len]` is only reached after both bounds are proven, so it
-  can't panic. This is the Day-1 parser discipline (validate length, never trust the wire) applied to the
+  can't panic. This is the Doc-1 parser discipline (validate length, never trust the wire) applied to the
   option layer.
 - **`TcpOptions` beside `TcpHeader` is a deliberate decoupling.** Keeping options out of the header struct
-  means the ~40 test `TcpHeader { … }` literals never change as options accumulate (Days 16–18 add four more
+  means the ~40 test `TcpHeader { … }` literals never change as options accumulate (Docs 16–18 add four more
   fields to `TcpOptions`, zero to `TcpHeader`). The parsed options flow as a separate `&TcpOptions` argument
   — a clean seam that also makes "this segment had no options" expressible as `TcpOptions::default()` without
   a sentinel.
@@ -274,7 +274,7 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
 
 | Decision | Alternative | Why |
 |---|---|---|
-| `TcpOptions` beside `TcpHeader` | Add `options` field to `TcpHeader` | Avoids editing ~40 literal test headers; `on_segment` is the right seam for per-segment options (Day 16). |
+| `TcpOptions` beside `TcpHeader` | Add `options` field to `TcpHeader` | Avoids editing ~40 literal test headers; `on_segment` is the right seam for per-segment options (Doc 16). |
 | Default send MSS = `OUR_MSS` | RFC's 536 for a missing option | Real peers always advertise; the default only affects option-less test SYNs, where full-size segmentation keeps tests honest. Documented. |
 | `send_mss` separate from cwnd's MSS | One shared MSS everywhere | Different limits — a per-segment size cap vs a bytes-in-flight budget; conflating them breaks when a peer advertises a small MSS. |
 | Derive `OUR_MSS` from `congestion::MSS` | Repeat the literal `1460` | One source of truth for the link's segment size; no drift. |
@@ -282,10 +282,10 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
 
 ## 14. Honesty: what production does, and what later days added
 
-- **The framework was built to grow, and did.** `TcpOptions` gained `timestamps` (Day 16), `window_scale`
-  (Day 17), and `sack_permitted` + `sack_blocks` + `sack_block_count` (Day 18). `parse_options` gained an
+- **The framework was built to grow, and did.** `TcpOptions` gained `timestamps` (Doc 16), `window_scale`
+  (Doc 17), and `sack_permitted` + `sack_blocks` + `sack_block_count` (Doc 18). `parse_options` gained an
   arm per option; the builders (`ws_option`, `ts_option`, `sack_perm_option`, `sack_option`) mirror
-  `mss_option`. Day 15's defensive walker and `is_multiple_of` alignment are exactly what made those
+  `mss_option`. Doc 15's defensive walker and `is_multiple_of` alignment are exactly what made those
   additions one-arm-each. This day's real product is that extensibility.
 - **No Path MTU Discovery (PMTUD).** We learn the MSS from the SYN but never *discover* the true path MTU
   (which can be smaller than either end's link MTU due to tunnels/VPNs). A real stack does PMTUD (or
@@ -299,7 +299,7 @@ with a 200-byte tail held by Nagle — never a single 1200-byte (or 1460-clipped
   IPv4; IPv6 subtracts 60 (40 IPv6 + 20 TCP), and IP/TCP options shrink it further. We assume the clean
   1500−40 = 1460 case.
 
-None of these change the day-15 contract (we parse/emit options and segment to the negotiated MSS); they are
+None of these change the doc-15 contract (we parse/emit options and segment to the negotiated MSS); they are
 the path-awareness and hardening a production stack adds.
 
 ## 15. Rebuild it yourself — checklist + exercises
@@ -319,14 +319,14 @@ the path-awareness and hardening a production stack adds.
   explicit MSS so existing full-size tests still pass.
 - **E3.** Emit a NOP-padded option list (e.g. MSS + a 2-byte option) and confirm `data_offset` and the
   checksum are still correct (§E).
-- **E4.** ✅ *Done* (Days 16–18): add `parse_options` arms for timestamps, window scale, and SACK, and
+- **E4.** ✅ *Done* (Docs 16–18): add `parse_options` arms for timestamps, window scale, and SACK, and
   unit-test the walker against a real Linux SYN's option bytes (§F).
 - **E5.** Add a **minimum MSS floor** (e.g. 256): clamp a peer's tiny MSS up, defending against the
   tiny-MSS DoS (§H).
 
 ## 16. What the next step adds
 
-Day 16 spends the new framework on **TCP timestamps** (RFC 7323 §3–4). A timestamp option on every segment
+Doc 16 spends the new framework on **TCP timestamps** (RFC 7323 §3–4). A timestamp option on every segment
 lets us (a) measure RTT on *every* ACK instead of one sample per window, sharpening the RTO, and (b)
 implement **PAWS** — Protect Against Wrapped Sequences — which rejects an old duplicate that has wrapped
 around the 32-bit sequence space on a fast, long-lived connection. It is the first option that rides on
@@ -359,7 +359,7 @@ their sizes (padded to alignment):
 The **40-byte ceiling** (60-byte max header − 20 fixed) is the hard constraint everything competes for. A
 typical modern SYN carries MSS(4) + SACK-Perm(4) + Timestamps(12) + Window Scale(4) = 24 bytes, leaving 16.
 A data/ACK segment with Timestamps(12) leaves 28 — which is exactly why SACK is capped at 3 blocks once
-timestamps are present (28 = 4 + 8·3, Day 18 §5). This budget arithmetic — *which options coexist in 40
+timestamps are present (28 = 4 + 8·3, Doc 18 §5). This budget arithmetic — *which options coexist in 40
 bytes* — is the recurring constraint of the whole options era, and it's why the order options were added to
 TCP (MSS first, then window scale and timestamps co-designed to share space, then SACK sized to fit
 alongside) is no accident.
@@ -428,10 +428,10 @@ it lives. The hazards our guards prevent:
    huge option count             unbounded work                      bounded by opts.len() (≤ 40)
 ```
 
-Real-world option-parser bugs are legion: the **SACK Panic** (Day 18 §G) abused SACK *processing* (not
+Real-world option-parser bugs are legion: the **SACK Panic** (Doc 18 §G) abused SACK *processing* (not
 parsing) to overflow retransmit-queue arithmetic; older stacks had option-parser overflows and infinite
 loops on crafted lengths. The discipline — *validate the length before you trust it, and bound every loop by
-the actual buffer* — is the same one Day 1 drilled for the IP header, applied to a variable-length, nested
+the actual buffer* — is the same one Doc 1 drilled for the IP header, applied to a variable-length, nested
 structure where it matters even more (the length is attacker-chosen at every step). Our walker is total
 (terminates on any input) and panic-free (every index is bounds-checked), which is the correctness bar a
 wire parser must clear.
@@ -457,7 +457,7 @@ and `sack_option` prepend two NOPs to make 12 / 4+8N), so concatenating any set 
 construction — which is why `segment_opts` can just join them and the `debug_assert!(len % 4 == 0)` always
 holds. The alternative (a global NOP/EOL pad at the end) works too and is what the EOL (kind 0) is for —
 "stop, pad the rest with zeros to the word boundary" — but per-option self-alignment composes more cleanly
-when multiple options stack (Days 16–18). The cost is a couple of wasted NOP bytes per option; the benefit is
+when multiple options stack (Docs 16–18). The cost is a couple of wasted NOP bytes per option; the benefit is
 that adding an option never disturbs another's alignment.
 
 ## F. A worked option-parse trace (a real Linux SYN)
@@ -468,16 +468,16 @@ A typical Linux SYN's option bytes, decoded by our walker. `tcpdump -v` would pr
 ```text
    bytes:  02 04 05 b4 | 04 02 | 08 0a [TSval×4] [TSecr×4] | 01 | 03 03 07
    i=0:    kind 2 (MSS),  len 4 → value 0x05b4 = 1460     → out.mss = Some(1460); i += 4
-   i=4:    kind 4 (SACK-Perm), len 2 → (no data)          → out.sack_permitted = true; i += 2   (Day 18)
-   i=6:    kind 8 (Timestamps), len 10 → TSval, TSecr     → out.timestamps = Some((v,e)); i += 10 (Day 16)
+   i=4:    kind 4 (SACK-Perm), len 2 → (no data)          → out.sack_permitted = true; i += 2   (Doc 18)
+   i=6:    kind 8 (Timestamps), len 10 → TSval, TSecr     → out.timestamps = Some((v,e)); i += 10 (Doc 16)
    i=16:   kind 1 (NOP) → i += 1                          (alignment filler before wscale)
-   i=17:   kind 3 (Window Scale), len 3 → shift 7         → out.window_scale = Some(7); i += 3   (Day 17)
+   i=17:   kind 3 (Window Scale), len 3 → shift 7         → out.window_scale = Some(7); i += 3   (Doc 17)
    i=20:   i == opts.len() → done
 ```
 
-At day 15 only the MSS arm exists, so the walker reads `mss = 1460` and *skips* the rest by their lengths
+At doc 15 only the MSS arm exists, so the walker reads `mss = 1460` and *skips* the rest by their lengths
 (the `i += len` in the `kind =>` branch) — which is exactly the "unknown kinds are skipped gracefully"
-property that lets a day-15 stack interoperate with a fully-featured Linux peer. By Day 18 every arm exists
+property that lets a doc-15 stack interoperate with a fully-featured Linux peer. By Doc 18 every arm exists
 and the whole line decodes. The NOP at i=16 is the alignment filler Linux inserts so window-scale (3 bytes)
 lands on a clean boundary after the 10-byte timestamps option (§E).
 
@@ -499,7 +499,7 @@ understand — historically window-scale and SACK got stripped, silently degradi
 of why new TCP options are hard to deploy and QUIC moved to UDP), and **option-order sensitivity** (buggy
 middleboxes that only recognize options in a specific order). Our endpoints fully control both ends and the
 TUN passes options untouched, so neither bites — but they're why the modern internet is "ossified" against
-new TCP options, a major motivation for QUIC (Day 9 §J, Day 11 §C).
+new TCP options, a major motivation for QUIC (Doc 9 §J, Doc 11 §C).
 
 ## H. Security — tiny-MSS DoS and the option parser
 
@@ -516,7 +516,7 @@ new TCP options, a major motivation for QUIC (Day 9 §J, Day 11 §C).
   SACK-permitted, timestamps, their order) is a reliable OS fingerprint (nmap, p0f use it). Not a
   vulnerability per se, but a privacy/recon consideration — our fixed option set is identifiable.
 - **MSS-based evasion.** A tiny MSS forces tiny segments that can split application-layer keywords across
-  packets, evading naive IDS signature matching (the segment-overlap evasion lineage, Day 9 §I). Floors and
+  packets, evading naive IDS signature matching (the segment-overlap evasion lineage, Doc 9 §I). Floors and
   reassembly-before-inspection defend.
 
 The theme: the MSS is an attacker-influenced *amplification* knob (tiny MSS → many packets) and the option
@@ -526,11 +526,11 @@ walker — the floor being the one defense our teaching version omits.
 ## I. Performance — MSS too small vs too big
 
 - **MSS too small** → more segments for the same data → more headers (overhead) and more packets (the
-  per-packet costs of Day 13 §I) → lower throughput and higher CPU. A 536-MSS connection on a 1500-MTU link
+  per-packet costs of Doc 13 §I) → lower throughput and higher CPU. A 536-MSS connection on a 1500-MTU link
   wastes ~63% more packets than a 1460-MSS one for the same bytes.
 - **MSS too big (bigger than the path MTU)** → IP fragmentation (if DF clear) or black-holing (if DF set and
   PMTUD fails, §C). Fragmentation is a performance and reliability disaster: one lost fragment loses the
-  whole packet, and fragment reassembly is slow and a security hazard (Day 9 §I). This is *worse* than too
+  whole packet, and fragment reassembly is slow and a security hazard (Doc 9 §I). This is *worse* than too
   small — hence the conservative "advertise your link MTU, discover the path" approach.
 - **The sweet spot is the path MTU minus 40** — as large as possible without fragmenting. PMTUD/clamping
   exist to find it. Jumbo frames (9000-byte MTU) push it higher on controlled datacenter links, cutting
@@ -572,7 +572,7 @@ walker — the floor being the one defense our teaching version omits.
     arm/builder.
 23. **Does MSS count headers?** No — payload only; an MSS-1460 segment is a 1500-byte packet.
 24. **Can MSS change mid-connection?** No — SYN-only; it's fixed at the handshake.
-25. **What's the real product of day 15?** The extensible, defensive option layer the rest of modern TCP
+25. **What's the real product of doc 15?** The extensible, defensive option layer the rest of modern TCP
     stands on.
 
 ## K. Anki starter deck

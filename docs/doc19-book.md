@@ -1,4 +1,4 @@
-# Day 19 — TCP, Part 17: Finishing the State Machine — Half-Close (CLOSE_WAIT) + RFC 5961
+# Doc 19 — TCP, Part 17: Finishing the State Machine — Half-Close (CLOSE_WAIT) + RFC 5961
 
 > Goal: make the teardown *correct*, and make the connection *hard to kill*. Two jobs that sound
 > unrelated but are the same job — closing the gap between "passes our happy-path tests" and "is a
@@ -123,14 +123,14 @@ genuinely separate events:
 Two roles, and which you play depends only on **who sends the first FIN**:
 
 - The **active closer** sends FIN first. It traverses `FIN_WAIT_1 → FIN_WAIT_2 → TIME_WAIT → CLOSED`
-  and is the one that pays the 2·MSL TIME_WAIT cost (Day 7). In our stack, the HTTP path is the
+  and is the one that pays the 2·MSL TIME_WAIT cost (Doc 7). In our stack, the HTTP path is the
   active closer: after writing `200 OK` it calls `close()` itself.
 - The **passive closer** receives the first FIN. It traverses `CLOSE_WAIT → LAST_ACK → CLOSED` and
   **never enters TIME_WAIT**. In our stack, the echo path is the passive closer: the user closes
   `nc`, we get the FIN.
 
 The fourth case is **simultaneous close** (both sides send FIN before receiving the other's):
-`FIN_WAIT_1 → CLOSING → TIME_WAIT`. We've supported that since Day 7; it is untouched today.
+`FIN_WAIT_1 → CLOSING → TIME_WAIT`. We've supported that since Doc 7; it is untouched today.
 
 The crucial asymmetry: the active closer's middle states (`FIN_WAIT_1/2`) are driven by the
 *network* — it's waiting for the peer's ACK and FIN to arrive. The passive closer's middle state
@@ -248,14 +248,14 @@ Here is our complete connection lifecycle as of today. Boxes are `State` variant
                                                               CLOSED
 ```
 
-The two new edges Day 19 adds are the split of the old single arrow `ESTABLISHED ──FIN──▶ LAST_ACK`
+The two new edges Doc 19 adds are the split of the old single arrow `ESTABLISHED ──FIN──▶ LAST_ACK`
 into `ESTABLISHED ──recv FIN──▶ CLOSE_WAIT ──app close()──▶ LAST_ACK`. Everything else was already
 there. (And every *synchronized* box — ESTABLISHED through TIME_WAIT — now also has the invisible
 self-edges "recv bad RST / challenge or drop" and "recv SYN / challenge," from RFC 5961.)
 
 ## 5. The FIN is a sequence-consuming control bit (the +1, again)
 
-We met this with SYN on Day 3: a control flag that carries no data nonetheless **occupies one
+We met this with SYN on Doc 3: a control flag that carries no data nonetheless **occupies one
 sequence number**, so that its delivery is reliable in exactly the same way data is. FIN is the
 other such bit.
 
@@ -356,7 +356,7 @@ returns `0`. Our stack exposes that with one accessor:
 pub fn peer_closed(&self) -> bool { self.peer_fin }
 ```
 
-A future blocking `TcpStream::read` (the day11-book §11 exercise) returns `Ok(0)` exactly when
+A future blocking `TcpStream::read` (the doc11-book §11 exercise) returns `Ok(0)` exactly when
 `peer_closed()` is true and the receive buffer is drained — the canonical Rust EOF. Our `main`
 doesn't need the accessor because its "application" is hard-coded: the echo policy is *"once the peer
 closes and my send buffer is empty, I have nothing more to say, so close."* That's
@@ -383,7 +383,7 @@ Here is the arithmetic that makes the attack practical:
 
 ```text
    sequence space:      2^32 = 4,294,967,296 values
-   a generous window:   W = 65,535 (or far larger with window scaling, Day 17)
+   a generous window:   W = 65,535 (or far larger with window scaling, Doc 17)
    guesses to land one packet in window:   2^32 / W ≈ 65,536
 ```
 
@@ -589,7 +589,7 @@ derives `PartialEq`, so `== Some(x)` just works.
 nothing. `on_rst` takes `&mut self` because it may transition to `Closed`. The borrow checker turns
 this design intent into a compile-time fact: a `&self` method *cannot* accidentally mutate the TCB,
 so when reading `challenge_ack` you know with certainty it has no side effects on the connection.
-That's the same discipline that let `segment()` stay `&self` since Day 3 — building a packet reads
+That's the same discipline that let `segment()` stay `&self` since Doc 3 — building a packet reads
 the connection but must never alter it.
 
 **`matches!` for a set membership test.** `is_synchronized` could be a chain of `||`, but
@@ -810,7 +810,7 @@ In the spirit of every chapter — here is the gap between our correct *core* an
 - **RFC 5961 §5 (blind data injection) is only partial.** We tightened *RST* and *SYN*; we did **not**
   tighten *data/ACK* acceptance to RFC 5961 §5's stricter ACK window
   (`SND.UNA − MAX.SND.WND ≤ SEG.ACK ≤ SND.NXT`) with a challenge ACK on violation. We still use the
-  Day 8 `between(SND.UNA, ACK, SND.NXT)` acceptance, which is RFC 793-grade. An attacker who can also
+  Doc 8 `between(SND.UNA, ACK, SND.NXT)` acceptance, which is RFC 793-grade. An attacker who can also
   guess the ACK number could still attempt blind data injection. (Exercise E4.)
 - **No challenge-ACK rate limiting.** RFC 5961 §3 recommends throttling challenge ACKs; doing it with
   a *shared, non-random* counter created CVE-2016-5696 (§D). We emit one per trigger, unlimited.
@@ -821,12 +821,12 @@ In the spirit of every chapter — here is the gap between our correct *core* an
   `tcp_fin_timeout`.)
 - **Half-close is mechanism-only.** We *support* sending after the peer's FIN, but our `main`'s
   application is a hard-coded echo that never wants to. There's no `shutdown(SHUT_WR)` API yet, no way
-  for a program to half-close on purpose. That's the `TcpStream` veneer (day11-book §11).
+  for a program to half-close on purpose. That's the `TcpStream` veneer (doc11-book §11).
 - **No `LISTEN` state.** A passively-opened connection that receives a RST in SYN_RCVD goes straight
   to `Closed` (we delete the TCB); a stack with a real listener returns to `LISTEN` to accept the
   next SYN.
 - **RST generation is still minimal.** We send a polite RST for segments to *unknown* connections
-  (Day 4's `build_rst`), but we don't, e.g., RST a connection whose app aborted; we only ever close
+  (Doc 4's `build_rst`), but we don't, e.g., RST a connection whose app aborted; we only ever close
   gracefully with FIN.
 - **No simultaneous-open, no data on SYN (TFO).** Out of scope, as before.
 
@@ -877,11 +877,11 @@ arithmetic and the three RST cases; those are the two things people misremember.
 ## 21. What the next day adds
 
 The state machine is correct; the obvious next reach is **modern congestion control** — upgrading our
-RFC 5681 Reno (Day 10) to **NewReno** (RFC 6582), so a *single* fast-recovery episode survives
+RFC 5681 Reno (Doc 10) to **NewReno** (RFC 6582), so a *single* fast-recovery episode survives
 *multiple* losses in one window via partial-ACK handling, instead of collapsing. After that, the
 **RFC 6675 SACK scoreboard** (the `pipe` estimator that keeps a fast link full *during* recovery) is
-the natural partner to Day 18's selective ACKs — together they're how a real connection sustains
-throughput across loss. Alternatively, the **`TcpListener`/`TcpStream` blocking veneer** (day11-book
+the natural partner to Doc 18's selective ACKs — together they're how a real connection sustains
+throughput across loss. Alternatively, the **`TcpListener`/`TcpStream` blocking veneer** (doc11-book
 §11) turns everything we've built into an API a program can actually call — and is where the
 half-close *mechanism* from today finally gets an application that uses it on purpose.
 
@@ -934,7 +934,7 @@ SYN):
    ESTABLISHED    ✓             data transfer
    FIN_WAIT_1     ✓             active close, FIN sent, awaiting ACK/FIN
    FIN_WAIT_2     ✓             active close, our FIN acked, awaiting peer FIN
-   CLOSE_WAIT     ✓ (Day 19)    passive close, peer FIN acked, app to close
+   CLOSE_WAIT     ✓ (Doc 19)    passive close, peer FIN acked, app to close
    CLOSING        ✓             simultaneous close
    LAST_ACK       ✓             passive close, our FIN sent, awaiting ACK
    TIME_WAIT      ✓             active close complete, 2·MSL linger
@@ -1005,7 +1005,7 @@ the acceptable ACK window could inject data. RFC 5961 §5 tightens the *ACK* acc
 
 The §5 window is deliberately *wider on the low side* (it tolerates old duplicate ACKs) but bounded,
 and crucially it pairs with a challenge ACK so an out-of-bounds ACK can't be used as a probe. We
-implement §3 and §4; §5 is exercise E4 (we currently use the RFC 793 acceptance from Day 8).
+implement §3 and §4; §5 is exercise E4 (we currently use the RFC 793 acceptance from Doc 8).
 
 A summary table:
 
@@ -1090,9 +1090,9 @@ concern; our `Connection` is the single owner.
 ## G. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                 Linux               FreeBSD            lwIP              smoltcp        ours (Day 19)
+   aspect                 Linux               FreeBSD            lwIP              smoltcp        ours (Doc 19)
    ────────────────────   ─────────────────   ────────────────   ───────────────   ────────────   ─────────────────
-   CLOSE_WAIT             full, leak-prone    full               full              full           full (Day 19)
+   CLOSE_WAIT             full, leak-prone    full               full              full           full (Doc 19)
    CLOSE_WAIT timeout     app/keepalive       app/keepalive      poll interval     configurable   none (E2)
    half-close API         shutdown()          shutdown()         tcp_shutdown()    .close()/abort no API yet (E1)
    RFC 5961 RST           yes (exact)         yes                yes (recent)      yes            yes

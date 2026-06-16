@@ -1,12 +1,12 @@
-# Day 7 — TCP, Part 5: Active Close & TIME_WAIT
+# Doc 7 — TCP, Part 5: Active Close & TIME_WAIT
 
-> Goal: close the connection from **our** side. Day 5 did the *passive* close — the peer sends `FIN`,
+> Goal: close the connection from **our** side. Doc 5 did the *passive* close — the peer sends `FIN`,
 > we react. But a real endpoint also has to *initiate* a close: stop sending, emit our own `FIN`, and
 > walk the active-closer's branch of the state machine — `FIN_WAIT_1 → FIN_WAIT_2 → TIME_WAIT → CLOSED`,
 > with a detour for a simultaneous close. This chapter completes the RFC 9293 teardown and confronts the
 > most over-discussed state in TCP: TIME_WAIT.
 
-The teardown is asymmetric, and the asymmetry is the entire lesson. The passive closer (Day 5) gets off
+The teardown is asymmetric, and the asymmetry is the entire lesson. The passive closer (Doc 5) gets off
 easy — it forgets the connection the moment its FIN is acked. The active closer pays: it must linger for
 minutes in TIME_WAIT. Understanding *why* — the "you can't ACK an ACK" theorem — explains a huge amount
 of real-world server behavior (why busy servers drown in TIME_WAIT, why you push the close onto the
@@ -53,7 +53,7 @@ Volume II — the exhaustive reference
 ## 1. The mental model: who says goodbye first
 
 A TCP connection is two independent byte streams, so closing is two **half-closes**, one per direction.
-Whoever sends `FIN` first is the **active closer**; the other is the **passive closer**. Day 5 built the
+Whoever sends `FIN` first is the **active closer**; the other is the **passive closer**. Doc 5 built the
 passive side (the path through `LAST_ACK`). The roles are not symmetric, and the asymmetry is the whole
 lesson of this chapter:
 
@@ -70,11 +70,11 @@ active closer pays for it.
 A subtlety worth stating up front: our binary is a passive echo server, so it never *calls* `close()` in
 `main`. The active-close machinery is therefore `#[allow(dead_code)]` in the binary and exercised
 entirely by unit tests — which is fine, because the state machine is the same whether a real app or a
-test drives it (§8). Wiring a socket API that lets an app close arrives on Day 11.
+test drives it (§8). Wiring a socket API that lets an app close arrives on Doc 11.
 
 ## 2. The four states the active closer walks
 
-Day 5's `State` enum gained four variants for the initiator's path (the passive `LAST_ACK` from Day 5
+Doc 5's `State` enum gained four variants for the initiator's path (the passive `LAST_ACK` from Doc 5
 stays):
 
 ```text
@@ -87,7 +87,7 @@ stays):
 The RFC's two paths, side by side (we now implement *both* columns):
 
 ```text
-   active close (initiator — new)        passive close (responder — Day 5)
+   active close (initiator — new)        passive close (responder — Doc 5)
    ESTABLISHED                            ESTABLISHED
      │ send FIN                             │ recv FIN, send FIN|ACK
      ▼                                      ▼
@@ -108,7 +108,7 @@ pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
     if self.state != State::Established { return None; }
     let out = self.segment(self.send.nxt, self.recv.nxt, FIN | ACK, &[]);
     self.send.nxt = self.send.nxt.wrapping_add(1); // our FIN consumes one sequence number
-    self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms); // (Day 12)
+    self.retx.record(self.send.nxt.wrapping_sub(1), self.send.nxt, out.clone(), now_ms); // (Doc 12)
     self.state = State::FinWait1;
     Some(out)
 }
@@ -117,8 +117,8 @@ pub fn close(&mut self, now_ms: u64) -> Option<Vec<u8>> {
 Two familiar rules: the FIN carries `ACK` (we acknowledge everything received so far, `RCV.NXT`), and the
 FIN **consumes one sequence number** — so `SND.NXT += 1`, and the peer's ACK of our FIN will carry
 `ack == SND.NXT` (the new value). This is the same "+1 for a flag" from the SYN and the passive FIN. (The
-`retx.record` line is Day 12's addition: our FIN is queued for retransmission so a lost FIN doesn't hang
-the close — §12. The original day-7 `close()` took no `now_ms` and didn't queue.)
+`retx.record` line is Doc 12's addition: our FIN is queued for retransmission so a lost FIN doesn't hang
+the close — §12. The original doc-7 `close()` took no `now_ms` and didn't queue.)
 
 ## 4. FIN_WAIT_1 — the three-way branch point
 
@@ -205,7 +205,7 @@ reasons, both consequences of "you can't ACK an ACK":
    4-tuple can host a *new* connection, or they'd be mistaken for fresh data. 2·MSL is one round of "out
    and back" worth of lifetime (§B).
 
-This is the first state change driven purely by **time, not a packet** — which is exactly why Day 6's
+This is the first state change driven purely by **time, not a packet** — which is exactly why Doc 6's
 event loop had to exist. `on_tick` checks it every pass:
 
 ```rust
@@ -216,7 +216,7 @@ if self.state == State::TimeWait
 }
 ```
 
-`main`'s loop then drops any `CLOSED` connection from the table (Day 6 §3), freeing the slot. This is the
+`main`'s loop then drops any `CLOSED` connection from the table (Doc 6 §3), freeing the slot. This is the
 classic reason a busy server accumulates thousands of TIME_WAIT sockets: it's the active closer for every
 short-lived client connection, and each one holds a TCB for minutes after the last byte (§J).
 
@@ -257,12 +257,12 @@ at `ack=102` (their FIN at 101, +1), and the two `on_tick` calls bracketing the 
   reads the segment, maybe emits a reply, and assigns the next state. No framework, no trait objects —
   the clarity comes from mirroring the RFC's prose one block per state.
 - **Time drives a transition with no packet.** TIME_WAIT → CLOSED happens in `on_tick`, purely from the
-  clock. This is only expressible because Day 6 made time a first-class input (`now_ms` threaded through
+  clock. This is only expressible because Doc 6 made time a first-class input (`now_ms` threaded through
   every entry point). `saturating_sub` keeps the comparison safe if `now_ms < time_wait_ms`.
 
 ## 9. The code, walked end to end
 
-The whole feature lives in `src/tcp.rs` (state machine) and rides Day 6's loop in `src/main.rs`:
+The whole feature lives in `src/tcp.rs` (state machine) and rides Doc 6's loop in `src/main.rs`:
 
 | Piece | Role |
 |---|---|
@@ -275,7 +275,7 @@ The whole feature lives in `src/tcp.rs` (state machine) and rides Day 6's loop i
 
 The flow of control for a clean active close: app calls `close()` → we send FIN, go `FIN_WAIT_1` → peer
 ACKs → `FIN_WAIT_2` → peer FINs → we ACK, go `TIME_WAIT`, stamp the clock → 2·MSL later an `on_tick`
-flips us to `CLOSED` → the loop reaps the TCB. The passive `LAST_ACK` path from Day 5 is untouched and
+flips us to `CLOSED` → the loop reaps the TCB. The passive `LAST_ACK` path from Doc 5 is untouched and
 still handles the case where the *peer* closes first.
 
 ## 10. Verification
@@ -285,31 +285,31 @@ still handles the case where the *peer* closes first.
 - `active_close_to_timewait_then_closed` — the full §7 trace: `close()` → FIN_WAIT_1, peer ACK →
   FIN_WAIT_2, peer FIN → TIME_WAIT (asserting the ACK's `seq`/`ack` and a valid TCP checksum), then the
   two `on_tick`s proving the 2·MSL expiry to CLOSED.
-- `active_fin_retransmits_until_acked` (Day 12) — our FIN is resent on RTO until the peer ACKs it.
-- `passive_close_via_fin` (Day 5) still passes — the responder path is unchanged.
+- `active_fin_retransmits_until_acked` (Doc 12) — our FIN is resent on RTO until the peer ACKs it.
+- `passive_close_via_fin` (Doc 5) still passes — the responder path is unchanged.
 
 Live (your hands): because the binary is a passive server it won't initiate a close, so this is best seen
 at the *peer*. Connect with `nc`, exchange a line, and let `nc` close — `sudo tcpdump -i tun0 -n` shows
 our `FIN,ACK`, the peer's ACK, its FIN, and our final ACK, with the seq/ack numbers above. To exercise
-*our* active close live you'd need exercise E1 (a socket API or a timed auto-close) — which Day 11's HTTP
+*our* active close live you'd need exercise E1 (a socket API or a timed auto-close) — which Doc 11's HTTP
 server provides (it active-closes after the response).
 
 ## 11. Why this, not that
 
 | Decision | We chose | Real TCP / alternative |
 |---|---|---|
-| Who closes | passive in `main`, active in tests (and HTTP, Day 11) | app decides per socket via a close() API |
+| Who closes | passive in `main`, active in tests (and HTTP, Doc 11) | app decides per socket via a close() API |
 | FIN with data | bare FIN only (echo has nothing left) | a segment may carry final data + FIN together |
 | TIME_WAIT length | 2·MSL with MSL = 2 min (240 s) | OS-tunable; Linux ~60 s; `SO_REUSEADDR` to rebind |
-| Retransmit our FIN | queued (Day 12) | FIN is queued in the retx buffer like data |
+| Retransmit our FIN | queued (Doc 12) | FIN is queued in the retx buffer like data |
 | CLOSE_WAIT | collapsed (echo has no app-write gap) | distinct state while the local app finishes sending |
 | half-close | unsupported (we close both ways at once) | `shutdown(SHUT_WR)` closes one direction, keeps reading |
-| One timer per FIN | per-segment (Day 6 model) | one connection retransmit timer (RFC 6298 §5) |
+| One timer per FIN | per-segment (Doc 6 model) | one connection retransmit timer (RFC 6298 §5) |
 
 ## 12. Honesty: what production does, and what later days added
 
-- **FIN retransmission arrived Day 12.** The original day-7 `close()` didn't queue the FIN, so a lost FIN
-  hung the close forever (day-7 exercise E2). Day 12 added `now_ms` to `close()` and queues the FIN in
+- **FIN retransmission arrived Doc 12.** The original doc-7 `close()` didn't queue the FIN, so a lost FIN
+  hung the close forever (doc-7 exercise E2). Doc 12 added `now_ms` to `close()` and queues the FIN in
   the `RetxQueue`, making teardown reliable — reflected in the §3 code.
 - **No distinct CLOSE_WAIT / half-close.** We collapse CLOSE_WAIT into the FIN|ACK on the passive path
   and don't support `shutdown(SHUT_WR)`. A server that streams a response after the client half-closes
@@ -317,13 +317,13 @@ server provides (it active-closes after the response).
 - **No FIN-with-data.** A real final segment may carry the last bytes *and* the FIN; we separate them.
 - **TIME_WAIT length is fixed at 240 s.** Real stacks tune it (Linux ~60 s) and offer `SO_REUSEADDR` /
   `tcp_tw_reuse` to manage the close storm (§C). We always wait the full 2·MSL.
-- **No TIME_WAIT-assassination defense beyond the basics.** RFC 1337 / PAWS (Day 16) harden TIME_WAIT
-  against injected RSTs; our day-7 TIME_WAIT is minimal (§I).
-- **The binary never actively closes (until HTTP).** Day 11's HTTP/1.0 server is the first code path that
+- **No TIME_WAIT-assassination defense beyond the basics.** RFC 1337 / PAWS (Doc 16) harden TIME_WAIT
+  against injected RSTs; our doc-7 TIME_WAIT is minimal (§I).
+- **The binary never actively closes (until HTTP).** Doc 11's HTTP/1.0 server is the first code path that
   calls `close()` for real (it closes after sending the response), finally exercising this machinery in
   the running binary.
 
-None of these change the day-7 contract (we can initiate a clean close and walk to CLOSED through
+None of these change the doc-7 contract (we can initiate a clean close and walk to CLOSED through
 TIME_WAIT); they are the breadth later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -338,9 +338,9 @@ TIME_WAIT); they are the breadth later days add.
 
 **Exercises:**
 
-- **E1.** ✅ *Done* (Day 11): the HTTP server calls `close()` after the response, running the active path
+- **E1.** ✅ *Done* (Doc 11): the HTTP server calls `close()` after the response, running the active path
   live — watch TIME_WAIT in `tcpdump`.
-- **E2.** ✅ *Done* (Day 12): queue our FIN in the `RetxQueue` so a lost FIN is retransmitted.
+- **E2.** ✅ *Done* (Doc 12): queue our FIN in the `RetxQueue` so a lost FIN is retransmitted.
 - **E3.** Implement a real `CLOSE_WAIT`: as the passive closer, ACK the peer's FIN immediately but send
   our FIN only on a later tick, modelling an app that's still draining its send buffer (§E).
 - **E4.** Honor `SO_REUSEADDR`/`tcp_tw_reuse` semantics: allow a new connection on a 4-tuple still in
@@ -349,10 +349,10 @@ TIME_WAIT); they are the breadth later days add.
 
 ## 14. What the next step adds
 
-The teardown is now complete in both directions. Day 8 adds **flow control** — we already record the
+The teardown is now complete in both directions. Doc 8 adds **flow control** — we already record the
 peer's advertised window (`SND.WND`) and expose `usable_window()`, but a sender must actually *gate* its
-transmission on it so it never overruns a slow receiver. After that: out-of-order reassembly (Day 9) and
-congestion control (Day 10) — the rest of Manual Phases 3–5.
+transmission on it so it never overruns a slow receiver. After that: out-of-order reassembly (Doc 9) and
+congestion control (Doc 10) — the rest of Manual Phases 3–5.
 
 ---
 
@@ -417,7 +417,7 @@ The cost of TIME_WAIT (held by the active closer) leads to several knobs, with v
   with new 4-tuples.
 - **`tcp_tw_reuse` (Linux)** — lets a new *outbound* connection reuse a 4-tuple still in TIME_WAIT, *when
   TCP timestamps prove* the new connection's segments can't be confused with the old ones (the timestamp
-  is strictly increasing). Safe *with timestamps* (Day 16). Helps clients making many short connections.
+  is strictly increasing). Safe *with timestamps* (Doc 16). Helps clients making many short connections.
 - **`tcp_tw_recycle` (Linux, removed in 4.12)** — a more aggressive recycling that keyed off per-host
   timestamps. It **broke** clients behind NAT (multiple hosts sharing one IP have unrelated timestamp
   clocks, so the kernel rejected legitimate connections) and was a notorious source of "random connection
@@ -457,7 +457,7 @@ finishes and closes do you send *your* FIN (CLOSE_WAIT → LAST_ACK). The gap be
 close" is where the application keeps sending.
 
 Our echo server has no such gap — it has nothing to send once the client closes — so we **collapse**
-CLOSE_WAIT into the FIN|ACK (Day 5) and never model it. The practical consequence: we can't serve a
+CLOSE_WAIT into the FIN|ACK (Doc 5) and never model it. The practical consequence: we can't serve a
 protocol that streams a response *after* a request half-close. (HTTP/1.0 without keep-alive works because
 the client doesn't half-close mid-request; a strict request-then-half-close-then-stream protocol would
 need real CLOSE_WAIT — exercise E3.) Seeing many CLOSE_WAIT sockets in `netstat` on a real server almost
@@ -516,7 +516,7 @@ ack 102. Step ⑤ is the packet-less, clock-driven transition unique to TIME_WAI
 ```text
    concept             real systems                                this stack
    ─────────────────   ─────────────────────────────────────────  ──────────────────────────
-   who actively closes  often the CLIENT (to push TIME_WAIT off    HTTP server closes (Day 11);
+   who actively closes  often the CLIENT (to push TIME_WAIT off    HTTP server closes (Doc 11);
                         the busy server)                            echo is passive
    TIME_WAIT length     tunable (~60 s Linux); SO_REUSEADDR/reuse   fixed 240 s, no reuse
    avoiding close       HTTP keep-alive: many requests / one conn   single request then close
@@ -526,10 +526,10 @@ ack 102. Step ⑤ is the packet-less, clock-driven transition unique to TIME_WAI
 ```
 
 The headline real-world technique is **HTTP keep-alive** (and HTTP/2 multiplexing): the cheapest close is
-the one you never do. A persistent connection serves many requests, amortizing both the handshake (Day 3)
+the one you never do. A persistent connection serves many requests, amortizing both the handshake (Doc 3)
 and the teardown (this day, including TIME_WAIT). Where a close is unavoidable, well-designed systems
 arrange for the *client* to be the active closer so the *server* doesn't accumulate TIME_WAIT TCBs. Our
-HTTP server (Day 11) actively closes — a deliberate simplification (one request per connection), and thus
+HTTP server (Doc 11) actively closes — a deliberate simplification (one request per connection), and thus
 the first place our binary pays the TIME_WAIT cost.
 
 ## I. Security — TIME_WAIT assassination (RFC 1337) and RST in TIME_WAIT
@@ -537,7 +537,7 @@ the first place our binary pays the TIME_WAIT cost.
 - **TIME_WAIT assassination (RFC 1337).** An attacker (or a confused peer) can inject an *old* segment
   that elicits a RST while we're in TIME_WAIT; a naive stack accepts the RST, kills the TIME_WAIT early,
   and reopens the old-duplicate window the wait was meant to close. The defenses: ignore RSTs in
-  TIME_WAIT for already-acknowledged sequence space, and use **PAWS** (Day 16 timestamps) to reject
+  TIME_WAIT for already-acknowledged sequence space, and use **PAWS** (Doc 16 timestamps) to reject
   segments older than the most recent — a timestamp that predates `TS.Recent` is a stale duplicate and is
   dropped regardless of its sequence number.
 - **RST injection generally.** A forged in-window RST tears down a live connection. RFC 5961 tightens RST
@@ -545,11 +545,11 @@ the first place our binary pays the TIME_WAIT cost.
   teardown). Our stack doesn't yet validate RSTs this tightly.
 - **Port stealing / 4-tuple reuse.** Without TIME_WAIT (or with an unsafe `tcp_tw_recycle`, §C), an
   attacker who can reuse a 4-tuple might inject data that a new incarnation accepts. TIME_WAIT + random
-  ISNs (Day 3) + PAWS (Day 16) together close this.
+  ISNs (Doc 3) + PAWS (Doc 16) together close this.
 - **Resource exhaustion.** An attacker who induces many active closes can balloon a server's TIME_WAIT
   table; bounded tables and (safe) reuse mitigate.
 
-The theme echoes Day 5's: every control transition is attacker-forgeable, and TIME_WAIT in particular is
+The theme echoes Doc 5's: every control transition is attacker-forgeable, and TIME_WAIT in particular is
 a *time-bounded* defense that injected RSTs try to cut short — which is why PAWS exists.
 
 ## J. Performance — the close storm, port exhaustion, memory
@@ -565,7 +565,7 @@ a *time-bounded* defense that injected RSTs try to cut short — which is why PA
   use a compact "TIME_WAIT bucket" struct rather than the full socket — an optimization we don't make
   (we keep the whole `Connection`).
 - **Our cost** is the linear `on_tick` scan to find expired TIME_WAITs plus a `HashMap::remove`. At our
-  scale it's nothing; at server scale you'd want the timer wheel (Day 6 §E) and a TIME_WAIT-specific
+  scale it's nothing; at server scale you'd want the timer wheel (Doc 6 §E) and a TIME_WAIT-specific
   lightweight bucket.
 
 ## K. Extended FAQ
@@ -592,9 +592,9 @@ a *time-bounded* defense that injected RSTs try to cut short — which is why PA
 15. **What's a CLOSE_WAIT leak?** An app that got a FIN but never `close()`d; sockets pile up in
     CLOSE_WAIT.
 16. **What triggers TIME_WAIT → CLOSED?** The clock (2·MSL) in `on_tick`, not a packet.
-17. **Why did TIME_WAIT expiry need Day 6's event loop?** It's a packet-less, time-driven transition.
-18. **Is our FIN retransmitted if lost?** Yes, since Day 12 (queued in the RetxQueue).
-19. **Does our binary ever actively close?** Not the echo path; the HTTP server (Day 11) does.
+17. **Why did TIME_WAIT expiry need Doc 6's event loop?** It's a packet-less, time-driven transition.
+18. **Is our FIN retransmitted if lost?** Yes, since Doc 12 (queued in the RetxQueue).
+19. **Does our binary ever actively close?** Not the echo path; the HTTP server (Doc 11) does.
 20. **What's TIME_WAIT assassination?** An injected RST cutting TIME_WAIT short (RFC 1337); PAWS defends.
 21. **Can a FIN carry data?** Yes; we send bare FINs, real stacks may combine.
 22. **What ack does our FIN carry?** `RCV.NXT` (we acknowledge all received data).
@@ -625,7 +625,7 @@ Q: CLOSE_WAIT pile-up means?  A: an app that received a FIN but never close()d (
 ## M. Glossary
 
 - **Active close** — initiating teardown by sending the first FIN.
-- **Passive close** — responding to the peer's FIN (Day 5).
+- **Passive close** — responding to the peer's FIN (Doc 5).
 - **FIN_WAIT_1 / FIN_WAIT_2** — active closer: FIN sent / FIN acked, awaiting peer FIN.
 - **CLOSING** — simultaneous close; peer's FIN received before ours was acked.
 - **TIME_WAIT** — the active closer's 2·MSL linger before CLOSED.
@@ -671,6 +671,6 @@ Q: CLOSE_WAIT pile-up means?  A: an app that received a FIN but never close()d (
 ```
 
 > Re-type the `FIN_WAIT_1/2`, `CLOSING`, and `TIME_WAIT` transitions from this chapter with the book
-> closed, then `cargo test`. You now hold the entire lifecycle from both sides: open (Day 3), data
-> (Day 4), passive close (Day 5), reliability (Day 6), and active close (Day 7) — and you can explain,
+> closed, then `cargo test`. You now hold the entire lifecycle from both sides: open (Doc 3), data
+> (Doc 4), passive close (Doc 5), reliability (Doc 6), and active close (Doc 7) — and you can explain,
 > from the "you can't ACK an ACK" theorem, exactly why TIME_WAIT must exist.

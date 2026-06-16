@@ -1,4 +1,4 @@
-# Day 22 — TCP, Part 20: The Socket API — `TcpListener` / `TcpStream`, Active Half-Close, Keep-Alive HTTP
+# Doc 22 — TCP, Part 20: The Socket API — `TcpListener` / `TcpStream`, Active Half-Close, Keep-Alive HTTP
 
 > Goal: give everything we've built an **application to drive it**. For twenty days the "socket API"
 > has been `Connection::{write, take_received, poll_transmit}` plus the hand-written event loop in
@@ -11,7 +11,7 @@
 > Three things land together, because building the API exposes what was missing:
 > 1. **The façade** — `PacketIo`, `TcpStream`, `TcpListener`, blocking `Read`/`Write`.
 > 2. **Active half-close** — a client that `shutdown(SHUT_WR)`s (sends its FIN) must still *receive*
->    the response. Our `FIN_WAIT_1/2` only handled teardown; now they deliver data too. (Day 19 did
+>    the response. Our `FIN_WAIT_1/2` only handled teardown; now they deliver data too. (Doc 19 did
 >    the passive mirror: keep *sending* in CLOSE_WAIT; today: keep *receiving* in FIN_WAIT_2.)
 > 3. **Real HTTP** — buffer the full request head (`\r\n\r\n`), parse it, and support
 >    **keep-alive**: many requests on one connection, closing only when the response says so.
@@ -67,7 +67,7 @@ There are two layers to "TCP" in any system:
    mechanism (the protocol state machine)   ← Connection: on_segment / poll_transmit / on_tick
 ```
 
-We built the mechanism first (Days 3–21) and exercised it with a bespoke event loop in `main`. That
+We built the mechanism first (Docs 3–21) and exercised it with a bespoke event loop in `main`. That
 was right — you can't wrap what doesn't work. But no application speaks `on_segment`; applications
 speak `read`/`write`. The kernel hides the mechanism behind file descriptors and the sockets API;
 we hide it behind `TcpStream`/`TcpListener`.
@@ -134,7 +134,7 @@ routing table.
 
 ```rust
 pub struct TcpStream<T: PacketIo> {
-    conn: Connection,    // the state machine (Days 3–21)
+    conn: Connection,    // the state machine (Docs 3–21)
     io: T,               // the transport
     quad: Quad,          // our 4-tuple, for demuxing in poll
     rbuf: VecDeque<u8>,  // received bytes not yet handed to the caller (sub-buffer reads)
@@ -209,17 +209,17 @@ Building the façade surfaced a real gap. The canonical HTTP client does:
    while read(...) > 0 { consume response }   // still RECEIVING after we've closed our send side
 ```
 
-Day 19 implemented the *passive* half-close (stay in CLOSE_WAIT, keep **sending**). This is the
+Doc 19 implemented the *passive* half-close (stay in CLOSE_WAIT, keep **sending**). This is the
 *active* half-close (in FIN_WAIT_2, keep **receiving**) — the mirror image. But our `FIN_WAIT_1/2`
 blocks only handled FIN/ACK for teardown; data arriving there was dropped. The loopback test
 "client half-closes, server replies" failed, exposing it.
 
-The fix mirrors Day 19: deliver incoming data (via the reassembler) and ACK it, *in addition* to the
+The fix mirrors Doc 19: deliver incoming data (via the reassembler) and ACK it, *in addition* to the
 teardown logic, in both FIN_WAIT_1 and FIN_WAIT_2:
 
 ```rust
 if self.state == State::FinWait2 {
-    if !payload.is_empty() {                                  // Day 22: receive side still open
+    if !payload.is_empty() {                                  // Doc 22: receive side still open
         let delivered = self.reasm.recv(th.seq, payload, self.recv.nxt);
         if !delivered.is_empty() {
             self.recv.nxt = self.recv.nxt.wrapping_add(delivered.len() as u32);
@@ -234,7 +234,7 @@ if self.state == State::FinWait2 {
 ```
 
 Now both directions of half-close work: either end can stop sending while the other keeps going —
-which is what makes a TCP connection two *independent* pipes, the theme since Day 19.
+which is what makes a TCP connection two *independent* pipes, the theme since Doc 19.
 
 ## 8. The loopback: two stacks in one thread, no network
 
@@ -409,7 +409,7 @@ method. (§10.)
 
 **Why add data-receive to FIN_WAIT_1/2 now?** The façade made the active-half-close pattern (the
 normal HTTP client) testable, and it failed — surfacing that our teardown states dropped incoming
-data. It's a genuine correctness fix, the mirror of Day 19. (§7.)
+data. It's a genuine correctness fix, the mirror of Doc 19. (§7.)
 
 **Why keep `main`'s raw loop instead of rewriting it on the façade?** `main` also serves ICMP and UDP
 and many simultaneous connections over one device — the multi-protocol demux the single-connection
@@ -430,7 +430,7 @@ façade deliberately doesn't do. The façade is the *library* API; `main` is the
 - **No write backpressure surfaced.** `Write::write` always accepts all bytes into the send buffer;
   it never reports a full window to the caller (a real socket would block or `WouldBlock`).
 - **Loopback is lossless and zero-latency.** Great for correctness; it doesn't exercise loss/RTT (that
-  needs `tc netem` against the live binary). The reliability machinery (Days 6–21) is still tested
+  needs `tc netem` against the live binary). The reliability machinery (Docs 6–21) is still tested
   directly by the `tcp`/`congestion` unit tests.
 
 ## 16. Rebuild it yourself — checklist + exercises
@@ -469,7 +469,7 @@ that turn a state machine into a socket.
 Tomorrow is the **robustness pack** — the hardening that turns "correct on the happy path" into
 "hard to break": RFC 5961 §5 (the blind *data* injection defence — tighten ACK acceptability with a
 challenge ACK), a **randomized challenge-ACK throttle** (closing the CVE-2016-5696 side channel from
-Day 19), and **reaper timeouts** for connections stuck in CLOSE_WAIT / FIN_WAIT_2 (so a peer that
+Doc 19), and **reaper timeouts** for connections stuck in CLOSE_WAIT / FIN_WAIT_2 (so a peer that
 vanishes can't pin a connection forever). With the API in place today and the hardening tomorrow, the
 stack is a complete, defensible TCP endpoint.
 
@@ -511,8 +511,8 @@ state machine.
 The two half-closes, now both implemented:
 
 ```text
-   passive half-close (Day 19):  peer sends FIN  → we ACK, CLOSE_WAIT, keep SENDING until we close
-   active  half-close (Day 22):  we send FIN     → FIN_WAIT_2, keep RECEIVING until peer closes
+   passive half-close (Doc 19):  peer sends FIN  → we ACK, CLOSE_WAIT, keep SENDING until we close
+   active  half-close (Doc 22):  we send FIN     → FIN_WAIT_2, keep RECEIVING until peer closes
 ```
 
 Together they realise TCP's two-independent-pipes model: each direction closes on its own schedule.
@@ -605,14 +605,14 @@ adds it. The concept (route by 4-tuple) is unchanged — only the plumbing grows
 ## G. Comparison to real stacks & libraries
 
 ```text
-   aspect                std::net (kernel)   smoltcp            tokio::net          ours (Day 22)
+   aspect                std::net (kernel)   smoltcp            tokio::net          ours (Doc 22)
    ───────────────────   ─────────────────   ────────────────   ─────────────────   ──────────────
    API shape             TcpListener/Stream  Socket + poll      async Listener/Stream  TcpListener/Stream
    I/O model             blocking / nonblk   non-blocking poll  async (readiness)   nonblk core + blk veneer
    transport             kernel TUN/NIC      a Device trait     kernel              PacketIo trait
    multi-connection      yes                 yes (SocketSet)    yes                 single (E1)
    testable offline      no (needs kernel)   yes (loopback)     partially           yes (loopback)
-   half-close (both)     yes                 yes                yes                 yes (Day 19 + 22)
+   half-close (both)     yes                 yes                yes                 yes (Doc 19 + 22)
 ```
 
 The closest sibling is **smoltcp**: a `Device` trait (our `PacketIo`), a poll-driven core, offline
@@ -625,7 +625,7 @@ The technique generalises beyond TCP:
 1. **Abstract the I/O boundary** behind a trait (`PacketIo`) — never call the device directly from
    logic.
 2. **Inject time** — pass `now_ms` in rather than reading a clock, so tests drive a logical clock
-   (we've done this since Day 6).
+   (we've done this since Doc 6).
 3. **Loopback the abstraction** — wire two instances through in-memory queues so they talk to each
    other deterministically.
 4. **Step, don't sleep** — a non-blocking `poll(now)` the test calls in a controlled order, instead
@@ -666,8 +666,8 @@ test`, on any OS, in milliseconds. The live TUN run (root, Linux) then validates
     exactly `main`'s design (E1).
 15. **What is active half-close?** We send FIN (FIN_WAIT_2) but keep *receiving* — the HTTP client
     pattern. Added today.
-16. **How does it differ from Day 19's half-close?** Day 19 = passive (CLOSE_WAIT, keep sending);
-    Day 22 = active (FIN_WAIT_2, keep receiving). Mirror images.
+16. **How does it differ from Doc 19's half-close?** Doc 19 = passive (CLOSE_WAIT, keep sending);
+    Doc 22 = active (FIN_WAIT_2, keep receiving). Mirror images.
 17. **What broke without the FIN_WAIT_2 receive path?** The loopback "client half-closes, server
     replies" test — the client dropped the reply.
 18. **How does keep-alive HTTP frame requests?** Buffer until `\r\n\r\n`; serve each complete head;
@@ -710,7 +710,7 @@ Q: read() EOF signal?  A: Ok(0) when peer_closed() and the buffer is empty.
 Q: A loopback test is?  A: two façades over crossed in-memory queues — two endpoints, one thread.
 Q: Why Rc<RefCell<VecDeque>> for loopback queues?  A: shared, interior-mutable FIFO; both ends share it.
 Q: Active half-close?  A: we FIN (FIN_WAIT_2) but keep receiving (the HTTP client pattern).
-Q: Passive half-close (Day 19)?  A: peer FINs (CLOSE_WAIT) but we keep sending.
+Q: Passive half-close (Doc 19)?  A: peer FINs (CLOSE_WAIT) but we keep sending.
 Q: Why rename take()→recv_all()?  A: std::io::Read::take (by-value self) shadows the inherent method.
 Q: HTTP/1.1 default persistence?  A: keep-alive (close only on Connection: close).
 Q: HTTP/1.0 default persistence?  A: close (persist only on Connection: keep-alive).
@@ -755,8 +755,8 @@ Q: Generic TcpStream<T> vs Box<dyn>?  A: monomorphised, zero-cost; TUN and test 
 ```text
    who closes first   their state path                         their open direction
    ────────────────   ──────────────────────────────────────  ────────────────────
-   active (we FIN)    ESTABLISHED → FIN_WAIT_1 → FIN_WAIT_2     still RECEIVING (Day 22)
-   passive (peer FIN) ESTABLISHED → CLOSE_WAIT → LAST_ACK        still SENDING  (Day 19)
+   active (we FIN)    ESTABLISHED → FIN_WAIT_1 → FIN_WAIT_2     still RECEIVING (Doc 22)
+   passive (peer FIN) ESTABLISHED → CLOSE_WAIT → LAST_ACK        still SENDING  (Doc 19)
 ```
 
 **L.3 — HTTP keep-alive decision**

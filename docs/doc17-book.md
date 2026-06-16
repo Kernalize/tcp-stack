@@ -1,4 +1,4 @@
-# Day 17 — TCP, Part 15: Window Scaling (the Other Half of RFC 7323)
+# Doc 17 — TCP, Part 15: Window Scaling (the Other Half of RFC 7323)
 
 > Goal: lift the 64 KB ceiling on the window. TCP's window field is only 16 bits, so without help a receiver
 > can advertise at most 65 535 bytes — and on a "long fat" path (high bandwidth × high latency) that caps
@@ -94,7 +94,7 @@ The subtle part: window scaling is **per-direction**. There are two independent 
 They need not be equal. A big-buffer server and a tiny embedded client can each pick the shift that suits
 their own receive buffer. So "enabling window scaling" is really "I learn the peer's shift for the data I
 send, and the peer learns my shift for the data it sends." This is the same per-direction asymmetry as the
-window itself (Day 8) and MSS (Day 15): each side advertises a property of *its own* receive path, and the
+window itself (Doc 8) and MSS (Doc 15): each side advertises a property of *its own* receive path, and the
 peer applies it when *sending*.
 
 ## 4. Widening `SND.WND` to `u32`
@@ -109,7 +109,7 @@ self.send.wnd = new_wnd;
 ```
 
 This is the last place a window lived in 16 bits. The receive window we *advertise* stays a `u16` field (it's
-16 bits on the wire by definition), and the duplicate-ACK "window unchanged" test (Day 14) now compares the
+16 bits on the wire by definition), and the duplicate-ACK "window unchanged" test (Doc 14) now compares the
 *scaled* values, so a pure window update is still distinguished from a real duplicate even when the window
 exceeds 64 KB. The widening is the day's one real type change, and it ripples exactly as far as the
 flow-control arithmetic — `usable_window` drops an old `as u32` cast because everything is `u32` now.
@@ -134,9 +134,9 @@ and advertising a real shift is a one-line exercise once the buffer grows (E1).
 - **The clamp.** `parse_options` clamps the peer's shift to `MAX_WSCALE = 14` (`data[0].min(MAX_WSCALE)`). A
   shift > 14 is illegal (RFC 7323 §2.3, §D) — a bug or attack — and clamping it (rather than rejecting the
   segment) is the defensive choice: we still negotiate, just at the legal maximum. This is the same
-  "validate/clamp values from the wire" discipline as the option-length checks (Day 15 §D).
+  "validate/clamp values from the wire" discipline as the option-length checks (Doc 15 §D).
 - **The shift is a no-op when not negotiated.** `snd_wscale` defaults to 0, so `W << 0 == W` — a
-  non-scaling connection takes the exact pre-Day-17 path, and every prior test passes untouched. Backward
+  non-scaling connection takes the exact pre-Doc-17 path, and every prior test passes untouched. Backward
   compatibility falls out of the identity `x << 0 = x`, with no conditional.
 - **`Option<u8>` for the parsed scale** distinguishes "no WS option" (`None` → don't enable) from "WS option
   with shift 0" (`Some(0)` → enable at shift 0), which matters for the both-sides negotiation.
@@ -163,7 +163,7 @@ reading of the field would allow — a 128× difference, all from one shift nego
   aligned, so the concatenation is too.
 - `accept` sets `snd_wscale` from the peer's SYN; `on_segment`'s SYN_SENT branch sets it from the SYN-ACK
   (active open).
-- ESTABLISHED left-shifts the incoming window into the now-`u32` `SND.WND`; the dup-ACK comparison (Day 14)
+- ESTABLISHED left-shifts the incoming window into the now-`u32` `SND.WND`; the dup-ACK comparison (Doc 14)
   uses the scaled values.
 - `usable_window` drops its old `as u32` cast — the math is `u32` throughout.
 
@@ -193,13 +193,13 @@ reading of the field would allow — a 128× difference, all from one shift nego
 - **No dynamic receive window / `rcv_wscale`.** We advertise shift 0 and a flat ~1 KB window, so we never
   *use* scaling in our receive direction — we only *honor* the peer's in our send direction. A real stack
   picks `rcv_wscale` from its (autotuned, large) receive buffer and emits `field = real_window >> rcv_wscale`
-  (Day 8 §I, exercise E1).
-- **PAWS is the silent prerequisite (Day 16).** A bigger window means more in-flight data means the 32-bit
+  (Doc 8 §I, exercise E1).
+- **PAWS is the silent prerequisite (Doc 16).** A bigger window means more in-flight data means the 32-bit
   sequence space wraps faster — so window scaling on a fast path is only *safe* because timestamps + PAWS
-  reject wrapped old duplicates (§E). We implemented PAWS first (Day 16) for exactly this reason.
+  reject wrapped old duplicates (§E). We implemented PAWS first (Doc 16) for exactly this reason.
 - **No window-scale-loss recovery.** If the SYN carrying the WS option is lost and retransmitted *without*
   it (some buggy stacks), scaling silently fails to negotiate. We always include it on retransmits (the whole
-  SYN is stored byte-for-byte, Day 12), which is correct; the hazard is a peer or middlebox that strips it
+  SYN is stored byte-for-byte, Doc 12), which is correct; the hazard is a peer or middlebox that strips it
   (§H).
 - **No middlebox-stripping detection.** If a middlebox strips our WS option from the SYN but not the
   SYN-ACK (or vice versa), the two ends disagree on whether scaling is active — a famous cause of *silent
@@ -207,7 +207,7 @@ reading of the field would allow — a 128× difference, all from one shift nego
 - **The cap and granularity.** We clamp to 14 and accept the resulting granularity (window steps of `2^S`);
   a real stack picks the *smallest* shift that covers its buffer to minimize granularity loss.
 
-None of these change the day-17 contract (we negotiate scaling and honor the peer's scaled window); they are
+None of these change the doc-17 contract (we negotiate scaling and honor the peer's scaled window); they are
 the receive-side dynamism and middlebox-robustness a production stack adds.
 
 ## 12. Rebuild it yourself — checklist + exercises
@@ -225,7 +225,7 @@ the receive-side dynamism and middlebox-robustness a production stack adds.
 - **E1.** Grow the receive buffer to, say, 256 KB and advertise a real `rcv_wscale`; scale the window we emit
   (`field = real_window >> rcv_wscale`) and add a test.
 - **E2.** Enforce RFC 7323 §2.2: ignore a Window Scale option that arrives on a non-SYN segment.
-- **E3.** Combine with Day 16: confirm a SYN-ACK carrying MSS + WS + TS parses correctly and the data offset
+- **E3.** Combine with Doc 16: confirm a SYN-ACK carrying MSS + WS + TS parses correctly and the data offset
   / checksum are right.
 - **E4.** Capture a real Linux SYN with `tcpdump -v` and verify `parse_options` reads its window scale
   alongside MSS, SACK-permitted, and timestamps.
@@ -234,7 +234,7 @@ the receive-side dynamism and middlebox-robustness a production stack adds.
 
 ## 13. What the next step adds
 
-Day 18 is the big one: **Selective Acknowledgment** (SACK, RFC 2018). Today a single lost segment forces the
+Doc 18 is the big one: **Selective Acknowledgment** (SACK, RFC 2018). Today a single lost segment forces the
 sender to retransmit *everything* after it on a timeout, because a cumulative ACK can only say "I have through
 byte N." SACK lets the receiver also say "…and I separately have bytes N+1000 to N+2000," so the sender
 retransmits only the genuine hole. It uses the option framework (a SACK-Permitted option in the SYN, SACK
@@ -313,7 +313,7 @@ the handshake; ours doesn't because the shift lives in the right place.
 
 The shift is capped at **14**, giving a maximum window of `65535 << 14 = 65535 × 16384 ≈ 1.07 GB`. Why 14 and
 not 15 or 16? The constraint is the **sequence-number arithmetic**. TCP's "is A before B?" comparison (RFC
-1982, Day 3) works by checking whether the wrapping difference lands in the *lower half* of the 32-bit space —
+1982, Doc 3) works by checking whether the wrapping difference lands in the *lower half* of the 32-bit space —
 i.e. it assumes the window is less than `2^31`. If the window could approach or exceed `2^31`, the modular
 comparisons that decide acceptability would become ambiguous (you couldn't tell "far ahead" from "far
 behind"). RFC 7323 §2.3 caps the maximum window at `2^30` (a full field `2^16 − 1` shifted by 14 is just under
@@ -336,11 +336,11 @@ miss: **scaling makes PAWS necessary.** The chain:
                      (wrapped) sequence number  →  silent corruption  →  PAWS required
 ```
 
-Day 16 §E quantified it: at 10 Gbit/s the sequence space wraps in ~3.4 s, well under the MSL, so a delayed
+Doc 16 §E quantified it: at 10 Gbit/s the sequence space wraps in ~3.4 s, well under the MSL, so a delayed
 duplicate can alias current data. A *large* window (which scaling enables) is exactly what pushes a connection
 into the high-throughput regime where this happens. So you cannot safely deploy window scaling on a fast path
-*without* PAWS to reject wrapped duplicates by timestamp. This is why the curriculum did timestamps (Day 16)
-*before* window scaling (Day 17): PAWS is the safety net that scaling's larger windows require. The two halves
+*without* PAWS to reject wrapped duplicates by timestamp. This is why the curriculum did timestamps (Doc 16)
+*before* window scaling (Doc 17): PAWS is the safety net that scaling's larger windows require. The two halves
 of RFC 7323 are not independent features bundled by accident — scaling unlocks the speed, PAWS makes that
 speed safe, and together they make TCP work on the modern internet.
 
@@ -378,7 +378,7 @@ data movers (before autotuning, §I, made it automatic).
    middlebox handling  heuristics for stripped options            trust the negotiation
 ```
 
-The big real-world feature we lack is **receive-window autotuning** (Day 8 §I): Linux starts with a modest
+The big real-world feature we lack is **receive-window autotuning** (Doc 8 §I): Linux starts with a modest
 window and grows it toward the measured BDP as the connection proves it can drain fast, choosing
 `rcv_wscale` to cover the target. This balances memory (don't allocate huge buffers for slow connections)
 against throughput (do allocate them for fast ones), per-connection, automatically — which is why "tuning the
@@ -399,14 +399,14 @@ server, wrong for a bulk receiver.
   (the SYN we store and retransmit always includes WS, which is correct on our end, but we can't detect the
   *peer's* option being stripped).
 - **Oversized-window resource pressure.** Honoring a huge scaled window means a sender may keep a huge amount
-  of data in flight / buffered for retransmission (Day 6's retx queue holds a window's worth) — a memory cost
+  of data in flight / buffered for retransmission (Doc 6's retx queue holds a window's worth) — a memory cost
   a malicious peer advertising a maximal window could try to inflate. Bounded send buffers defend; our small
   buffers make it moot.
 - **The shift-cap clamp as defense.** A peer advertising shift > 14 is trying to push the window toward `2^31`
   where sequence comparisons break (§D); clamping to 14 is a security measure, not just spec compliance —
   it keeps the modular arithmetic unambiguous regardless of what the peer claims.
 - **Fingerprinting.** The advertised window scale (and whether it's offered at all) is part of the OS
-  fingerprint (Day 15 §H) — our fixed shift-0 offer is identifiable.
+  fingerprint (Doc 15 §H) — our fixed shift-0 offer is identifiable.
 
 The theme: window scaling's semantic-overlay design (unchanged field, negotiated multiplier) is robust to
 *old* stacks (they ignore the option and don't scale) but fragile to *middleboxes that partially strip it* —
@@ -423,7 +423,7 @@ sequence-math attacks.
   memory cost — the production answer scaling makes possible (a window can only autotune *up* if it can
   exceed 64 KB).
 - **Bufferbloat interaction.** A large window lets a sender put a lot in flight; if routers have deep buffers
-  and congestion control is loss-based (Day 10), that data piles up in queues, inflating RTT for everyone.
+  and congestion control is loss-based (Doc 10), that data piles up in queues, inflating RTT for everyone.
   Window scaling alone doesn't cause bufferbloat (congestion control governs *how much* you actually send),
   but it removes the 64 KB cap that used to *accidentally* limit it. The real fixes are AQM (CoDel) and
   better congestion control (BBR), not a smaller window.
@@ -474,7 +474,7 @@ sequence-math attacks.
 22. **Does a non-scaling connection change?** No — `snd_wscale = 0`, `W << 0 = W`, byte-identical to before.
 23. **What's the throughput on an LFN with vs without scaling?** Up to ~150× (0.66% → 100% of a gigabit link)
     (§F).
-24. **What does the dup-ACK check compare now?** The *scaled* window values (Day 14), so updates aren't
+24. **What does the dup-ACK check compare now?** The *scaled* window values (Doc 14), so updates aren't
     miscounted.
 25. **Why is it the "last 16-bit window"?** `SND.WND` was the final window still pinned to `u16`; it's now
     `u32`.
@@ -510,7 +510,7 @@ Q: Why "the last 16-bit window"?  A: SND.WND was the final window pinned to u16;
 - **Receive-window autotuning** — growing the advertised window toward the BDP per connection.
 - **Option stripping** — a middlebox removing the WS option, breaking the negotiation.
 - **Shift cap (14)** — the maximum shift, keeping the window below `2^30` for sequence-math safety.
-- **PAWS** — the timestamp-based wrapped-duplicate defense that makes large windows safe (Day 16).
+- **PAWS** — the timestamp-based wrapped-duplicate defense that makes large windows safe (Doc 16).
 
 ## M. Reference tables
 
@@ -543,5 +543,5 @@ Q: Why "the last 16-bit window"?  A: SND.WND was the final window pinned to u16;
 ```
 
 > Re-type the window-scale negotiation and the `SND.WND` shift with the book closed, then `cargo test`. Your
-> stack can now fill a fast, far pipe — the last 16-bit window is gone, and (because Day 16 gave you PAWS)
+> stack can now fill a fast, far pipe — the last 16-bit window is gone, and (because Doc 16 gave you PAWS)
 > it's safe to do so.

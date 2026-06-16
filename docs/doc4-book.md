@@ -1,10 +1,10 @@
-# Day 4 — TCP, Part 2: Data Transfer (an Echo Server)
+# Doc 4 — TCP, Part 2: Data Transfer (an Echo Server)
 
 > Goal: once a connection is ESTABLISHED, accept the bytes the client sends, acknowledge them, and
 > send them back. `printf 'hi' | nc 192.168.0.2 8080` should print `hi`. This is the payoff — a working
 > TCP application running on a stack you wrote, end to end: handshake, data in, ACK, data out.
 
-Day 3 reached ESTABLISHED but the connection was mute. Today it *talks*. The mechanism is small — a
+Doc 3 reached ESTABLISHED but the connection was mute. Today it *talks*. The mechanism is small — a
 receiver advances one cumulative pointer and a sender stamps bytes with sequence numbers — but it is
 the heart of "a reliable, ordered byte stream," and every later day (reassembly, retransmission, flow
 and congestion control, the socket API) refines exactly this loop.
@@ -62,7 +62,7 @@ that those sequence numbers are now "in flight" until the peer acknowledges them
 
 That is the whole of data transfer: one pointer advancing on each side, and an ACK number carrying the
 receiver's pointer back to the sender. Reliability (what to do when a segment is *lost*) is a separate
-concern we add on Day 6; today we assume the cooperative, lossless TUN link and keep the core idea
+concern we add on Doc 6; today we assume the cooperative, lossless TUN link and keep the core idea
 clean.
 
 ## 2. Accepting in-order data (and why only in-order, for now)
@@ -71,7 +71,7 @@ We accept a segment's data only when it is *exactly* the next byte we expect:
 
 ```text
    seg.seq == RCV.NXT      ⇒  in order: accept
-   seg.seq >  RCV.NXT      ⇒  a gap (future data): drop for now (Day 9 buffers it)
+   seg.seq >  RCV.NXT      ⇒  a gap (future data): drop for now (Doc 9 buffers it)
    seg.seq <  RCV.NXT      ⇒  a duplicate (old data): drop
 ```
 
@@ -82,13 +82,13 @@ self.recv.nxt = self.recv.nxt.wrapping_add(payload.len() as u32);
 ```
 
 `RCV.NXT` now points just past the bytes we hold. **In-order-only is a real simplification** — a full
-stack buffers out-of-order segments and reassembles them when the gap fills (Day 9), and detects
+stack buffers out-of-order segments and reassembles them when the gap fills (Doc 9), and detects
 acceptability with a *window* test rather than strict equality (§C). But the simplification keeps the
-day-4 idea pure: **the receiver advances a single cumulative pointer.** Everything else is refinement.
+doc-4 idea pure: **the receiver advances a single cumulative pointer.** Everything else is refinement.
 
 Why is in-order-only *correct* (if inefficient) on our link? Because the peer (`nc` over a lossless
 TUN) sends in order and nothing is dropped, so `seg.seq` always equals `RCV.NXT`. The moment we
-introduce loss or reordering (Days 6 & 9), this assumption breaks and we need the buffer and the
+introduce loss or reordering (Docs 6 & 9), this assumption breaks and we need the buffer and the
 window — which is exactly why those days exist.
 
 ## 3. Acknowledgements: cumulative ACK and piggybacking
@@ -117,7 +117,7 @@ self.send.nxt = self.send.nxt.wrapping_add(k as u32);
 
 Those `k` sequence numbers are now **in flight**. `SND.UNA` (oldest unacknowledged) stays put until the
 peer ACKs them; the region `[SND.UNA, SND.NXT)` is the unacknowledged data a real stack keeps buffered
-for **retransmission** (Day 6). We learn the peer acknowledged our data by reading the `ack` field of
+for **retransmission** (Doc 6). We learn the peer acknowledged our data by reading the `ack` field of
 incoming segments and advancing `SND.UNA`.
 
 This is the send-side mirror of §2: where the receiver advances `RCV.NXT` on data *in*, the sender
@@ -125,7 +125,7 @@ advances `SND.NXT` on data *out*, and `SND.UNA` trails behind, marking how much 
 
 ## 5. The echo logic, walked
 
-The day-4 ESTABLISHED handler, in pseudocode:
+The doc-4 ESTABLISHED handler, in pseudocode:
 
 ```text
    if segment has an ACK:                       SND.UNA = seg.ack        // peer acked our data
@@ -142,13 +142,13 @@ completes SYN_RCVD → ESTABLISHED and then **falls through** into this same dat
 for "data on the final ACK." The states share one linear handler.
 
 (Note: the *current* code splits this — `on_segment` delivers data to a buffer and returns a bare ACK,
-while the application echoes via `write`/`poll_transmit`. The day-4 inline echo above is the milestone;
+while the application echoes via `write`/`poll_transmit`. The doc-4 inline echo above is the milestone;
 §F explains the refactor and why it happened.)
 
 ## 6. Modular sequence arithmetic and the acceptance window
 
 Sequence numbers are 32-bit and wrap, so "is A before B?" is **modular**, not plain `<` (RFC 1982; see
-day3-book.md §B). A correct stack decides acceptability with a *window* test, not strict equality. The
+doc3-book.md §B). A correct stack decides acceptability with a *window* test, not strict equality. The
 RFC 9293 §3.10.7.4 acceptance rule asks: does any part of the segment fall in the receive window
 `[RCV.NXT, RCV.NXT + RCV.WND)`? The four cases (length × window) are tabulated exhaustively in §C.
 
@@ -160,7 +160,7 @@ We sidestepped the full test with two honest simplifications, both flagged in th
   ignored.
 
 These are fine for a cooperative `nc` over a lossless TUN link; they are the first things hardened for
-the open internet. (Day 6 replaces the unconditional UNA update with the `between` check; Day 9 replaces
+the open internet. (Doc 6 replaces the unconditional UNA update with the `between` check; Doc 9 replaces
 in-order-only with the reassembler.)
 
 ## 7. The PSH flag
@@ -193,11 +193,11 @@ it rarely changes behavior — but it's part of speaking TCP correctly.
 
 `src/tcp.rs`, ESTABLISHED branch of the segment handler:
 
-- Read the ACK field → advance `SND.UNA` (day-4: unconditionally; later: `seq::between`-validated).
+- Read the ACK field → advance `SND.UNA` (doc-4: unconditionally; later: `seq::between`-validated).
 - If there's payload and it's in order (`seg.seq == RCV.NXT`): advance `RCV.NXT`, build the echo
   (`PSH|ACK`, `seq = SND.NXT`, `ack = RCV.NXT`, the payload), advance `SND.NXT`, return the packet.
 - `segment(seq, ack, flags, payload)` builds the IP+TCP packet from this connection's perspective
-  (src = us, dst = peer), advertising our receive window, and checksums both layers (Day 3 §7–8).
+  (src = us, dst = peer), advertising our receive window, and checksums both layers (Doc 3 §7–8).
 
 `src/main.rs` dispatches: look up the `Quad`, call the handler, and write any returned bytes to the
 TUN. The handshake and data paths are the same call — `on_segment` — so `main` doesn't distinguish
@@ -205,7 +205,7 @@ TUN. The handshake and data paths are the same call — `on_segment` — so `mai
 
 ## 10. Verification
 
-`cargo test` proves the echo offline (no TUN/sudo). The day-4 test, `established_echoes_data` (and its
+`cargo test` proves the echo offline (no TUN/sudo). The doc-4 test, `established_echoes_data` (and its
 descendants like `established_delivers_data_then_app_echoes`):
 
 - establish a connection, then feed an in-order 2-byte segment (`"hi"` at seq 101);
@@ -230,35 +230,35 @@ numbers.
 
 | Decision | We chose | Alternative | Why / caveat |
 |---|---|---|---|
-| Out-of-order data | drop | buffer + reassemble | reassembly needs a receive queue — the Day 9 reliability work. |
+| Out-of-order data | drop | buffer + reassemble | reassembly needs a receive queue — the Doc 9 reliability work. |
 | ACK strategy | piggyback on the echo | delayed / standalone ACKs | fine for request/response; delayed ACK batches for efficiency (§B). |
-| Send window | ignore the peer's window | obey `SND.WND` (flow control) | we never flood `nc`; flow control matters for bulk transfer (Day 8). |
-| Nagle's algorithm | off (send immediately) | coalesce small writes | Nagle reduces tiny-packet overhead; irrelevant for echo (Day 13 adds it). |
-| UNA update | trust `seg.ack` (day-4) | validate in `(UNA, NXT]` | required against stale/forged acks on a real network (Day 6 hardens it). |
+| Send window | ignore the peer's window | obey `SND.WND` (flow control) | we never flood `nc`; flow control matters for bulk transfer (Doc 8). |
+| Nagle's algorithm | off (send immediately) | coalesce small writes | Nagle reduces tiny-packet overhead; irrelevant for echo (Doc 13 adds it). |
+| UNA update | trust `seg.ack` (doc-4) | validate in `(UNA, NXT]` | required against stale/forged acks on a real network (Doc 6 hardens it). |
 | Acceptance | strict `seq == RCV.NXT` | window test (§C) | strict is correct in-order; the window test handles partial overlaps and reordering. |
 
 ## 12. Honesty: what production does, and how later days refactored this
 
-The day-4 inline echo is the clearest *teaching* shape, but it conflates three jobs that a real stack —
+The doc-4 inline echo is the clearest *teaching* shape, but it conflates three jobs that a real stack —
 and our *current* code — keep separate:
 
 - **Receiving** ≠ **delivering** ≠ **echoing.** The current `on_segment` hands the payload to the
-  **reassembler** (`reasm.recv`, Day 9), which returns the now-contiguous bytes; those go into a
+  **reassembler** (`reasm.recv`, Doc 9), which returns the now-contiguous bytes; those go into a
   **receive buffer** (`recv_buf`); the handler returns a *bare* ACK. The **application** then reads the
   bytes (`take_received`), decides to echo, calls `write`, and `poll_transmit` drains the send buffer
-  onto the wire as the window allows (Days 8, 10, 11). So "accept → echo" became "accept → reassemble →
-  buffer → ACK" plus "app: read → write → transmit." The day-4 milestone is the same connection from
+  onto the wire as the window allows (Docs 8, 10, 11). So "accept → echo" became "accept → reassemble →
+  buffer → ACK" plus "app: read → write → transmit." The doc-4 milestone is the same connection from
   the client's point of view; the internals grew a clean receive/send split.
 - **Acceptance is a window, not equality.** Production uses the four-case test (§C) so it can accept the
   *new* tail of a partially-overlapping segment and tolerate reordering.
 - **ACKs are delayed.** Real receivers ack roughly every *other* full-sized segment, or after ~40–200
   ms, halving ACK traffic (§B). We ack every segment.
 - **Flow and congestion control gate sending.** We send the whole echo immediately; a real sender is
-  bounded by `min(SND.WND, cwnd)` (Days 8, 10).
+  bounded by `min(SND.WND, cwnd)` (Docs 8, 10).
 - **Zero-copy and buffering.** Real stacks avoid copying payloads (page flipping, `sendfile`); we copy
   into a `Vec`.
 
-None of these change the day-4 *contract* (bytes go in, the same bytes come back, acknowledged); they
+None of these change the doc-4 *contract* (bytes go in, the same bytes come back, acknowledged); they
 are the breadth the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -276,20 +276,20 @@ are the breadth the later days add.
 - **E1.** Send a **bare ACK** for received data when you have nothing to echo: build an `ACK` segment
   with `seq = SND.NXT, ack = RCV.NXT`, no payload. (This is what the current code does.)
 - **E2.** Buffer **one** out-of-order segment and deliver it once the gap fills; add a test. (The seed
-  of Day 9.)
+  of Doc 9.)
 - **E3.** Implement the modular `between(start, x, end)` helper and use it to validate incoming acks;
-  test the wraparound boundary. (The seed of Day 6's UNA check.)
+  test the wraparound boundary. (The seed of Doc 6's UNA check.)
 - **E4.** Respect `SND.WND`: don't send more unacknowledged data than the peer's advertised window.
-  (The seed of Day 8.)
+  (The seed of Doc 8.)
 - **E5.** Implement a **delayed ACK** (§B): when in-order data arrives, hold the ACK briefly and ack
   every other segment or on a timer; measure the drop in ACK packets under a bulk transfer.
 
 ## 14. What the next step adds
 
-Day 5 is **teardown**: handle the client's `FIN` (it consumes a sequence number, like SYN), ACK it,
+Doc 5 is **teardown**: handle the client's `FIN` (it consumes a sequence number, like SYN), ACK it,
 send our own `FIN`, and walk the closing states (CLOSE_WAIT → LAST_ACK on the passive side). After that
 the connection lifecycle is complete: **open → transfer → close**. Reliability (retransmission/RTO,
-Day 6), reassembly (Day 9), and congestion control (Day 10) are the hardening that makes it survive a
+Doc 6), reassembly (Doc 9), and congestion control (Doc 10) are the hardening that makes it survive a
 real, lossy network.
 
 ---
@@ -312,7 +312,7 @@ parse detail is the **data offset**: the payload does not always start at byte 2
 In our parser, `data_offset` is the TCP header length in bytes (the high nibble of TCP byte 12, ×4).
 The payload is `&segment[data_offset..]` within the TCP portion, i.e. `&packet[20 + data_offset..]` in
 the full IP packet. The helper `payload_of(pkt)` in the tests does exactly this. Getting this wrong —
-assuming payload at byte 40 always — breaks the instant options appear (Days 15–18), which is why every
+assuming payload at byte 40 always — breaks the instant options appear (Docs 15–18), which is why every
 test extracts the payload via the parsed `data_offset`, never a hard-coded offset.
 
 The payload length is implicit: `IP.total_length − IP.IHL×4 − TCP.data_offset`. TCP has no payload-length
@@ -332,7 +332,7 @@ ACK, but:
 - it MUST NOT delay an ACK by more than 500 ms (typically ~40–200 ms).
 
 The win is roughly halving the ACK packet count on a bulk transfer (and enabling piggybacking on
-reverse-direction data). The risk is interacting badly with **Nagle's algorithm** (Day 13): a small
+reverse-direction data). The risk is interacting badly with **Nagle's algorithm** (Doc 13): a small
 write held by Nagle, waiting for an ACK that the receiver is delaying, causes a visible latency stall —
 the classic "Nagle + delayed-ACK" 40 ms hiccup. We ack every segment (no delay), so we don't hit this,
 but it's a famous interaction worth knowing.
@@ -340,7 +340,7 @@ but it's a famous interaction worth knowing.
 ```text
    receiver policy      ACKs per 10 data segments     latency           our choice
    ─────────────────    ─────────────────────────     ───────────       ──────────
-   ACK every segment    10                            lowest            ✓ (day 4)
+   ACK every segment    10                            lowest            ✓ (doc 4)
    delayed (every 2nd)  5                             +up to ~200 ms    real stacks
 ```
 
@@ -362,10 +362,10 @@ all. The spec enumerates four cases by **segment length** and **window size**:
 The two-clause last case is what lets a receiver accept a segment that *starts* below the window but
 *ends* inside it (a partial overlap with already-received data, e.g. a retransmission of `[100,200)`
 when we already have `[100,150)`): the receiver trims the duplicate prefix and keeps the new tail. Our
-Day-9 reassembler implements exactly this trimming (`trims_partial_overlap_with_delivered`); our day-4
+Doc-9 reassembler implements exactly this trimming (`trims_partial_overlap_with_delivered`); our doc-4
 strict `seq == RCV.NXT` is the special case "starts exactly at the window's left edge." A segment wholly
 outside the window is dropped — but TCP still sends an ACK (to re-sync a confused peer), which is the
-seed of the duplicate-ACK mechanism (Day 10).
+seed of the duplicate-ACK mechanism (Doc 10).
 
 ## D. Sequence-space accounting, worked numerically
 
@@ -404,21 +404,21 @@ echo's `ack` is the receiver pointer; each echo's `seq` is the sender pointer at
 The clean separation the current code uses, and the day that introduced each piece:
 
 ```text
-   wire → on_segment ─┬─ reasm.recv(seq, data, RCV.NXT)  → contiguous bytes   [Day 9]
+   wire → on_segment ─┬─ reasm.recv(seq, data, RCV.NXT)  → contiguous bytes   [Doc 9]
                       │     (buffers out-of-order, trims duplicates)
-                      ├─ recv_buf.extend(contiguous)      → app-visible bytes  [Day 11]
-                      └─ return bare ACK (ack_options)     → acknowledge        [Day 4 idea, hardened]
+                      ├─ recv_buf.extend(contiguous)      → app-visible bytes  [Doc 11]
+                      └─ return bare ACK (ack_options)     → acknowledge        [Doc 4 idea, hardened]
 
-   app loop (main) ─┬─ take_received()   → bytes for the application           [Day 11]
-                    ├─ write(echo)       → queue into send_buf                  [Day 11]
-                    └─ poll_transmit()   → drain send_buf to the wire,         [Days 8/10]
+   app loop (main) ─┬─ take_received()   → bytes for the application           [Doc 11]
+                    ├─ write(echo)       → queue into send_buf                  [Doc 11]
+                    └─ poll_transmit()   → drain send_buf to the wire,         [Docs 8/10]
                                             bounded by min(SND.WND, cwnd), MSS
 ```
 
 Why split it? Three reasons: (1) **reassembly** needs to hold out-of-order data and deliver it later,
 which a fire-and-forget inline echo can't; (2) **flow/congestion control** must gate *sending*
 independently of *receiving*, so send and receive became separate buffers with their own pacing; (3) a
-real **application interface** is read/write, not "echo inside the protocol handler." The day-4 inline
+real **application interface** is read/write, not "echo inside the protocol handler." The doc-4 inline
 echo is the right first lesson; the refactor is the right architecture. Both are in the git history, and
 this book teaches the lesson while pointing at the architecture.
 
@@ -453,11 +453,11 @@ Flag byte `0x18` = PSH|ACK on the data segments, `0x10` = ACK on the bare ack. T
 ```text
    concept              real kernel (Linux/BSD)                  this stack
    ──────────────────   ──────────────────────────────────────  ──────────────────────────
-   receive path         segment → recv buffer (sk_rcvbuf)        reasm → recv_buf (Day 9/11)
+   receive path         segment → recv buffer (sk_rcvbuf)        reasm → recv_buf (Doc 9/11)
    app read             recv()/read() drains the buffer          take_received()
    app write            send()/write() into send buffer          write() → send_buf
    send pacing          min(cwnd, rwnd), TSO/GSO offload         poll_transmit, min(SND.WND,cwnd)
-   ACK policy           delayed (every 2nd / timer)              every segment (day 4)
+   ACK policy           delayed (every 2nd / timer)              every segment (doc 4)
    PSH                  set on buffer flush; mostly advisory     set on echo
    buffer sizing        autotuned SO_RCVBUF/SO_SNDBUF            fixed ~1 KB window
    copy                 zero-copy paths (sendfile, MSG_ZEROCOPY) copy into Vec
@@ -469,15 +469,15 @@ reliability and flow control enter.
 
 ## I. Security — data injection and why the acceptance window matters
 
-The day-4 simplifications are exactly the ones an attacker abuses, which is why hardening them is the
+The doc-4 simplifications are exactly the ones an attacker abuses, which is why hardening them is the
 security track:
 
 - **Unconditional `SND.UNA = seg.ack`.** A forged segment with a bogus ack could *advance* `SND.UNA`
   past data the peer never acknowledged, making us discard unacknowledged data. The fix (`seq::between`,
-  Day 6) only advances UNA for an ack in `(SND.UNA, SND.NXT]`, ignoring stale/forged values.
+  Doc 6) only advances UNA for an ack in `(SND.UNA, SND.NXT]`, ignoring stale/forged values.
 - **Blind data injection.** An off-path attacker who guesses the 4-tuple and a sequence number *in the
   window* can inject bytes into the stream. The acceptance window (§C) bounds *which* sequence numbers
-  are accepted; a small window and random ISNs (Day 3 §D) shrink the attacker's target. RFC 5961 adds
+  are accepted; a small window and random ISNs (Doc 3 §D) shrink the attacker's target. RFC 5961 adds
   further checks (challenge ACKs).
 - **RST injection.** The same logic applies to a forged RST — accepted only if in-window, which is why
   RFC 5961 tightened RST acceptance to the *exact* next sequence number.
@@ -502,7 +502,7 @@ ack validation are not just for correctness under loss, they're the connection's
 
 1. **What makes a segment "in order"?** `seg.seq == RCV.NXT` — it starts exactly at the next expected
    byte.
-2. **What happens to out-of-order data at day 4?** Dropped; Day 9's reassembler buffers it.
+2. **What happens to out-of-order data at doc 4?** Dropped; Doc 9's reassembler buffers it.
 3. **What does `ack = 103` mean?** "I have everything below 103; send 103 next" (cumulative).
 4. **What is piggybacking?** Carrying the ACK on a data segment — one packet does data + ack.
 5. **Why `PSH|ACK` on the echo?** ACK acknowledges received data; PSH says "deliver promptly"; together
@@ -512,18 +512,18 @@ ack validation are not just for correctness under loss, they're the connection's
 8. **Why advance `SND.NXT` by the payload length?** Those sequence numbers are now used by our data and
    must be acknowledged.
 9. **What's `[SND.UNA, SND.NXT)`?** Data we've sent but the peer hasn't acked — the retransmit window
-   (Day 6).
-10. **Why is unconditional `SND.UNA = seg.ack` unsafe?** A forged/stale ack could move UNA wrongly; Day 6
+   (Doc 6).
+10. **Why is unconditional `SND.UNA = seg.ack` unsafe?** A forged/stale ack could move UNA wrongly; Doc 6
     validates with `between`.
-11. **Why only in-order at day 4?** Simplicity; correct on a lossless link. Loss/reorder needs the
-    reassembler (Day 9).
+11. **Why only in-order at doc 4?** Simplicity; correct on a lossless link. Loss/reorder needs the
+    reassembler (Doc 9).
 12. **Does the final handshake ACK carry data?** It can; the handler completes ESTABLISHED then falls
     through to the data path.
 13. **Where does the payload start in the packet?** `20 (IP) + data_offset (TCP)`; never assume 40.
 14. **How is payload length known?** Derived from IP total length; TCP has no length field.
 15. **What is a delayed ACK?** Acking every other segment / on a timer to cut ACK traffic (§B).
 16. **What's the Nagle + delayed-ACK stall?** A held small write waiting on a delayed ACK → ~40 ms
-    latency (Day 13).
+    latency (Doc 13).
 17. **Does the current code echo inside `on_segment`?** No — it buffers and ACKs; the app echoes via
     `take_received`/`write`/`poll_transmit` (§F).
 18. **Why was it refactored?** Reassembly, flow/congestion control, and a real read/write app interface
@@ -533,9 +533,9 @@ ack validation are not just for correctness under loss, they're the connection's
     other direction's ack (piggyback); "both data" needs two segments.
 21. **What's the acceptance window?** `[RCV.NXT, RCV.NXT + RCV.WND)`; a segment overlapping it is
     acceptable (§C).
-22. **What if the window is 0?** Data is unacceptable but still ACKed; the sender probes (Day 14).
+22. **What if the window is 0?** Data is unacceptable but still ACKed; the sender probes (Doc 14).
 23. **Why ACK an out-of-window segment?** To re-sync a confused peer; repeated such ACKs become
-    duplicate ACKs (Day 10).
+    duplicate ACKs (Doc 10).
 24. **Is the echo's checksum recomputed?** Yes — `build_packet` zeroes then computes both IP and TCP
     checksums.
 25. **How is this tested offline?** Feed a header+payload to `on_segment`, assert pointers and the echo
@@ -553,7 +553,7 @@ Q: Does PSH affect sequence numbers or reliability?  A: no — advisory "deliver
 Q: How far does SND.NXT advance when we send k bytes?  A: by k (those seq numbers are in flight).
 Q: What is [SND.UNA, SND.NXT)?  A: sent-but-unacked data (the retransmit window).
 Q: Why is unconditional SND.UNA = seg.ack unsafe?  A: a forged/stale ack could move UNA wrongly.
-Q: Day-4 acceptance vs real acceptance?  A: strict seq==RCV.NXT vs the 4-case window test (§C).
+Q: Doc-4 acceptance vs real acceptance?  A: strict seq==RCV.NXT vs the 4-case window test (§C).
 Q: Where does the payload start in a packet?  A: 20 (IP) + data_offset (TCP); never hard-code 40.
 Q: What is a delayed ACK?  A: ack every other segment / on a timer to cut ACK traffic.
 Q: How did the code later split this day?  A: reassembler + recv_buf + app write/poll_transmit.
@@ -571,7 +571,7 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
 - **Acceptance window** — `[RCV.NXT, RCV.NXT + RCV.WND)`; the seq range a receiver will accept.
 - **In flight** — sent but not yet acknowledged: `[SND.UNA, SND.NXT)`.
 - **Delayed ACK** — acking every other segment / on a timer to reduce ACK packets.
-- **Echo server** — sends received bytes back; our day-4 end-to-end proof.
+- **Echo server** — sends received bytes back; our doc-4 end-to-end proof.
 - **`take_received` / `write` / `poll_transmit`** — the current code's app read / app write / paced
   send (the refactor of the inline echo).
 
@@ -584,7 +584,7 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
    ───────────────────────────   ──────────────────────────────
    in-order data of len L in     RCV.NXT += L
    we send L payload bytes       SND.NXT += L
-   peer acks (ack A acceptable)  SND.UNA  = A   (day-4: unconditional; later: if between(UNA,A,NXT))
+   peer acks (ack A acceptable)  SND.UNA  = A   (doc-4: unconditional; later: if between(UNA,A,NXT))
 ```
 
 **N.2 — Flag bytes seen in data transfer**
@@ -594,19 +594,19 @@ Q: Bytes 18–19 of the TCP header?  A: the (deprecated) Urgent Pointer; 0 for u
    ───────   ────────   ─────────────────────────────
    0x10      ACK        bare acknowledgement
    0x18      PSH|ACK    data segment (push + ack)
-   0x11      FIN|ACK    last data / close (Day 5)
+   0x11      FIN|ACK    last data / close (Doc 5)
 ```
 
-**N.3 — Day-4 simplifications → where each is hardened**
+**N.3 — Doc-4 simplifications → where each is hardened**
 
 ```text
    simplification                      hardened on   by
    ────────────────────────────────    ───────────   ─────────────────────────────
-   in-order only (drop OOO)            Day 9         reassembler (buffer + deliver)
-   SND.UNA = seg.ack unconditionally   Day 6         seq::between(UNA, ack, NXT) check
+   in-order only (drop OOO)            Doc 9         reassembler (buffer + deliver)
+   SND.UNA = seg.ack unconditionally   Doc 6         seq::between(UNA, ack, NXT) check
    ack every segment                   (exercise)    delayed ACK
-   ignore SND.WND                      Day 8         flow control
-   send immediately (no Nagle)         Day 13        Nagle + TCP_NODELAY
+   ignore SND.WND                      Doc 8         flow control
+   send immediately (no Nagle)         Doc 13        Nagle + TCP_NODELAY
 ```
 
 > Re-type the ESTABLISHED data branch — accept in order, advance `RCV.NXT`, echo `PSH|ACK`, advance

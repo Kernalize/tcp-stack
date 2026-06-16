@@ -1,6 +1,6 @@
-# Day 1 — TUN Device + Reading Your First Raw Network Packet
+# Doc 1 — TUN Device + Reading Your First Raw Network Packet
 
-> **The big picture:** You are building a TCP/IP network stack from scratch in Rust — in userspace. No kernel modules. No magic libraries doing the work. By the end of 12 weeks, running `curl http://192.168.0.2:8080/` will get a response served entirely by code you wrote, from raw bytes up. Day 1 is where it starts: opening a virtual network interface and reading the raw bytes of real network packets.
+> **The big picture:** You are building a TCP/IP network stack from scratch in Rust — in userspace. No kernel modules. No magic libraries doing the work. By the end of 12 weeks, running `curl http://192.168.0.2:8080/` will get a response served entirely by code you wrote, from raw bytes up. Doc 1 is where it starts: opening a virtual network interface and reading the raw bytes of real network packets.
 
 ---
 
@@ -20,7 +20,7 @@ CHECK it worked (see the expected output)
 repeat
 ```
 
-Do not skip ahead. If a section says "make sure you see X before continuing", do not continue until you see X. The whole point of Day 1 is to build a solid mental model of what is happening at the byte level. Every week after this depends on that model.
+Do not skip ahead. If a section says "make sure you see X before continuing", do not continue until you see X. The whole point of Doc 1 is to build a solid mental model of what is happening at the byte level. Every week after this depends on that model.
 
 **Time estimate:** 2–4 hours for a first-timer.
 
@@ -82,7 +82,7 @@ There are two types of virtual interfaces:
 - The actual IP packet comes AFTER the 14-byte Ethernet header
 - You can see ARP packets (which are Layer 2)
 
-**The project uses TAP** (look at `Cargo.toml` — `tun-tap = "0.1"` supports both, and the `Manual.md` describes building from Layer 2 up). However, the current `main.rs` uses `Mode::Tun` for simplicity. **Day 1 uses Tun.** Later you will switch to Tap to implement ARP.
+**The project uses TAP** (look at `Cargo.toml` — `tun-tap = "0.1"` supports both, and the `Manual.md` describes building from Layer 2 up). However, the current `main.rs` uses `Mode::Tun` for simplicity. **Doc 1 uses Tun.** Later you will switch to Tap to implement ARP.
 
 **Quick memory aid:**
 - TUN → Tunnel → IP packets (no Ethernet)
@@ -731,7 +731,7 @@ let header_bytes = ihl * 4;           // convert words to bytes
 
 ---
 
-## Part 6 — Your Day 1 Coding Tasks
+## Part 6 — Your Doc 1 Coding Tasks
 
 Now that you understand the packet format, you will extend `main.rs` to be genuinely useful. You will do this in three stages, each building on the previous.
 
@@ -1100,7 +1100,7 @@ If you DO see a mismatch, there is a bug in your manual parsing. Use the mismatc
 
 ## Part 7 — The Complete Final `src/main.rs`
 
-Here is the complete `main.rs` for Day 1, with all three tasks integrated and full comments:
+Here is the complete `main.rs` for Doc 1, with all three tasks integrated and full comments:
 
 ```rust
 use tun_tap::{Iface, Mode};
@@ -1497,7 +1497,7 @@ This is the foundation of everything that follows:
 
 ---
 
-## Part 10 — Day 1 Final Checklist
+## Part 10 — Doc 1 Final Checklist
 
 Go through each item. Do not mark it done until you have actually seen the expected output.
 
@@ -1521,7 +1521,7 @@ Go through each item. Do not mark it done until you have actually seen the expec
 
 ---
 
-## Part 11 — Where to Go After Day 1
+## Part 11 — Where to Go After Doc 1
 
 ### What to Read Tonight (Optional)
 
@@ -1533,14 +1533,14 @@ Link: https://www.rfc-editor.org/rfc/rfc791#section-3.1
 
 Link: https://www.rfc-editor.org/rfc/rfc792
 
-### What is Coming on Day 2
+### What is Coming on Doc 2
 
-On Day 2 you will:
+On Doc 2 you will:
 1. Clean up `main.rs` — move the parsing into a proper struct `Ipv4Packet`
 2. Understand what Ethernet frames look like (you will need this for ARP)
 3. Start reading RFC 826 (ARP) — just the first 3 pages
 
-### What is Coming on Days 3–7 (Week 1 completion)
+### What is Coming on Docs 3–7 (Week 1 completion)
 
 - Build a proper `EthernetFrame::from_bytes()` parser (you will switch to `Mode::Tap`)
 - Understand MAC addresses and EtherType

@@ -1,6 +1,6 @@
-# Day 23 — TCP, Part 21: The Robustness Pack — RFC 5961 §5, Challenge-ACK Throttling, Reaper Timeouts
+# Doc 23 — TCP, Part 21: The Robustness Pack — RFC 5961 §5, Challenge-ACK Throttling, Reaper Timeouts
 
-> Goal: close the last gaps between "correct on the happy path" and "hard to break." Day 19 hardened
+> Goal: close the last gaps between "correct on the happy path" and "hard to break." Doc 19 hardened
 > the connection against blind **RST** and **SYN** attacks (RFC 5961 §§3–4) and TIME-WAIT
 > assassination (RFC 1337). Three holes remained, and today we close all three:
 >
@@ -37,7 +37,7 @@ Volume I — the chapter
 15. What comes after — the project, complete
 
 Volume II — the exhaustive reference
-- A. RFC 5961 in full, §§3–5 together (with Day 19)
+- A. RFC 5961 in full, §§3–5 together (with Doc 19)
 - B. The ACK acceptability window, every case
 - C. CVE-2016-5696 in detail — the side channel and the fix
 - D. The half-closed states and their real-world timeouts
@@ -68,12 +68,12 @@ A connection faces three kinds of trouble beyond ordinary loss and reordering:
 The first is malice (an attacker who guessed the 4-tuple); the second is malice *exploiting* our
 first defence; the third is mere absence (a crashed peer, a yanked cable, a buggy app that forgets to
 `close()`). All three leave a *correct* stack either acting on a lie, leaking information, or leaking
-memory. Robustness is refusing all three. Day 19 did the RST/SYN half; today does the ACK/data half
+memory. Robustness is refusing all three. Doc 19 did the RST/SYN half; today does the ACK/data half
 plus the resource-leak half.
 
 ## 2. RFC 5961 §5 — the ACK acceptability window
 
-Recall the blind-injection threat (Day 19 §8): an off-path attacker who knows the 4-tuple tries to
+Recall the blind-injection threat (Doc 19 §8): an off-path attacker who knows the 4-tuple tries to
 land a forged segment in our window. To inject *data*, they need the data's sequence number in our
 *receive* window (hard) **and** a plausible *ACK* number. Our ACK check was the loose RFC 793 rule:
 
@@ -122,7 +122,7 @@ We track it as we track everything else, right where the window is read each seg
 ```rust
 let new_wnd = (th.window as u32) << self.snd_wscale;
 self.send.wnd = new_wnd;
-self.max_snd_wnd = self.max_snd_wnd.max(new_wnd);   // Day 23
+self.max_snd_wnd = self.max_snd_wnd.max(new_wnd);   // Doc 23
 ```
 
 Two subtleties:
@@ -138,7 +138,7 @@ Two subtleties:
 
 ## 4. The challenge ACK as an oracle: CVE-2016-5696
 
-The challenge ACK (Day 19 §10) is a beautiful defence — it makes a forger prove liveness it can't.
+The challenge ACK (Doc 19 §10) is a beautiful defence — it makes a forger prove liveness it can't.
 But a defence that emits an *observable, deterministic* signal can become an *oracle*, and that's
 exactly what happened.
 
@@ -193,7 +193,7 @@ fn maybe_challenge(&mut self, now_ms: u64) -> Option<Vec<u8>> {
 Each connection gets its own budget, refilled to a fresh random `1..=CHALLENGE_ACK_MAX` value each
 second. The first challenge in a window always goes out (the budget is at least 1); beyond the
 randomized ceiling, challenges are suppressed until the next refill. Every challenge-ACK site — the
-in-window RST (Day 19 §9), the in-window SYN (§11), and today's §5 ACK check — now routes through
+in-window RST (Doc 19 §9), the in-window SYN (§11), and today's §5 ACK check — now routes through
 `maybe_challenge`, so the throttle covers all of them uniformly.
 
 The non-determinism is the point: an off-path observer can't predict when the budget runs out, so the
@@ -203,7 +203,7 @@ The non-determinism is the point: an off-path observer can't predict when the bu
 
 The third trouble is absence, not malice. Two states wait on something that might never come:
 
-- **CLOSE_WAIT** waits for the **local application** to call `close()` (Day 19 §3). If the app forgets
+- **CLOSE_WAIT** waits for the **local application** to call `close()` (Doc 19 §3). If the app forgets
   — a missing cleanup, an exception that skips it — the connection sits in CLOSE_WAIT *forever*,
   holding a TCB and (in a real OS) a file descriptor. This is the single most common networking
   resource leak; every backend engineer eventually learns to read `ss -tan | grep CLOSE-WAIT` as
@@ -216,7 +216,7 @@ A correct-but-naive stack leaks in both cases. The fix is a bounded wait.
 
 ## 7. The reaper: idle timeouts on the lingering states
 
-We already had a timer loop — `on_tick` reaps TIME_WAIT after 2·MSL (Day 7). The reaper extends it to
+We already had a timer loop — `on_tick` reaps TIME_WAIT after 2·MSL (Doc 7). The reaper extends it to
 the two lingering states, keyed off the **last time a segment arrived**:
 
 ```rust
@@ -234,7 +234,7 @@ if (self.state == State::FinWait2 && idle >= FIN_WAIT2_TIMEOUT_MS)
 ```
 
 Keying off `last_active_ms` (not the time we *entered* the state) is deliberate: an **active
-half-close still exchanging data** — a client in FIN_WAIT_2 reading a long response (Day 22) — keeps
+half-close still exchanging data** — a client in FIN_WAIT_2 reading a long response (Doc 22) — keeps
 receiving segments, each resetting `last_active_ms`, so it is *never* reaped while productive. Only a
 *genuinely idle* half-closed connection is collected. `main` already deletes any connection that
 reaches `Closed`, so the reaper plugs straight into the existing reaping path.
@@ -244,10 +244,10 @@ reaches `Closed`, so the reaper plugs straight into the existing reaping path.
 **Wrapping arithmetic for a windowed bound.** `self.send.una.wrapping_sub(self.max_snd_wnd)` is the
 only correct way to compute "one max-window below UNA" on a 32-bit circle — and it must be paired with
 `seq::before`/`seq::after`, never `<`/`>`, so the comparison respects the wrap (§3). This is the same
-discipline as every sequence comparison since Day 3, applied to a *range bound* rather than a point.
+discipline as every sequence comparison since Doc 3, applied to a *range bound* rather than a point.
 
 **`rand` for the budget, but determinism where it matters.** The budget refill uses
-`rand::random::<u32>()` (the same OS RNG as the ISN, Day 3) so the count is unpredictable. But the
+`rand::random::<u32>()` (the same OS RNG as the ISN, Doc 3) so the count is unpredictable. But the
 *expression* `1 + rand % MAX` guarantees the budget is always `≥ 1`, so the *first* challenge in any
 window is deterministic — which is what the tests rely on (a single challenge always succeeds), while
 the *cap* (`≤ MAX`) is what the throttle test checks. Randomness for security, a guaranteed floor for
@@ -279,7 +279,7 @@ trying to inject data — with an ACK number meant to look plausible:
 
 Even though the attacker guessed a sequence number *inside* our receive window (the hard part), the
 forged ACK gives the game away, and the §5 check turns a potential data injection into a harmless
-challenge. Compare the pre-Day-23 behaviour: the segment's ACK was simply not "between UNA and NXT,"
+challenge. Compare the pre-Doc-23 behaviour: the segment's ACK was simply not "between UNA and NXT,"
 so the ACK branch did nothing and processing fell through to *data handling* — which, for an in-window
 seq, would have **delivered "evil" to the application.** That's the hole we closed.
 
@@ -296,7 +296,7 @@ All in `src/tcp.rs`.
 emitted. The old `challenge_ack` (the raw builder) is called only from inside it.
 
 **Three call-site changes** route every challenge through the throttle: `on_rst` (in-window RST,
-Day 19) now takes `now_ms` and calls `maybe_challenge`; the in-window SYN check calls
+Doc 19) now takes `now_ms` and calls `maybe_challenge`; the in-window SYN check calls
 `maybe_challenge`; and the new §5 guard at the top of the ACK branch calls it.
 
 **`MAX.SND.WND` tracking** — one line where the send window is read each segment.
@@ -402,13 +402,13 @@ bounded against a forgotten `close()`. (§D.)
    it.
 
 Make Anki cards from the §5 window inequality and the "shared+deterministic = oracle" lesson — those
-are the two ideas that *are* Day 23.
+are the two ideas that *are* Doc 23.
 
 ## 15. What comes after — the project, complete
 
-With today's pack, the README's "Limitations → Hardening" list is closed: NewReno (Day 20), RFC 6675
-SACK recovery (Day 21), the socket API + keep-alive HTTP (Day 22), and now RFC 5961 §5 + challenge
-throttling + reaper timeouts (Day 23). The stack is a **correct, tested, and defensible** TCP/IP
+With today's pack, the README's "Limitations → Hardening" list is closed: NewReno (Doc 20), RFC 6675
+SACK recovery (Doc 21), the socket API + keep-alive HTTP (Doc 22), and now RFC 5961 §5 + challenge
+throttling + reaper timeouts (Doc 23). The stack is a **correct, tested, and defensible** TCP/IP
 endpoint: handshake, reliable in-order transfer, adaptive RTO, flow control, reassembly, congestion
 control with modern loss recovery, window scaling, timestamps/PAWS, SACK, the full close lifecycle
 with both half-closes, RFC 5961/1337 robustness, a socket façade, and an HTTP/1.1 server — all proven
@@ -423,9 +423,9 @@ named exercises (CUBIC, RACK-TLP, SYN cookies, keepalive, multi-connection faça
 
 # Volume II — the exhaustive reference
 
-## A. RFC 5961 in full, §§3–5 together (with Day 19)
+## A. RFC 5961 in full, §§3–5 together (with Doc 19)
 
-RFC 5961 ("Improving TCP's Robustness to Blind In-Window Attacks") has three defences. Days 19 and 23
+RFC 5961 ("Improving TCP's Robustness to Blind In-Window Attacks") has three defences. Docs 19 and 23
 together implement all three:
 
 ```text
@@ -458,7 +458,7 @@ itself.**
 
 The middle row is why the lower bound exists: a delayed duplicate ACK from when the window was open is
 *acceptable* (we just ignore it), not challenged. The last two rows are the defence — and crucially,
-before Day 23 an `ACK > SND.NXT` with an in-window *seq* fell through to data delivery.
+before Doc 23 an `ACK > SND.NXT` with an in-window *seq* fell through to data delivery.
 
 ## C. CVE-2016-5696 in detail — the side channel and the fix
 
@@ -494,7 +494,7 @@ covert channel. Defences must not themselves be measurable oracles.
    FIN_WAIT_2    the peer's FIN       60 s          Linux net.ipv4.tcp_fin_timeout (default 60 s)
    CLOSE_WAIT    the local app's      120 s         no kernel timeout — relies on the app +
                  close()                              SO_KEEPALIVE; a leak if the app forgets
-   TIME_WAIT     2·MSL to elapse      240 s (Day 7) fixed 2·MSL (Linux ~60 s, MSL tuned down)
+   TIME_WAIT     2·MSL to elapse      240 s (Doc 7) fixed 2·MSL (Linux ~60 s, MSL tuned down)
 ```
 
 CLOSE_WAIT is special: the kernel genuinely *can't* time it out safely in general (the app might
@@ -504,11 +504,11 @@ always close promptly — it bounds a *bug*, not normal operation.
 
 ## E. RFC 1337 recap and the TIME_WAIT family of hazards
 
-From Day 19, for completeness alongside the rest of the robustness pack:
+From Doc 19, for completeness alongside the rest of the robustness pack:
 
 - **RFC 1337 — TIME-WAIT assassination.** A stray RST in TIME_WAIT could end it early, freeing the
   4-tuple before delayed duplicates of the old connection have died — corrupting a new incarnation.
-  Fix: **ignore RSTs in TIME_WAIT** (Day 19's `on_rst`).
+  Fix: **ignore RSTs in TIME_WAIT** (Doc 19's `on_rst`).
 - **TIME-WAIT exhaustion** (related, not implemented): a busy client that actively closes many
   short-lived connections accumulates TIME_WAIT entries; real stacks mitigate with `tcp_tw_reuse` /
   port-range tuning. We just let them expire at 2·MSL.
@@ -516,7 +516,7 @@ From Day 19, for completeness alongside the rest of the robustness pack:
 ## F. Comparison to real stacks — Linux, FreeBSD, the sysctls
 
 ```text
-   defence                  Linux                          FreeBSD            ours (Day 23)
+   defence                  Linux                          FreeBSD            ours (Doc 23)
    ──────────────────────   ────────────────────────────   ────────────────   ─────────────────
    RFC 5961 §5 ACK window   yes                            yes                yes (ESTABLISHED path)
    challenge-ACK limit      per-socket, randomized (4.7+)  rate-limited       per-conn, randomized
@@ -533,7 +533,7 @@ tested; SYN cookies and keepalive as exercises."
 
 ## G. The threat model, end to end — what we now resist
 
-Putting Days 19 and 23 together, against an **off-path** attacker who knows (or guesses) the 4-tuple:
+Putting Docs 19 and 23 together, against an **off-path** attacker who knows (or guesses) the 4-tuple:
 
 ```text
    attacker goal           pre-19            after 19          after 23
@@ -566,7 +566,7 @@ RFC 5961 targets — the connection is now hard to perturb.
    is the only correct expression.
 8. **What happens to an unacceptable ACK now?** A (throttled) challenge ACK, and the segment is
    dropped — not delivered.
-9. **What happened before Day 23?** An out-of-window ACK was silently ignored, and for an in-window
+9. **What happened before Doc 23?** An out-of-window ACK was silently ignored, and for an in-window
    seq, processing fell through to *deliver* the data.
 10. **What is a challenge ACK again?** A bare ACK of our state (`seq=SND.NXT, ack=RCV.NXT`) that only a
     genuine on-path peer can usefully answer.
@@ -578,8 +578,8 @@ RFC 5961 targets — the connection is now hard to perturb.
     signal) budget, refilled each ~second.
 14. **Why is the budget `1 + rand % MAX`?** So it's randomized (`security`) but always `≥ 1` (the
     first challenge always works — testability).
-15. **Which sites route through the throttle?** All three: in-window RST (Day 19), in-window SYN
-    (Day 19), and the §5 ACK check (Day 23).
+15. **Which sites route through the throttle?** All three: in-window RST (Doc 19), in-window SYN
+    (Doc 19), and the §5 ACK check (Doc 23).
 16. **Does the throttle ever drop a legitimate challenge?** Only under a flood within one window — and
     then a genuine peer simply retransmits and is challenged next window.
 17. **What's the CLOSE_WAIT leak?** The app never calls `close()`, so the connection (and fd) sits in
@@ -643,14 +643,14 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
 
 ## K. Reference tables
 
-**K.1 — challenge-ACK sites, all throttled (Day 23)**
+**K.1 — challenge-ACK sites, all throttled (Doc 23)**
 
 ```text
    trigger                              rule                   throttled?   reset connection?
    ──────────────────────────────────  ─────────────────────  ──────────   ─────────────────
-   in-window inexact RST (Day 19 §3)    RFC 5961 §3            yes          no
-   in-window SYN (Day 19 §4)            RFC 5961 §4            yes          no
-   unacceptable ACK (Day 23 §5)         RFC 5961 §5            yes          no
+   in-window inexact RST (Doc 19 §3)    RFC 5961 §3            yes          no
+   in-window SYN (Doc 19 §4)            RFC 5961 §4            yes          no
+   unacceptable ACK (Doc 23 §5)         RFC 5961 §5            yes          no
    exact-RCV.NXT RST                    RFC 5961 §3            n/a          YES (honored)
 ```
 
@@ -661,7 +661,7 @@ Q: What TCP can't defend (it's TLS's job)?  A: on-path attackers who can read th
    ───────────   ───────   ─────────────────   ─────────────
    FIN_WAIT_2    60 s      the peer's FIN       last_active_ms
    CLOSE_WAIT    120 s     local app close()    last_active_ms
-   TIME_WAIT     2·MSL     2·MSL elapsing       time_wait_ms (Day 7)
+   TIME_WAIT     2·MSL     2·MSL elapsing       time_wait_ms (Doc 7)
 ```
 
 **K.3 — the robustness pack, by file/function**

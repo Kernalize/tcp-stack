@@ -1,7 +1,7 @@
 //! ICMP layer (RFC 792) — the protocol behind `ping`.
 //!
-//! Day 1 added parsing; **Day 2 adds the Echo Reply** so `ping` finally succeeds. Theory:
-//! `docs/day1-book.md` §10 (parse) and `docs/day2-book.md` (reply + checksums).
+//! Doc 1 added parsing; **Doc 2 adds the Echo Reply** so `ping` finally succeeds. Theory:
+//! `docs/doc1-book.md` §10 (parse) and `docs/doc2-book.md` (reply + checksums).
 
 use crate::{ip, utils};
 

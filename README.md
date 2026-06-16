@@ -1,13 +1,19 @@
 # tcp-stack
 
+[![CI](https://github.com/Kernalize/tcp-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/Kernalize/tcp-stack/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-stable-orange.svg)](https://www.rust-lang.org/)
+![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen.svg)
+
 A **TCP/IP stack built from scratch in Rust**, running in userspace over a Linux TUN device. It
 hand-parses and hand-builds Ethernet-free IPv4, ICMP, UDP, and TCP — no smol/embassy/std-net doing
 the protocol work — and implements enough of TCP (RFC 9293 + 6298 + 5681) that a stock `ping`,
 `nc`, and `curl` interoperate with it: handshake, reliable in-order transfer, adaptive
 retransmission, flow control, out-of-order reassembly, congestion control, and clean teardown.
 
-It is also a **teaching project**: every feature ships with a heavily-commented reference module
-and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
+It is also **thoroughly documented**: every feature ships with a heavily-commented reference module
+and a from-first-principles chapter in [`docs/`](docs/) (`doc1-book.md` … `doc29-book.md`), compiled
+into a single-volume [`docs/BOOK.md`](docs/BOOK.md).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
 > 5961/1337 robustness — plus both **CUBIC and BBR** congestion control — are implemented and
@@ -16,37 +22,37 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 
 ## What works
 
-| Day | Feature | RFC | Book |
+| # | Feature | RFC | Doc |
 |----:|---------|-----|------|
-| 1 | Receive packets; decode IPv4 + ICMP + peek TCP | 791 / 792 | day1 |
-| 2 | Internet checksum; reply to pings | 1071 | day2 |
-| 3 | TCP three-way handshake (passive + active open), randomized ISN | 9293 / 6528 | day3 |
-| 4 | Data transfer: accept, ACK, echo | 9293 | day4 |
-| 5 | Passive close (FIN → LAST_ACK → CLOSED) | 9293 | day5 |
-| 6 | Reliability: non-blocking event loop, retransmission queue, **adaptive RTO** (Karn's) | 6298 | day6 |
-| 7 | Active close + TIME_WAIT (full teardown, both sides) | 9293 | day7 |
-| 8 | Flow control (track peer window, advertise our own) | 9293 | day8 |
-| 9 | Out-of-order **reassembly** (buffer + deliver contiguous) | 9293 | day9 |
-| 10 | **Congestion control**: slow start, AIMD, fast retransmit/recovery | 5681 | day10 |
-| 11 | Socket-style read/write API + send buffer + tiny **HTTP/1.0** server | 9293 | day11 |
-| 12 | Retransmit control segments (SYN, SYN-ACK, FIN) + exponential RTO backoff | 9293 / 6298 | day12 |
-| 13 | **Nagle's algorithm** + the `TCP_NODELAY` escape hatch | 896 / 9293 | day13 |
-| 14 | **Zero-window probes** (the persist timer) | 9293 | day14 |
-| 15 | **TCP options** framework + **MSS** negotiation | 9293 | day15 |
-| 16 | **Timestamps**: per-ACK RTT measurement + PAWS | 7323 | day16 |
-| 17 | **Window scaling** (SND.WND widened to 32 bits) | 7323 | day17 |
-| 18 | **SACK**: selective-ACK blocks + hole-only retransmission | 2018 | day18 |
-| 19 | **Finish the state machine**: half-close via a distinct **CLOSE_WAIT**, data+FIN, **RFC 5961** RST/SYN challenge ACKs + RFC 1337 | 9293 / 5961 / 1337 | day19 |
-| 20 | **NewReno**: recover from *multiple* losses per window via partial-ACK handling (no RTO stall) | 6582 | day20 |
-| 21 | **SACK loss recovery**: `pipe` estimator + `IsLost`, retransmit every hole and refill in one RTT | 6675 | day21 |
-| 22 | **Socket API**: blocking `TcpListener`/`TcpStream` (loopback-tested), active half-close, keep-alive HTTP/1.1 | 9293 / 9112 | day22 |
-| 23 | **Robustness**: RFC 5961 §5 blind-data ACK check + randomized challenge-ACK throttle (CVE-2016-5696) + reaper timeouts | 5961 | day23 |
-| 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | day24 |
-| 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | day25 |
-| 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
-| 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | day27 |
-| 28 | **BBR**: model-based congestion control — BtlBw/RTprop filters + STARTUP/DRAIN/PROBE_BW/PROBE_RTT; the live server's controller | (BBR draft) | day28 |
-| 29 | **Multi-connection `TcpServer`**: demux a 4-tuple connection table over one transport — many connections at once | 9293 | day29 |
+| 1 | Receive packets; decode IPv4 + ICMP + peek TCP | 791 / 792 | doc1 |
+| 2 | Internet checksum; reply to pings | 1071 | doc2 |
+| 3 | TCP three-way handshake (passive + active open), randomized ISN | 9293 / 6528 | doc3 |
+| 4 | Data transfer: accept, ACK, echo | 9293 | doc4 |
+| 5 | Passive close (FIN → LAST_ACK → CLOSED) | 9293 | doc5 |
+| 6 | Reliability: non-blocking event loop, retransmission queue, **adaptive RTO** (Karn's) | 6298 | doc6 |
+| 7 | Active close + TIME_WAIT (full teardown, both sides) | 9293 | doc7 |
+| 8 | Flow control (track peer window, advertise our own) | 9293 | doc8 |
+| 9 | Out-of-order **reassembly** (buffer + deliver contiguous) | 9293 | doc9 |
+| 10 | **Congestion control**: slow start, AIMD, fast retransmit/recovery | 5681 | doc10 |
+| 11 | Socket-style read/write API + send buffer + tiny **HTTP/1.0** server | 9293 | doc11 |
+| 12 | Retransmit control segments (SYN, SYN-ACK, FIN) + exponential RTO backoff | 9293 / 6298 | doc12 |
+| 13 | **Nagle's algorithm** + the `TCP_NODELAY` escape hatch | 896 / 9293 | doc13 |
+| 14 | **Zero-window probes** (the persist timer) | 9293 | doc14 |
+| 15 | **TCP options** framework + **MSS** negotiation | 9293 | doc15 |
+| 16 | **Timestamps**: per-ACK RTT measurement + PAWS | 7323 | doc16 |
+| 17 | **Window scaling** (SND.WND widened to 32 bits) | 7323 | doc17 |
+| 18 | **SACK**: selective-ACK blocks + hole-only retransmission | 2018 | doc18 |
+| 19 | **Finish the state machine**: half-close via a distinct **CLOSE_WAIT**, data+FIN, **RFC 5961** RST/SYN challenge ACKs + RFC 1337 | 9293 / 5961 / 1337 | doc19 |
+| 20 | **NewReno**: recover from *multiple* losses per window via partial-ACK handling (no RTO stall) | 6582 | doc20 |
+| 21 | **SACK loss recovery**: `pipe` estimator + `IsLost`, retransmit every hole and refill in one RTT | 6675 | doc21 |
+| 22 | **Socket API**: blocking `TcpListener`/`TcpStream` (loopback-tested), active half-close, keep-alive HTTP/1.1 | 9293 / 9112 | doc22 |
+| 23 | **Robustness**: RFC 5961 §5 blind-data ACK check + randomized challenge-ACK throttle (CVE-2016-5696) + reaper timeouts | 5961 | doc23 |
+| 24 | **RACK-TLP**: time-based loss detection + Tail Loss Probe — fast tail-loss recovery, reordering tolerance | 8985 | doc24 |
+| 25 | **CUBIC**: cubic-curve congestion avoidance for fat pipes (β = 0.7, RTT-independent) | 8312 / 9438 | doc25 |
+| 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | doc26 |
+| 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | doc27 |
+| 28 | **BBR**: model-based congestion control — BtlBw/RTprop filters + STARTUP/DRAIN/PROBE_BW/PROBE_RTT; the live server's controller | (BBR draft) | doc28 |
+| 29 | **Multi-connection `TcpServer`**: demux a 4-tuple connection table over one transport — many connections at once | 9293 | doc29 |
 
 Plus: UDP echo, and `RST` for segments to unknown/closed connections.
 
@@ -75,7 +81,7 @@ src/
 
 The low-level "socket API" is `Connection::{write, take_received, poll_transmit}` + the event loop;
 `socket.rs` wraps it in a blocking, `std::net`-shaped `TcpListener`/`TcpStream` over a `PacketIo`
-transport trait (loopback-tested offline; see `docs/day22-book.md`), plus a multi-connection
+transport trait (loopback-tested offline; see `docs/doc22-book.md`), plus a multi-connection
 `TcpServer` that demuxes a 4-tuple connection table over one transport — many concurrent
 connections at once, the same way `main` does for the live stack.
 
@@ -116,13 +122,13 @@ sudo tc qdisc del dev tun0 root
 ## Limitations
 
 This is a correct, tested *core*, not a production stack. The congestion-control family is now
-complete — both the loss-based **CUBIC** (Day 25) over NewReno + RFC 6675 SACK recovery (Days 20–21)
-with **RACK-TLP** time-based loss detection (Day 24), and the model-based **BBR** (`src/bbr.rs`:
+complete — both the loss-based **CUBIC** (Doc 25) over NewReno + RFC 6675 SACK recovery (Docs 20–21)
+with **RACK-TLP** time-based loss detection (Doc 24), and the model-based **BBR** (`src/bbr.rs`:
 BtlBw/RTprop filters + STARTUP→DRAIN→PROBE_BW→PROBE_RTT, which the live server now runs) — alongside
-RFC 5961 RST/SYN/data challenge ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2
-reaping (Day 23), `SO_KEEPALIVE` (Day 26), and **SYN cookies** for SYN-flood survival (Day 27). The
+RFC 5961 RST/SYN/data challenge ACKs (Docs 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2
+reaping (Doc 23), `SO_KEEPALIVE` (Doc 26), and **SYN cookies** for SYN-flood survival (Doc 27). The
 socket façade (`src/socket.rs`) ships both the single-connection blocking `TcpListener`/`TcpStream`
-(Day 22) and a **multi-connection `TcpServer`** that demuxes a connection table over one transport.
+(Doc 22) and a **multi-connection `TcpServer`** that demuxes a connection table over one transport.
 
 What remains is not algorithm work but live exercise, which needs sudo/TUN and a real network rather
 than offline unit tests:
@@ -133,8 +139,17 @@ than offline unit tests:
   server), but the sender is still window-limited — actually pacing sends to that rate is the natural
   next step and only matters under bulk transfer, which the echo server never drives.
 
-## Learning OS
+## Built from scratch
 
-This repo follows a "from scratch" learning discipline: the cores are meant
-to be hand-typed, with the `docs/*-book.md` chapters as the guide. Each book ends with a
-blank-file rebuild checklist and exercises.
+Every protocol here is hand-implemented directly from the RFCs — no protocol library does the work.
+The `docs/*-book.md` chapters derive each feature from first principles (mental model → mechanism →
+header/byte layout → the Rust → verification → a "why this, not that" rationale), and each ends with
+a from-blank rebuild checklist and exercises, so the implementation can be reconstructed module by
+module. Design rules enforced throughout: time is injected (`now_ms`), never read from a clock, so
+every timer is unit-testable without sleeping; sequence comparisons go through `seq::` (the space
+wraps); and shared helpers live once. Correctness is proven offline — 151 unit tests, clippy-clean
+under `-D warnings`, run in CI on every push.
+
+## License
+
+[MIT](LICENSE).

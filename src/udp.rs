@@ -3,7 +3,7 @@
 //! UDP is the simplest transport: an 8-byte header and no connection state, so this module
 //! has no table and no state machine — just parse and a checksum that (unlike ICMP) covers a
 //! 12-byte pseudo-header of IP fields. It's the stateless warm-up for the TCP checksum. Theory:
-//! `docs/day2-book.md` §BI–§BK.
+//! `docs/doc2-book.md` §BI–§BK.
 
 use std::net::Ipv4Addr;
 

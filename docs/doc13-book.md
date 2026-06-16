@@ -1,4 +1,4 @@
-# Day 13 — TCP, Part 11: Nagle's Algorithm (and the `TCP_NODELAY` Escape Hatch)
+# Doc 13 — TCP, Part 11: Nagle's Algorithm (and the `TCP_NODELAY` Escape Hatch)
 
 > Goal: stop a chatty application from flooding the link with runt packets. If a program writes one byte at
 > a time — a classic telnet session, a game sending keystrokes — a naive stack puts each byte in its own
@@ -246,7 +246,7 @@ so existing send behavior is unchanged.
   has a short Nagle/cork timer so held data isn't stuck if no ACK or packet arrives. On our cooperative link
   an ACK always comes; on a one-way bulk push you'd want a small flush timer.
 
-None of these change the day-13 contract (sub-MSS writes coalesce while data is unacked, `TCP_NODELAY`
+None of these change the doc-13 contract (sub-MSS writes coalesce while data is unacked, `TCP_NODELAY`
 overrides); they are refinements and the missing receiver-side half.
 
 ## 12. Rebuild it yourself — checklist + exercises
@@ -271,7 +271,7 @@ overrides); they are refinements and the missing receiver-side half.
 
 ## 13. What the next step adds
 
-Day 14 closes a *correctness* hole that flow control left open: **zero-window probes** (the persist timer,
+Doc 14 closes a *correctness* hole that flow control left open: **zero-window probes** (the persist timer,
 RFC 9293 §3.8.6.1). When the peer advertises a window of 0, our sender correctly stops — but if the later
 "window re-opened" ACK is lost, both sides wait forever: a deadlock. The persist timer breaks it by
 periodically sending a 1-byte probe into the closed window, forcing the peer to re-ack its current window.
@@ -287,7 +287,7 @@ insists on sending one *anyway*, because silence would be fatal.
 John Nagle wrote RFC 896 ("Congestion Control in IP/TCP Internetworks", January 1984) while at Ford
 Aerospace, which ran an internal internet connected to the ARPANET. He observed two distinct pathologies:
 the **small-packet problem** (tinygrams from interactive traffic swamping the network with header overhead)
-and **congestion collapse** (which Jacobson later solved more fully, Day 10 §A). His fix for the first — the
+and **congestion collapse** (which Jacobson later solved more fully, Doc 10 §A). His fix for the first — the
 algorithm now bearing his name — was elegantly minimal: a connection may have *at most one* small,
 unacknowledged segment outstanding. Everything else waits to be coalesced or sent full-sized.
 
@@ -361,7 +361,7 @@ Nagle's elegance is that it needs *no timer and no tuning* — it paces itself t
 - **On a slow/loaded link:** the ACK is delayed (queueing, congestion), so more writes accumulate before
   release. Coalescing is aggressive — which is correct, because a loaded link must not be fed tinygrams.
 
-The "clock" is the ACK stream itself (the same self-clocking idea as congestion control, Day 10 §A): the
+The "clock" is the ACK stream itself (the same self-clocking idea as congestion control, Doc 10 §A): the
 rate at which held data is released equals the rate at which ACKs return, which equals the rate the network
 can sustain. No threshold to tune, no timer to misconfigure — the network's own feedback sets the coalescing
 level. This is why a fixed-byte-threshold or timer-based small-packet rule (§10's alternatives) is *worse*:
@@ -495,7 +495,7 @@ latency-attack surface for middleboxes.
     (§D).
 19. **Does our receiver delay ACKs?** No (we ack every segment), so we can't stall ourselves — but a peer
     could.
-20. **Is the day-13 change big?** No — one field, one setter, a three-line guard; no new wire format.
+20. **Is the doc-13 change big?** No — one field, one setter, a three-line guard; no new wire format.
 21. **Does Nagle break full-segment bulk transfer?** No — full segments are never held; bulk runs at line
     rate.
 22. **What's the overhead of a tinygram?** 40 header bytes per packet; 1-byte payload = 2.4% efficiency.

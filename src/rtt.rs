@@ -9,7 +9,7 @@
 //! It is wired into the connection (`src/tcp.rs`): each acknowledgement of *new, never-retransmitted*
 //! data feeds one sample — `now − the acked segment's send time` (Karn's algorithm skips
 //! retransmitted segments) — and `on_tick` reads `rto()` to decide when to resend. Theory:
-//! `docs/day6-book.md`.
+//! `docs/doc6-book.md`.
 
 const ALPHA_SHIFT: u32 = 3; // SRTT gain  α = 1/8  (RFC 6298)
 const BETA_SHIFT: u32 = 2; //  RTTVAR gain β = 1/4

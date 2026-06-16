@@ -1,45 +1,45 @@
 //! tcp-stack — a userspace TCP/IP stack built from scratch over a Linux TUN device.
 //!
 //! Progress:
-//!   Day 1 — receive packets, DECODE IPv4 + ICMP + peek TCP            (docs/day1-book.md)
-//!   Day 2 — Internet checksum + REPLY to pings (ping succeeds)        (docs/day2-book.md)
-//!   Day 3 — TCP three-way handshake (SYN→SYN-ACK→ESTABLISHED)         (docs/day3-book.md)
-//!   Day 4 — TCP data transfer: accept + ACK + echo data back          (docs/day4-book.md)
-//!   Day 5 — TCP teardown: FIN handling → LAST_ACK → CLOSED            (docs/day5-book.md)
-//!   Day 6 — reliability: non-blocking event loop + retransmission + adaptive RTO (docs/day6-book.md)
-//!   Day 7 — active close + TIME_WAIT (full RFC 9293 teardown, both sides)   (docs/day7-book.md)
-//!   Day 8 — flow control: track the peer's window + advertise our own       (docs/day8-book.md)
-//!   Day 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/day9-book.md)
-//!   Day 10 — congestion control: slow start + AIMD + fast recovery (RFC 5681)(docs/day10-book.md)
-//!   Day 11 — socket-style read/write API + send buffer + tiny HTTP/1.0 server (docs/day11-book.md)
-//!   Day 12 — retransmit the control segments too: SYN, SYN-ACK, FIN (docs/day12-book.md)
-//!   Day 13 — Nagle's algorithm + TCP_NODELAY: coalesce small writes (docs/day13-book.md)
-//!   Day 14 — zero-window probes (persist timer): break the flow-control deadlock (docs/day14-book.md)
-//!   Day 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/day15-book.md)
-//!   Day 16 — TCP timestamps: per-ACK RTT measurement + PAWS (RFC 7323) (docs/day16-book.md)
-//!   Day 17 — window scaling: honor the peer's scaled window, SND.WND→u32 (docs/day17-book.md)
-//!   Day 18 — SACK: negotiate SACK-Permitted, emit SACK blocks for out-of-order data, and
-//!            retransmit only the holes a peer's SACK blocks reveal (docs/day18-book.md, RFC 2018)
-//!   Day 19 — finish the state machine: real half-close via CLOSE_WAIT (distinct from LAST_ACK)
-//!            + RFC 5961 in-window RST/SYN validation with challenge ACKs (docs/day19-book.md)
-//!   Day 20 — NewReno: recover from MULTIPLE losses in one window via partial-ACK handling, no RTO
-//!            stall (docs/day20-book.md, RFC 6582)
-//!   Day 21 — SACK loss recovery: pipe estimator + IsLost, retransmit every hole and fill the pipe
-//!            in one round trip (docs/day21-book.md, RFC 6675)
-//!   Day 22 — socket API: blocking TcpListener/TcpStream over a PacketIo trait (loopback-tested),
-//!            active half-close (recv in FIN_WAIT_2), keep-alive HTTP/1.1 (docs/day22-book.md)
-//!   Day 23 — robustness: RFC 5961 §5 blind-data ACK acceptability + randomized challenge-ACK
-//!            throttle (CVE-2016-5696) + CLOSE_WAIT/FIN_WAIT_2 reaper timeouts (docs/day23-book.md)
-//!   Day 24 — RACK-TLP: time-based loss detection + Tail Loss Probe — fast tail-loss recovery and
-//!            reordering tolerance (docs/day24-book.md, RFC 8985)
-//!   Day 25 — CUBIC: cubic-curve congestion avoidance (β = 0.7, RTT-independent) that fills fat
-//!            pipes far faster than Reno's slope (docs/day25-book.md, RFC 8312/9438)
-//!   Day 26 — keepalive (SO_KEEPALIVE): probe an idle ESTABLISHED connection to detect a vanished
-//!            peer (docs/day26-book.md, RFC 9293 §3.8.4)
+//!   Doc 1 — receive packets, DECODE IPv4 + ICMP + peek TCP            (docs/doc1-book.md)
+//!   Doc 2 — Internet checksum + REPLY to pings (ping succeeds)        (docs/doc2-book.md)
+//!   Doc 3 — TCP three-way handshake (SYN→SYN-ACK→ESTABLISHED)         (docs/doc3-book.md)
+//!   Doc 4 — TCP data transfer: accept + ACK + echo data back          (docs/doc4-book.md)
+//!   Doc 5 — TCP teardown: FIN handling → LAST_ACK → CLOSED            (docs/doc5-book.md)
+//!   Doc 6 — reliability: non-blocking event loop + retransmission + adaptive RTO (docs/doc6-book.md)
+//!   Doc 7 — active close + TIME_WAIT (full RFC 9293 teardown, both sides)   (docs/doc7-book.md)
+//!   Doc 8 — flow control: track the peer's window + advertise our own       (docs/doc8-book.md)
+//!   Doc 9 — out-of-order reassembly: buffer + deliver contiguous data       (docs/doc9-book.md)
+//!   Doc 10 — congestion control: slow start + AIMD + fast recovery (RFC 5681)(docs/doc10-book.md)
+//!   Doc 11 — socket-style read/write API + send buffer + tiny HTTP/1.0 server (docs/doc11-book.md)
+//!   Doc 12 — retransmit the control segments too: SYN, SYN-ACK, FIN (docs/doc12-book.md)
+//!   Doc 13 — Nagle's algorithm + TCP_NODELAY: coalesce small writes (docs/doc13-book.md)
+//!   Doc 14 — zero-window probes (persist timer): break the flow-control deadlock (docs/doc14-book.md)
+//!   Doc 15 — TCP options: MSS negotiation + segment outgoing data to it (docs/doc15-book.md)
+//!   Doc 16 — TCP timestamps: per-ACK RTT measurement + PAWS (RFC 7323) (docs/doc16-book.md)
+//!   Doc 17 — window scaling: honor the peer's scaled window, SND.WND→u32 (docs/doc17-book.md)
+//!   Doc 18 — SACK: negotiate SACK-Permitted, emit SACK blocks for out-of-order data, and
+//!            retransmit only the holes a peer's SACK blocks reveal (docs/doc18-book.md, RFC 2018)
+//!   Doc 19 — finish the state machine: real half-close via CLOSE_WAIT (distinct from LAST_ACK)
+//!            + RFC 5961 in-window RST/SYN validation with challenge ACKs (docs/doc19-book.md)
+//!   Doc 20 — NewReno: recover from MULTIPLE losses in one window via partial-ACK handling, no RTO
+//!            stall (docs/doc20-book.md, RFC 6582)
+//!   Doc 21 — SACK loss recovery: pipe estimator + IsLost, retransmit every hole and fill the pipe
+//!            in one round trip (docs/doc21-book.md, RFC 6675)
+//!   Doc 22 — socket API: blocking TcpListener/TcpStream over a PacketIo trait (loopback-tested),
+//!            active half-close (recv in FIN_WAIT_2), keep-alive HTTP/1.1 (docs/doc22-book.md)
+//!   Doc 23 — robustness: RFC 5961 §5 blind-data ACK acceptability + randomized challenge-ACK
+//!            throttle (CVE-2016-5696) + CLOSE_WAIT/FIN_WAIT_2 reaper timeouts (docs/doc23-book.md)
+//!   Doc 24 — RACK-TLP: time-based loss detection + Tail Loss Probe — fast tail-loss recovery and
+//!            reordering tolerance (docs/doc24-book.md, RFC 8985)
+//!   Doc 25 — CUBIC: cubic-curve congestion avoidance (β = 0.7, RTT-independent) that fills fat
+//!            pipes far faster than Reno's slope (docs/doc25-book.md, RFC 8312/9438)
+//!   Doc 26 — keepalive (SO_KEEPALIVE): probe an idle ESTABLISHED connection to detect a vanished
+//!            peer (docs/doc26-book.md, RFC 9293 §3.8.4)
 //! The full TCP lifecycle works end to end — a stock ping, nc, and curl all interoperate — with
 //! reliability (data AND control segments), an adaptive RTO, flow + congestion control, reassembly,
 //! and clean teardown, all unit-tested. Remaining work is breadth/robustness + live conformance
-//! testing; see docs/day12-book.md §12.
+//! testing; see docs/doc12-book.md §12.
 //!
 //! The flow is always: `iface.recv()` a buffer → interpret → optionally build a reply
 //! buffer → `iface.send()`. This file is the wiring; protocol logic lives in the modules.
@@ -48,13 +48,13 @@
 
 mod bbr; // BBR model-based congestion control (selectable alternative to CUBIC; used by tcp)
 mod congestion; // congestion control: slow start + AIMD + fast recovery (used by tcp)
-mod http; // Day 22: HTTP/1.x request parsing + keep-alive responder (used by the server below)
+mod http; // Doc 22: HTTP/1.x request parsing + keep-alive responder (used by the server below)
 mod icmp; // ICMP: parse + echo reply
 mod ip; // IPv4: parse + header checksum + (used by tcp) checksum writer
 mod reassembly; // out-of-order receive buffer (used by tcp)
 mod rtt; // RTT estimation + adaptive RTO (RFC 6298)
 mod seq; // 32-bit wrapping sequence-number arithmetic (used by tcp)
-mod socket; // Day 22: blocking TcpListener/TcpStream façade over Connection (embeddable; day22-book)
+mod socket; // Doc 22: blocking TcpListener/TcpStream façade over Connection (embeddable; doc22-book)
 mod tcp; // TCP: parse + connection state machine (handshake)
 mod udp; // UDP: parse + pseudo-header checksum (stateless)
 mod utils; // Internet checksum (shared)
@@ -75,10 +75,10 @@ fn protocol_name(protocol: u8) -> &'static str {
     }
 }
 
-// Day 22: HTTP/1.x request handling (full header buffering + keep-alive) lives in `src/http.rs`;
+// Doc 22: HTTP/1.x request handling (full header buffering + keep-alive) lives in `src/http.rs`;
 // the per-connection request buffer and serving loop are wired into the TCP handler in `main`.
 
-/// Day 27: how many half-open (SYN_RCVD) connections we'll hold before switching to SYN cookies.
+/// Doc 27: how many half-open (SYN_RCVD) connections we'll hold before switching to SYN cookies.
 /// Beyond this, a SYN flood can't pin memory — we answer statelessly with a cookie instead.
 const SYN_BACKLOG: usize = 128;
 
@@ -97,11 +97,11 @@ fn main() -> std::io::Result<()> {
 
     // The connection table: one TCB per active 4-tuple. This is TCP's "memory".
     let mut connections: HashMap<tcp::Quad, tcp::Connection> = HashMap::new();
-    // Day 22: per-connection HTTP request buffer — accumulate bytes until a full request head
+    // Doc 22: per-connection HTTP request buffer — accumulate bytes until a full request head
     // (`\r\n\r\n`) arrives, so one connection can carry many keep-alive requests. Absent for a
     // non-HTTP (raw `nc` echo) connection; present once we've recognised an HTTP client.
     let mut http_bufs: HashMap<tcp::Quad, Vec<u8>> = HashMap::new();
-    // Day 27: a per-process secret keying SYN cookies; randomized at startup so cookies are
+    // Doc 27: a per-process secret keying SYN cookies; randomized at startup so cookies are
     // unforgeable across runs (and between hosts). Never logged or sent — only the cookie is.
     let syn_secret: u64 = rand::random();
 
@@ -195,7 +195,7 @@ fn main() -> std::io::Result<()> {
             6 => {
                 if let Some(th) = tcp::parse(l4) {
                     let payload = &l4[th.data_offset.min(l4.len())..];
-                    // Day 15: the TCP options sit between the 20-byte fixed header and the data.
+                    // Doc 15: the TCP options sit between the 20-byte fixed header and the data.
                     let opts = tcp::parse_options(&l4[20..th.data_offset.min(l4.len())]);
                     println!(
                         "         └── TCP {} → {}  seq={} ack={} flags=[{}] win={}",
@@ -219,7 +219,7 @@ fn main() -> std::io::Result<()> {
                             if let Some(out) = conn.on_segment(&th, payload, &opts, now_ms) {
                                 iface.send(&out)?;
                             }
-                            // Application layer (Day 22): read in-order bytes and respond. An HTTP
+                            // Application layer (Doc 22): read in-order bytes and respond. An HTTP
                             // client's bytes accumulate in a per-connection buffer until a full
                             // request head (`\r\n\r\n`) arrives; we then serve every complete request
                             // (pipelining + keep-alive) and close only when a response says so.
@@ -277,14 +277,14 @@ fn main() -> std::io::Result<()> {
                             }
                             if closing_http {
                                 // The response asked to close (HTTP/1.0, or `Connection: close`):
-                                // actively close once it's on the wire (the Day 7 FIN_WAIT path).
+                                // actively close once it's on the wire (the Doc 7 FIN_WAIT path).
                                 if let Some(fin) = conn.close(now_ms) {
                                     iface.send(&fin)?;
                                     println!("         → response sent, closing (FIN)");
                                 }
                                 http_bufs.remove(&quad);
                             }
-                            // Day 19 — half-close: the peer closed its half (CLOSE_WAIT). An echo
+                            // Doc 19 — half-close: the peer closed its half (CLOSE_WAIT). An echo
                             // server has nothing more to send once its buffer is drained, so it
                             // closes its own half too — our FIN, advancing to LAST_ACK.
                             if conn.state() == tcp::State::CloseWait && conn.send_buffer_empty() {
@@ -302,7 +302,7 @@ fn main() -> std::io::Result<()> {
                                 println!("         · connection closed, removed from table");
                             }
                         }
-                        // New 4-tuple (Day 27): a SYN opens a connection. While the half-open
+                        // New 4-tuple (Doc 27): a SYN opens a connection. While the half-open
                         // (SYN_RCVD) backlog has room, do the normal passive open. When it's full —
                         // a SYN flood — switch to SYN cookies: a stateless SYN-ACK whose ISS encodes
                         // the handshake, allocating NO TCB until a valid cookie returns in the final

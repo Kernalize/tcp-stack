@@ -1,6 +1,6 @@
-# Day 24 — TCP, Part 22: RACK-TLP — Time-Based Loss Detection and the Tail Loss Probe (RFC 8985)
+# Doc 24 — TCP, Part 22: RACK-TLP — Time-Based Loss Detection and the Tail Loss Probe (RFC 8985)
 
-> Goal: fix the loss the rest of the stack can't see. Days 10–21 built loss recovery on *counting*:
+> Goal: fix the loss the rest of the stack can't see. Docs 10–21 built loss recovery on *counting*:
 > three duplicate ACKs (RFC 5681), three SACKed segments above a hole (RFC 6675's `IsLost`). Counting
 > has two blind spots. First, **reordering** inflates and deflates the count, so a reordered (not
 > lost) segment can trigger a needless fast retransmit, and a genuine loss behind reordering can be
@@ -15,7 +15,7 @@
 > Probe): when the tail is outstanding with nothing new to send, send one probe at ≈ RTO/2 to elicit
 > an ACK/SACK *before* the full RTO, turning a tail loss into an ordinary RACK recovery.
 >
-> This is the modern capstone on everything: it uses Day 16's per-segment timing and Day 18's SACK
+> This is the modern capstone on everything: it uses Doc 16's per-segment timing and Doc 18's SACK
 > scoreboard, and it's what Linux and the rest of the internet actually run today (it supersedes the
 > count-based DupThresh of RFC 5681/6675). We add it *additively* — the count-based paths remain — so
 > the stack gains time-based detection and fast tail recovery without losing what already works.
@@ -107,7 +107,7 @@ web traffic) the tail loss is the *whole* tail of the user-visible latency. TLP 
 ## 3. RACK: a segment is lost if a later one was acked, plus slack
 
 RACK keeps, per outstanding segment, the time it was (most recently) sent — which our retransmission
-queue already records as `sent_at_ms` (Day 12). When an ACK or SACK acknowledges some segment, RACK
+queue already records as `sent_at_ms` (Doc 12). When an ACK or SACK acknowledges some segment, RACK
 remembers the **most recently sent** segment among those now acknowledged:
 
 ```rust
@@ -214,7 +214,7 @@ congestion state (don't probe during recovery), and the event loop (arm in `poll
 ## 7. Keeping it additive — not breaking the count-based paths
 
 RFC 8985 is meant to *replace* the DupThresh-based detection. We add it *alongside* the existing
-dup-ACK fast retransmit (Day 10), NewReno (Day 20), and RFC 6675 (Day 21), for two reasons: it's far
+dup-ACK fast retransmit (Doc 10), NewReno (Doc 20), and RFC 6675 (Doc 21), for two reasons: it's far
 lower risk against a suite of 100+ tests that pin the count-based behavior, and it lets the chapter
 show RACK-TLP as a *complement* you can reason about in isolation. The ordering in `on_tick` keeps
 them from fighting:
@@ -238,7 +238,7 @@ recovery and reduces cwnd on real losses; we note this in §13 and leave it as e
 ## 8. The Rust: per-segment timestamps, `rev().find`, the PTO < RTO invariant
 
 **Per-segment timestamps, already there.** RACK needs each segment's send time — which `Unacked.sent_at_ms`
-has recorded since Day 12 (for the RTO) and Day 16 (for RTT). RACK is almost free on top: two new
+has recorded since Doc 12 (for the RTO) and Doc 16 (for RTT). RACK is almost free on top: two new
 `u64`/`u32` fields on the queue (`rack_xmit_ts`, `rack_end_seq`) and a comparison. Reusing the
 existing timing infrastructure is why a "modern" algorithm lands in ~40 lines.
 
@@ -264,7 +264,7 @@ A 1-segment tail (the unit test), `MSS`-irrelevant, no RTT sample yet so `RTO = 
 `PTO ≈ 100 ms`. We send "hi"; the segment is lost.
 
 ```text
-   t(ms)  without TLP (pre-Day-24)              with TLP (Day 24)
+   t(ms)  without TLP (pre-Doc-24)              with TLP (Doc 24)
    ─────  ──────────────────────────────────    ─────────────────────────────────────────
    0      send [1,3); arm nothing                send [1,3); arm PTO = 0 + 100 = 100
    50     on_tick: nothing (RTO not due)         on_tick: PTO not due; RTO not due → nothing
@@ -474,7 +474,7 @@ detector, with dup-ACK/6675 effectively subsumed and the RTO as backstop.
 ## E. Comparison to real stacks — Linux, the sysctls
 
 ```text
-   aspect                  Linux                         ours (Day 24)
+   aspect                  Linux                         ours (Doc 24)
    ─────────────────────   ───────────────────────────   ──────────────────────────
    primary loss detection  RACK (replaces DupThresh)     RACK additive to dup-ACK/6675
    reo_wnd                  adaptive (DSACK), min_RTT/4   fixed RTO/4 (E2)
@@ -527,8 +527,8 @@ Linux enabled RACK by default in 4.18 (`tcp_recovery` bit 1). The shape is ident
     production stack replaces DupThresh with RACK.
 22. **What existing test changed and why?** `connection_retransmits_then_clears_on_ack` — the tail is
     now probed at ~RTO/2 (TLP) instead of waiting for the RTO.
-23. **Does RACK use timestamps (Day 16)?** It uses per-segment *send* times (recorded since Day 12);
-    Day 16's TCP timestamps option is a related but separate RTT mechanism.
+23. **Does RACK use timestamps (Doc 16)?** It uses per-segment *send* times (recorded since Doc 12);
+    Doc 16's TCP timestamps option is a related but separate RTT mechanism.
 24. **What's `retransmit_last`?** The TLP target: the highest-sequence non-SACKed outstanding segment.
 25. **Biggest thing still missing?** DSACK-adaptive `reo_wnd`, a congestion reaction on RACK loss, and
     new-data probes — all exercises.
@@ -588,10 +588,10 @@ Q: Linux default since 4.18?  A: RACK-TLP (tcp_recovery).
    RTO due()     full RTO        anything left (backstop)        cwnd → 1 MSS, slow start
 ```
 
-**I.3 — what RACK-TLP adds over Days 10/20/21**
+**I.3 — what RACK-TLP adds over Docs 10/20/21**
 
 ```text
-   capability                         before Day 24   after Day 24
+   capability                         before Doc 24   after Doc 24
    ────────────────────────────────   ─────────────   ────────────
    single mid-stream loss             yes             yes
    multiple losses / RTT (SACK)       yes (6675)      yes
