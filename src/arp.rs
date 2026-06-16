@@ -6,4 +6,4 @@
 //!
 //! WHEN THIS FILE WOULD FILL UP: only on the optional **TAP** (Layer 2) detour, where
 //! you'd answer ARP "who has 192.168.0.2?" requests with our fake MAC before any IP
-//! traffic could flow. See `docs/day1-book.md` §2.
+//! traffic could flow. See `docs/doc1-book.md` §2.

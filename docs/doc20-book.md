@@ -1,6 +1,6 @@
-# Day 20 — TCP, Part 18: NewReno — Recovering From *Multiple* Losses in One Window (RFC 6582)
+# Doc 20 — TCP, Part 18: NewReno — Recovering From *Multiple* Losses in One Window (RFC 6582)
 
-> Goal: fix the one place our congestion control quietly falls off a cliff. Day 10 gave us RFC 5681
+> Goal: fix the one place our congestion control quietly falls off a cliff. Doc 10 gave us RFC 5681
 > Reno — slow start, congestion avoidance, fast retransmit, fast recovery. It recovers beautifully
 > from a *single* lost segment without an RTO. But drop **two** segments in the same window and Reno
 > recovers the first, declares victory on the very next ACK, deflates its window, and then has to
@@ -14,7 +14,7 @@
 > another is still missing, so retransmit the next hole *immediately* and stay in recovery. Repeat
 > until the window is whole. No timeout, no stall, one new state variable.
 >
-> This is the natural partner to Day 18's SACK: SACK tells us *which* islands the receiver has;
+> This is the natural partner to Doc 18's SACK: SACK tells us *which* islands the receiver has;
 > NewReno is how a sender *without* SACK still escapes the multiple-loss trap using nothing but the
 > cumulative ACK. Tomorrow (RFC 6675) we wire SACK into loss recovery proper; today we make the
 > SACK-less path correct first, because every real stack keeps it as the fallback.
@@ -57,7 +57,7 @@ Volume II — the exhaustive reference
 
 ## 1. The mental model: one hole vs several in a window
 
-Recall the shape of fast retransmit/recovery from Day 10. A sender has a window of segments in
+Recall the shape of fast retransmit/recovery from Doc 10. A sender has a window of segments in
 flight. One is lost. Every segment that arrives *after* the hole makes the receiver re-send the same
 cumulative ACK (it can't advance past the gap). Three of those **duplicate ACKs** are the sender's
 cue that a segment is lost — without waiting for the retransmission timer — so it retransmits the
@@ -80,7 +80,7 @@ acknowledges *new* data (S2–S4), so it is **not** a duplicate ACK. It's a real
 
 ## 2. Reno's flaw, watched in slow motion
 
-Plain RFC 5681 Reno (our Day 10 code) has exactly one rule for "a new ACK arrives during fast
+Plain RFC 5681 Reno (our Doc 10 code) has exactly one rule for "a new ACK arrives during fast
 recovery": *recovery is over.* Re-read the old congestion code:
 
 ```rust
@@ -151,7 +151,7 @@ if self.cong.in_recovery() && seq::before(th.ack, self.recover) {
 
 `seq::before(th.ack, self.recover)` is "`SEG.ACK` is strictly behind `recover` on the wrapping
 32-bit circle." Its negation, the `else`, is `SEG.ACK ≥ recover` — the full ACK. We deliberately let
-the full ACK fall into `on_ack`, whose existing in-recovery branch (unchanged from Day 10) deflates
+the full ACK fall into `on_ack`, whose existing in-recovery branch (unchanged from Doc 10) deflates
 to `ssthresh` and clears `in_recovery`. So we reused Reno's *exit* and only added the *partial-ACK*
 path. Minimal surface, maximal reuse.
 
@@ -222,7 +222,7 @@ collapse. `dup_acks = 0` because a partial ACK is a *real* (forward-moving) ACK,
 ## 7. Where the logic lives: byte-oriented module, sequence-aware connection
 
 A design note worth dwelling on, because it's why today's change is so small. Our `CongestionControl`
-(Day 10) was deliberately built to know *nothing* about sequence numbers — it takes byte counts
+(Doc 10) was deliberately built to know *nothing* about sequence numbers — it takes byte counts
 (`on_ack(acked)`, `on_dup_ack(flight_size)`, `on_timeout(flight_size)`) and returns cwnd. That made
 it trivially unit-testable in isolation (its tests are pure arithmetic, no packets).
 
@@ -343,7 +343,7 @@ if self.cong.in_recovery() && seq::before(th.ack, self.recover) {
 }
 ```
 
-`retx.fast_retransmit` (Day 12/18) already resends "the oldest segment the peer hasn't SACKed" and
+`retx.fast_retransmit` (Doc 12/18) already resends "the oldest segment the peer hasn't SACKed" and
 resets its timer — which, after `SND.UNA` has advanced over the just-acked data, is exactly the next
 hole. NewReno didn't need a new retransmission primitive; it only needed to *call* the existing one
 on a partial ACK.
@@ -369,7 +369,7 @@ full recovery through the connection.
 
 ## 12. Why this, not that
 
-**Why NewReno and not "just enable SACK"?** SACK (Day 18) is negotiated — both ends must support it.
+**Why NewReno and not "just enable SACK"?** SACK (Doc 18) is negotiated — both ends must support it.
 NewReno needs *nothing* from the peer; it works with the bare cumulative ACK every TCP speaks. It's
 the universal fallback, which is why every stack ships it even alongside SACK. (Tomorrow's RFC 6675
 is the SACK-aware recovery that supersedes NewReno *when SACK is on*.)
@@ -400,7 +400,7 @@ multi-loss recovery.
   made that fallback correct.
 - **Simplified exit.** RFC 6582 §3 step 5 sets `cwnd = min(ssthresh, max(FlightSize, MSS) + MSS)` on
   the full ACK; we deflate to `ssthresh`. The difference matters only at the margins of a drained
-  pipe; our simplification matches our Day 10 Reno exit and keeps one code path.
+  pipe; our simplification matches our Doc 10 Reno exit and keeps one code path.
 - **No "careful" NewReno / `recover` entry guard.** RFC 6582 §4 adds a guard so that dup ACKs for
   data already past `recover` (e.g. after an RTO) don't spuriously *re-enter* fast recovery for the
   same window. We rely on the `in_recovery` flag + dup-ACK reset, which handles the common cases; the
@@ -411,8 +411,8 @@ multi-loss recovery.
   is a natural later exercise.
 - **No ECN.** Explicit Congestion Notification lets routers *mark* instead of *drop*, signalling
   congestion without loss. We react only to loss (dup ACKs / RTO).
-- **The echo server never bulk-sends**, so cwnd rarely binds in practice — as noted since Day 10. The
-  machinery is real and tested; a bulk sender (the Day 22 socket API) is what exercises it on the
+- **The echo server never bulk-sends**, so cwnd rarely binds in practice — as noted since Doc 10. The
+  machinery is real and tested; a bulk sender (the Doc 22 socket API) is what exercises it on the
   wire.
 
 ## 14. Rebuild it yourself — checklist + exercises
@@ -435,7 +435,7 @@ multi-loss recovery.
    the cumulative ACK is beyond the previous `recover`. Construct a post-RTO scenario where stale dup
    ACKs would otherwise re-trigger recovery, and show the guard prevents it.
 3. **E3 — measure it.** With the live stack and `tc qdisc … netem loss 5%`, run a bulk transfer
-   (needs the Day 22 socket API) and compare completion time with the partial-ACK branch enabled vs
+   (needs the Doc 22 socket API) and compare completion time with the partial-ACK branch enabled vs
    stubbed out (force Reno). Watch the RTO stalls disappear.
 4. **E4 — CUBIC.** Replace the congestion-avoidance growth with CUBIC's cubic function of time since
    the last loss; keep NewReno's recovery. Compare ramp-up on a high-BDP `netem delay 100ms` link.
@@ -449,7 +449,7 @@ the two ideas that *are* NewReno.
 ## 15. What the next day adds
 
 Tomorrow is **RFC 6675**: SACK-based loss recovery. Where NewReno repairs one hole per RTT using only
-the cumulative ACK, RFC 6675 uses Day 18's SACK scoreboard to know *every* hole at once, plus a
+the cumulative ACK, RFC 6675 uses Doc 18's SACK scoreboard to know *every* hole at once, plus a
 `pipe` estimator (bytes actually in flight) so the sender can keep transmitting *new* data during
 recovery instead of going quiet. It's the difference between "limp out of loss one segment at a time"
 and "repair everything and stay at line rate." NewReno is the floor; 6675 is the ceiling — and today
@@ -526,9 +526,9 @@ the final cwnd `= 2·MSS`.
    algorithm   year   loss recovery                                    what it added
    ─────────   ────   ──────────────────────────────────────────────  ─────────────────────────────
    Tahoe       1988   any loss → slow-start restart (cwnd→1)           slow start, AIMD, fast retransmit
-   Reno        1990   1 loss → fast recovery (no RTO); 2+ → RTO        fast recovery (Day 10)
+   Reno        1990   1 loss → fast recovery (no RTO); 2+ → RTO        fast recovery (Doc 10)
    NewReno     1999   2+ losses → partial ACKs, 1 hole/RTT, no RTO     the recover variable (TODAY)
-   SACK/6675   2012   all holes known; pipe keeps sending new data     SACK scoreboard + pipe (Day 21)
+   SACK/6675   2012   all holes known; pipe keeps sending new data     SACK scoreboard + pipe (Doc 21)
    CUBIC       2008   loss-based, cubic cwnd growth (high BDP)         time-based growth curve
    BBR         2016   model-based (bottleneck bw × RTT), not loss      probes bandwidth/RTT, ignores loss
 ```
@@ -554,7 +554,7 @@ RFC 6582 discusses two subtleties beyond the core:
 ## F. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                Linux             FreeBSD          lwIP             smoltcp        ours (Day 20)
+   aspect                Linux             FreeBSD          lwIP             smoltcp        ours (Doc 20)
    ───────────────────   ───────────────   ──────────────   ──────────────   ───────────    ──────────────
    default CC            CUBIC             CUBIC/NewReno    NewReno-ish      Reno/NewReno   NewReno (this day)
    NewReno partial ACK   yes               yes              yes              yes            yes
@@ -612,7 +612,7 @@ knowing all holes up front and pacing new data by the `pipe` estimate — tomorr
     i.e. the next hole — via the existing `fast_retransmit`.
 12. **Did NewReno need a new retransmission primitive?** No — `fast_retransmit` already resends the
     oldest non-SACKed segment and resets its timer.
-13. **How does NewReno interact with SACK today?** `fast_retransmit` skips SACKed ranges (Day 18), so
+13. **How does NewReno interact with SACK today?** `fast_retransmit` skips SACKed ranges (Doc 18), so
     on a partial ACK it naturally resends a genuine hole. Tomorrow's 6675 makes SACK the primary
     driver.
 14. **What if `fast_retransmit` returns None on a partial ACK?** Nothing to resend; we deflated cwnd
@@ -624,7 +624,7 @@ knowing all holes up front and pacing new data by the `pipe` estimate — tomorr
 18. **Does NewReno change the dup-ACK threshold?** No — still 3 (RFC 5681).
 19. **Does it change slow start / congestion avoidance?** No — only the in-recovery ACK handling.
 20. **What about an RTO during NewReno recovery?** `on_timeout` collapses cwnd to 1·MSS and clears
-    `in_recovery` (Day 10), same as always — NewReno is about *avoiding* that RTO, not changing it.
+    `in_recovery` (Doc 10), same as always — NewReno is about *avoiding* that RTO, not changing it.
 21. **Why `saturating_sub`/`max(MSS)`?** To keep cwnd a sane `u32` ≥ one segment under any ACK.
 22. **How is this tested without a network?** Two congestion-unit tests (arithmetic) + one connection
     test that drives a real two-loss recovery and asserts the retransmission sequence numbers.

@@ -1,7 +1,7 @@
-# Day 28 — TCP, Part 26: BBR — Congestion Control by Model, Not by Loss (Cardwell et al., 2016)
+# Doc 28 — TCP, Part 26: BBR — Congestion Control by Model, Not by Loss (Cardwell et al., 2016)
 
-> Goal: build the *other kind* of congestion control. Every controller so far — Reno (Day 10),
-> NewReno (Day 20), CUBIC (Day 25) — is **loss-based**: it grows the window until a packet drops, then
+> Goal: build the *other kind* of congestion control. Every controller so far — Reno (Doc 10),
+> NewReno (Doc 20), CUBIC (Doc 25) — is **loss-based**: it grows the window until a packet drops, then
 > backs off. That made sense in 1988, when a drop almost always meant a full queue. It is a poor proxy
 > today. On a router with a deep buffer, a loss-based sender fills that buffer *to the brim* before it
 > ever sees a drop — so it runs with a permanently full queue, adding tens or hundreds of milliseconds
@@ -520,7 +520,7 @@ Exercises:
 BBR completes the **congestion-control family**: the stack now ships both a loss-based controller
 (CUBIC over NewReno + RFC 6675) and a model-based one (BBR), selectable per connection. The natural
 follow-ons are *rate-paced transmission* (exercise (a) — the missing half of BBR, only meaningful under
-bulk transfer), BBRv2/v3's ECN and loss response (§E), and the multi-connection server (Day 29) that
+bulk transfer), BBRv2/v3's ECN and loss response (§E), and the multi-connection server (Doc 29) that
 lets several BBR flows run at once so you can watch them interact.
 
 ---
@@ -578,7 +578,7 @@ max-filter down. Our per-ACK delta is the right idea with those two refinements 
 ## D. BBR vs CUBIC vs Reno — a side-by-side
 
 ```text
-                         Reno (Day 10)     CUBIC (Day 25)        BBR (Day 28)
+                         Reno (Doc 10)     CUBIC (Doc 25)        BBR (Doc 28)
    ────────────────────  ───────────────   ───────────────────   ─────────────────────────────
    signal                loss              loss                  measured BtlBw + RTprop
    on loss               cwnd ×0.5         cwnd ×0.7             retransmit; cwnd unchanged

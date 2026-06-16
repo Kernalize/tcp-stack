@@ -1,6 +1,6 @@
-# Day 14 — TCP, Part 12: Zero-Window Probes (the Persist Timer)
+# Doc 14 — TCP, Part 12: Zero-Window Probes (the Persist Timer)
 
-> Goal: fix the one deadlock that flow control quietly created. Day 8 taught the sender to obey the
+> Goal: fix the one deadlock that flow control quietly created. Doc 8 taught the sender to obey the
 > receiver's advertised window: when the peer says "my window is 0," we stop. Correct — but incomplete. The
 > signal that the window has *re-opened* travels in a pure ACK, and pure ACKs are not retransmitted. Lose
 > that one ACK and both sides wait forever: the receiver thinks it told us to resume, the sender is still
@@ -53,7 +53,7 @@ Volume II — the exhaustive reference
 ## 1. The mental model: a silence that kills
 
 Flow control is a promise: "I, the receiver, will accept up to `RCV.WND` more bytes." When the receiver's
-buffer fills, it advertises `window = 0`, and a well-behaved sender (ours, since Day 8) stops dead —
+buffer fills, it advertises `window = 0`, and a well-behaved sender (ours, since Doc 8) stops dead —
 `usable_window()` is 0, so `poll_transmit` emits nothing. Later the application drains the buffer and the
 receiver sends a fresh ACK: "window = 4000, you may resume." That update is the *only* thing that unblocks
 the sender.
@@ -81,7 +81,7 @@ isn't — so the responsibility to break the silence falls on the *sender*, whic
 
 Your first instinct (mine too) is "just let the retransmission timer resend something." But there is
 *nothing in the retransmission queue*: the sender stopped before putting any of the blocked bytes on the
-wire, precisely because the window was 0. `FlightSize == 0`. The retransmission machinery from Day 6/12 only
+wire, precisely because the window was 0. `FlightSize == 0`. The retransmission machinery from Doc 6/12 only
 resends what was already sent; here, by construction, nothing was. So liveness needs a *new* action:
 deliberately send something into a window we've been told is closed. That deliberate, slightly-rude poke is
 the zero-window probe.
@@ -118,7 +118,7 @@ the queue is empty and there is no other source of liveness.
 
 A subtle, satisfying simplification: the persist timer only needs to fire **once**. After the first probe is
 sent, `FlightSize` becomes 1 — there is now an unacknowledged segment in the queue. From that moment, the
-**ordinary RTO retransmission** (Day 6) resends that same one-byte segment on its own timer, with the usual
+**ordinary RTO retransmission** (Doc 6) resends that same one-byte segment on its own timer, with the usual
 exponential backoff. That *is* the persist repeat. So:
 
 - persist timer → sends the **first** probe (because the queue was empty);
@@ -127,11 +127,11 @@ exponential backoff. That *is* the persist repeat. So:
 We disarm the persist timer the instant a probe is outstanding (`FlightSize > 0`), and re-arm only if we
 somehow return to "window 0, data pending, nothing in flight." This reuses machinery instead of duplicating
 a backoff loop, and it keeps the probe spacing consistent with the connection's RTO. It's the same
-design-economy as Day 12 (control segments ride the existing queue): build the *trigger*, reuse the *engine*.
+design-economy as Doc 12 (control segments ride the existing queue): build the *trigger*, reuse the *engine*.
 
 ## 6. The companion fix: a window update is not a duplicate ACK
 
-Adding zero-window handling exposes a latent bug in the Day 10 duplicate-ACK logic. RFC 5681 §2 defines a
+Adding zero-window handling exposes a latent bug in the Doc 10 duplicate-ACK logic. RFC 5681 §2 defines a
 duplicate ACK by **four** conditions, all of which must hold:
 
 1. the ACK number equals `SND.UNA` (acknowledges no new data),
@@ -148,7 +148,7 @@ produce an ACK with `ack == SND.UNA` and no data:
 Without condition 4, three of these in a row would trip *fast retransmit* and needlessly halve the
 congestion window — treating a flow-control event as packet loss. So we now record the previous window and
 require `th.window == prev_wnd` **and** `th.window != 0` before counting a duplicate ACK. A changed window is
-an update; a zero window is the receiver being full; neither is congestion. (With window scaling, Day 17,
+an update; a zero window is the receiver being full; neither is congestion. (With window scaling, Doc 17,
 the comparison is on the *scaled* values — §D.)
 
 ## 7. The Rust: one field, one branch in `on_tick`
@@ -182,7 +182,7 @@ if self.state == State::Established
 The four-part `&&` is the exact "we are stalled and only a probe can save us" condition. The `else` disarms
 the moment any clause stops holding (window opened, buffer drained, or a probe is already outstanding) — so
 the timer is self-resetting, no explicit teardown. The dup-ACK fix is two extra `&&` clauses in `on_segment`.
-That is the whole feature. (`record`'s `start_seq` argument is Day 18's; day 14 used the four-arg form.)
+That is the whole feature. (`record`'s `start_seq` argument is Doc 18's; doc 14 used the four-arg form.)
 
 ## 8. Worked example: shut, probe, reopen
 
@@ -209,7 +209,7 @@ All in `src/tcp.rs`:
 
 - **Struct / constructors**: `persist_ms: u64`, initialized `0`.
 - **`on_segment`** (ESTABLISHED): capture `prev_wnd` before overwriting `send.wnd`; add
-  `th.window == prev_wnd && th.window != 0` (scaled, Day 17) to the duplicate-ACK condition.
+  `th.window == prev_wnd && th.window != 0` (scaled, Doc 17) to the duplicate-ACK condition.
 - **`on_tick`**: the persist branch above. It appends the probe to the same `Vec` the RTO retransmissions go
   into, so the event loop sends it with no special casing.
 
@@ -244,17 +244,17 @@ All in `src/tcp.rs`:
   tiny increments (or our probe would chase a 1-byte window, sending runts) — RFC 9293 §3.8.6.2 / Clark's
   algorithm says only advertise a re-opened window once it grows by ≥ 1 MSS or ½ the buffer. Our receiver
   has a flat window and never shrinks it, so this doesn't arise here, but a real receive buffer needs it
-  (Day 8 §C, exercise E2).
-- **`record` gained `start_seq` (Day 18).** The probe is recorded with the SACK-aware `record(start_seq,
-  end_seq, …)` now; day 14 used the four-arg form.
-- **Window-update comparison is scaled (Day 17).** The dup-ACK condition compares *scaled* windows once
+  (Doc 8 §C, exercise E2).
+- **`record` gained `start_seq` (Doc 18).** The probe is recorded with the SACK-aware `record(start_seq,
+  end_seq, …)` now; doc 14 used the four-arg form.
+- **Window-update comparison is scaled (Doc 17).** The dup-ACK condition compares *scaled* windows once
   window scaling is negotiated, so a scaled-window change still isn't mistaken for a dup.
 - **Probe data choice.** We send the next *real* buffered byte; some stacks send a byte *below* `SND.UNA`
   (guaranteed-old, definitely rejected) to avoid advancing the stream if the window is genuinely shut. Both
   force an ACK; the real-byte approach is simpler and the byte is never wasted (it's data we wanted to send
   anyway).
 
-None of these change the day-14 contract (a stalled connection always recovers when the window reopens, and
+None of these change the doc-14 contract (a stalled connection always recovers when the window reopens, and
 a window event is never mistaken for loss); they are hardening and the receiver-side complement.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -282,8 +282,8 @@ a window event is never mistaken for loss); they are hardening and the receiver-
 
 ## 14. What the next step adds
 
-Day 15 begins the **TCP options** era. So far every segment we build has a bare 20-byte header; we have
-ignored the options field on the way in and never written one on the way out. Day 15 adds the machinery to
+Doc 15 begins the **TCP options** era. So far every segment we build has a bare 20-byte header; we have
+ignored the options field on the way in and never written one on the way out. Doc 15 adds the machinery to
 *parse* and *emit* options, and uses it for the most fundamental one: **MSS negotiation** (RFC 9293
 §3.7.1) — read the peer's Maximum Segment Size from its SYN, advertise our own, and segment outgoing data to
 the negotiated value instead of a hardcoded 1460. That option framework is the foundation the next several
@@ -309,7 +309,7 @@ receiver has nothing to ACK (no data is arriving — it told the sender to stop)
 might be the *only* ACK for a long time, with no successor to supersede it if lost. The general rule — *don't
 depend on an unacknowledged segment for liveness* — is violated, and the persist probe restores it by
 manufacturing a reason for the receiver to ACK (a byte it must respond to), turning "no next ACK" into "an
-ACK on demand." It's the same flavor as the Two Generals' Problem (Day 7 §F): you can't be *sure* your
+ACK on demand." It's the same flavor as the Two Generals' Problem (Doc 7 §F): you can't be *sure* your
 message arrived, so you keep asking until you get a reply.
 
 ## B. The persist timer vs the retransmission timer
@@ -340,7 +340,7 @@ window" (persist).
 The persist probe has a failure mode if the *receiver* is naive: if the receiver reopens its window one byte
 at a time (because its app reads one byte at a time), each probe elicits "window = 1," the sender sends one
 byte, the receiver advertises "window = 1" again — a stream of 1-byte segments, the **Silly Window Syndrome**
-(SWS, Day 8 §C). The fix is **receiver-side SWS avoidance** (RFC 9293 §3.8.6.2 / Clark's algorithm): the
+(SWS, Doc 8 §C). The fix is **receiver-side SWS avoidance** (RFC 9293 §3.8.6.2 / Clark's algorithm): the
 receiver must *not* advertise a re-opened window until it can offer a "useful" amount — at least one MSS or
 half the receive buffer, whichever is smaller. Until then it keeps advertising 0 (and keeps absorbing
 probes), then jumps the window open in a worthwhile chunk.
@@ -373,7 +373,7 @@ that condition 4 alone misses: while the window sits at 0, successive re-acks ha
 (0 == 0, satisfying condition 4) and no data and ack == UNA — so without the extra clause, three zero-window
 re-acks would be counted as duplicates and trip fast retransmit, halving `cwnd` over a *flow-control* stall
 that has nothing to do with congestion. Excluding `window == 0` keeps a full-receiver event from ever looking
-like loss. (Under window scaling, Day 17, conditions compare the *scaled* window so the same logic holds for
+like loss. (Under window scaling, Doc 17, conditions compare the *scaled* window so the same logic holds for
 windows > 64 KB.)
 
 ## E. A worked stall-and-recover trace (hex)
@@ -458,7 +458,7 @@ with a "but eventually give up" bound, which our teaching version omits and a pr
 
 ## I. Extended FAQ
 
-1. **What deadlock does day 14 fix?** A lost window-reopen ACK leaving sender and receiver both waiting
+1. **What deadlock does doc 14 fix?** A lost window-reopen ACK leaving sender and receiver both waiting
    forever.
 2. **Why can't the RTO fix it?** The blocked bytes were never sent (window was 0), so the retransmission
    queue is empty.

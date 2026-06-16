@@ -1,4 +1,4 @@
-//! Day 22 — a blocking `TcpListener` / `TcpStream` façade over the `Connection` state machine.
+//! Doc 22 — a blocking `TcpListener` / `TcpStream` façade over the `Connection` state machine.
 //!
 //! Until now the "socket API" has been `Connection::{write, take_received, poll_transmit}` plus the
 //! event loop in `main` — the *mechanism*. This module is the *ergonomics*: the `std::net`-shaped
@@ -10,7 +10,7 @@
 //! loopback) and run a full handshake → transfer → close **offline and deterministically**. The
 //! whole module is `allow(dead_code)` because it is an embeddable API exercised by those tests — the
 //! demo `main` keeps its raw multi-protocol loop (it also serves ICMP/UDP and many connections).
-//! Theory: `docs/day22-book.md`.
+//! Theory: `docs/doc22-book.md`.
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -126,7 +126,7 @@ impl<T: PacketIo> TcpStream<T> {
     }
 
     /// Close our send side (FIN). From ESTABLISHED this is an active close; from CLOSE_WAIT it
-    /// finishes a passive half-close (Day 19).
+    /// finishes a passive half-close (Doc 19).
     pub fn close(&mut self, now_ms: u64) -> io::Result<()> {
         if let Some(fin) = self.conn.close(now_ms) {
             self.io.send(&fin)?;
@@ -267,7 +267,7 @@ fn parse_any(packet: &[u8]) -> Option<(Quad, TcpHeader, Vec<u8>, tcp::TcpOptions
 ///
 /// The app pulls newly-established connections with [`accept_one`](Self::accept_one) and then drives
 /// each by 4-tuple with [`send`](Self::send) / [`recv`](Self::recv) / [`close`](Self::close). This
-/// removes the Day-22 limitation that the façade "demuxes one connection at a time".
+/// removes the Doc-22 limitation that the façade "demuxes one connection at a time".
 pub struct TcpServer<T: PacketIo> {
     io: T,
     local: (Ipv4Addr, u16),
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn loopback_half_close_then_server_replies() {
         // The client half-closes after sending; the server must still be able to send afterward
-        // (Day 19 half-close), exercised end to end through the façade.
+        // (Doc 19 half-close), exercised end to end through the façade.
         let (client_io, server_io) = pipe_pair();
         let server_addr = (Ipv4Addr::new(192, 168, 0, 2), 80);
         let client_addr = (Ipv4Addr::new(192, 168, 0, 1), 40001);

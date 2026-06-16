@@ -1,16 +1,16 @@
-# Day 9 — TCP, Part 7: Out-of-Order Reassembly
+# Doc 9 — TCP, Part 7: Out-of-Order Reassembly
 
 > Goal: deliver a **contiguous, in-order** byte stream even when segments arrive jumbled. Until now we
 > accepted data only when `seq == RCV.NXT` and dropped everything else — so a single reordered or
 > gap-leaving segment stalled the connection. This chapter adds a receive buffer that holds out-of-order
-> data until the gap fills, then releases the unbroken run. It's the receive-side twin of Day 6's
+> data until the gap fills, then releases the unbroken run. It's the receive-side twin of Doc 6's
 > retransmission, and it's what finally lets a real file cross a lossy, reordering link.
 
 The network is allowed to scramble your packets, and TCP is obliged to un-scramble them. The receiver
 becomes a little sorting buffer: it accepts data that arrives early, parks it, and releases bytes to the
 application only as an unbroken run. The two recurring subtleties — keeping order across the sequence-wrap,
 and what to *say* when you can't deliver (the duplicate ACK) — are where this chapter earns its depth, and
-where SACK (Day 18) and fast retransmit (Day 10) both plug in.
+where SACK (Doc 18) and fast retransmit (Doc 10) both plug in.
 
 **Contents**
 
@@ -35,7 +35,7 @@ Volume II — the exhaustive reference
 - B. The four cases of a segment vs `RCV.NXT`, exhaustively
 - C. The sequence-wrap problem in full (offsets, the 2³¹ assumption, PAWS)
 - D. Duplicate ACKs and fast retransmit (the 3-dupACK heuristic and reordering)
-- E. Generating SACK blocks from the reassembler (the Day 18 connection)
+- E. Generating SACK blocks from the reassembler (the Doc 18 connection)
 - F. Buffer management and the advertised window
 - G. A worked multi-gap reassembly trace
 - H. Comparison to real stacks — the out-of-order queue and collapse
@@ -61,7 +61,7 @@ The rule is precise: bytes are *delivered* to the application (and acknowledged 
 they form an **unbroken run starting at `RCV.NXT`**. Anything beyond a gap is held in a buffer,
 contributing nothing to `RCV.NXT`, until the missing bytes arrive and bridge it.
 
-This is the mirror image of Day 6. There, the *sender* kept unacknowledged data so it could resend. Here,
+This is the mirror image of Doc 6. There, the *sender* kept unacknowledged data so it could resend. Here,
 the *receiver* keeps early-arriving data so it can reorder. Together they make a lossy, reordering network
 look like a clean pipe to the application above — the core illusion TCP sells.
 
@@ -69,13 +69,13 @@ look like a clean pipe to the application above — the core illusion TCP sells.
 
 Don't confuse two things that both sound like "the window":
 
-- The **advertised receive window** (`RCV.WND`, Day 8) — a *number* we put in outgoing segments saying "I
+- The **advertised receive window** (`RCV.WND`, Doc 8) — a *number* we put in outgoing segments saying "I
   can accept this many more bytes." It throttles the sender.
 - The **reassembly buffer** — the actual *storage* holding out-of-order bytes until they're contiguous.
   Its occupancy is what *should* drive the advertised window down.
 
 In a full stack they're linked: `RCV.WND = buffer_capacity − buffered_bytes` (§F). We keep `RCV.WND` a
-constant 1024 (Day 8's simplification — our echo server drains instantly), so the link is loose here, but
+constant 1024 (Doc 8's simplification — our echo server drains instantly), so the link is loose here, but
 the reassembly buffer is now real. We do enforce one consequence of the window: data that arrives more
 than `MAX_AHEAD` past `RCV.NXT` is *outside any window we'd advertise* and is discarded (RFC 9293
 §3.10.7.4), which also bounds how much we'll ever buffer (a hostile peer can't make us hoard unbounded
@@ -144,7 +144,7 @@ Over a connection these offsets grow monotonically from 0, so plain integer orde
 no modular reasoning needed in the map. The one assumption is that a single connection moves fewer than
 2³¹ bytes *while a gap is open*, so offsets never themselves wrap into ambiguity. That holds for any
 realistic transfer; a production stack tracks the wrap explicitly and uses RFC 7323 timestamps (PAWS,
-Day 16) to disambiguate an ancient wrapped duplicate from current data (§C).
+Doc 16) to disambiguate an ancient wrapped duplicate from current data (§C).
 
 `base` is known the moment we reach ESTABLISHED: it's `IRS + 1` (the SYN consumed `IRS`). For a passive
 open we set it in `accept`; for an active open we don't learn the peer's ISN until the SYN-ACK, so we
@@ -156,12 +156,12 @@ When data arrives out of order, we deliver nothing — but we must not stay sile
 **duplicate ACK**: a bare ACK re-advertising the *same* `RCV.NXT` we sent before. To the sender, repeated
 identical ACKs are a signal: "I'm still missing the byte at `RCV.NXT`, but segments after it are reaching
 me." Three of these in a row is TCP's **fast-retransmit** trigger — the sender resends the presumed-lost
-segment immediately, without waiting for its RTO (Day 10).
+segment immediately, without waiting for its RTO (Doc 10).
 
 The duplicate ACK is the receiver's *only* way to say "I have a hole" with cumulative ACKs alone — it
-can't say *which* later bytes it has. That limitation is exactly what **SACK** (Day 18) fixes: the SACK
+can't say *which* later bytes it has. That limitation is exactly what **SACK** (Doc 18) fixes: the SACK
 option attached to the dup ACK names the buffered ranges, so the sender knows precisely what to resend.
-The reassembler's buffered fragments *are* the SACK blocks (§E) — this day builds the structure that Day 18
+The reassembler's buffered fragments *are* the SACK blocks (§E) — this day builds the structure that Doc 18
 reads out.
 
 ## 7. Worked example
@@ -204,16 +204,16 @@ the "bc" and delivers just "XY" (the four cases are enumerated in §B).
 
 | Piece | Role |
 |---|---|
-| `src/reassembly.rs` | the `Reassembler`: `recv()` (trim/buffer/drain) + `sack_blocks()` (Day 18) |
+| `src/reassembly.rs` | the `Reassembler`: `recv()` (trim/buffer/drain) + `sack_blocks()` (Doc 18) |
 | `Connection.reasm` | one reassembler per connection; rebased on SYN-ACK for active open |
 | `on_segment` data branch | feeds every data segment to `reasm`; ACKs delivered bytes, else dup-ACKs |
 
 The control flow in `on_segment`'s ESTABLISHED branch: a non-empty payload goes to
 `self.reasm.recv(th.seq, payload, self.recv.nxt)`. If it returns bytes, we advance `RCV.NXT` by their
-length and deliver them into the receive buffer (the app reads via `take_received`, Day 11). If it returns
+length and deliver them into the receive buffer (the app reads via `take_received`, Doc 11). If it returns
 empty (out-of-order or duplicate), `RCV.NXT` is untouched. Either way we send an ACK carrying the current
 `RCV.NXT` — a fresh ACK for in-order data, a duplicate ACK for a hole (now also carrying SACK blocks when
-negotiated, Day 18). In-order data behaves exactly as before — the reassembler returns it immediately with
+negotiated, Doc 18). In-order data behaves exactly as before — the reassembler returns it immediately with
 an empty buffer.
 
 ## 10. Verification
@@ -221,7 +221,7 @@ an empty buffer.
 `cargo test` proves reassembly offline. Coverage:
 
 - `reassembly::*` — in-order passthrough; out-of-order buffer then gap-fill; duplicate of delivered data;
-  partial overlap trimming; multiple gaps filled in any order; far-out-of-window discard; (Day 18) SACK
+  partial overlap trimming; multiple gaps filled in any order; far-out-of-window discard; (Doc 18) SACK
   blocks reported, coalesced, and empty when in order.
 - `tcp::reassembles_out_of_order_data` — end-to-end: the second chunk arrives first and draws a duplicate
   ACK (RCV.NXT unmoved), then the first chunk flushes both and we deliver/echo the contiguous "helo" with
@@ -241,14 +241,14 @@ it with `sudo tc qdisc del dev tun0 root`.
 | Overlapping fragments | assume disjoint future frags; trim vs delivered only | full byte-interval merge of arbitrary overlaps |
 | Advertised window vs buffer | window constant 1024, buffer real | `RCV.WND = capacity − buffered`, dynamically |
 | Out-of-window data | discard beyond `MAX_AHEAD` | discard beyond `RCV.WND`, exactly |
-| SACK | day 9: cumulative ACK + dup-ACKs only | day 18 adds RFC 2018 blocks from this buffer |
-| Outgoing segmentation | echo a run in one segment (day 9); MSS-split Day 11/15 | split to MSS, respecting the send window |
+| SACK | doc 9: cumulative ACK + dup-ACKs only | doc 18 adds RFC 2018 blocks from this buffer |
+| Outgoing segmentation | echo a run in one segment (doc 9); MSS-split Doc 11/15 | split to MSS, respecting the send window |
 
 ## 12. Honesty: what production does, and what later days added
 
-- **SACK reads this buffer (Day 18).** The reassembler's buffered fragments are precisely the data a SACK
-  option reports; Day 18 added `Reassembler::sack_blocks()` to coalesce them into `(left, right)` ranges
-  for the ACK (§E). Day 9 builds the structure; Day 18 makes the receiver *tell* the sender about the
+- **SACK reads this buffer (Doc 18).** The reassembler's buffered fragments are precisely the data a SACK
+  option reports; Doc 18 added `Reassembler::sack_blocks()` to coalesce them into `(left, right)` ranges
+  for the ACK (§E). Doc 9 builds the structure; Doc 18 makes the receiver *tell* the sender about the
   holes.
 - **No overlapping-fragment merge.** We assume future fragments are disjoint (true for our sender). A
   general receiver must merge arbitrary overlapping byte intervals — and do it *carefully*, because naive
@@ -257,12 +257,12 @@ it with `sudo tc qdisc del dev tun0 root`.
   reassembly buffer throttles the sender (§F); ours is a flat 1024.
 - **No buffer "collapse."** Under memory pressure Linux *collapses* the out-of-order queue (merges
   adjacent skbs, prunes) rather than dropping; we just bound by `MAX_AHEAD` (§H).
-- **Outgoing segmentation came later.** Day 9 echoes a delivered run as one segment; MSS-bounded
-  segmentation arrives with the send buffer (Day 11) and MSS negotiation (Day 15).
+- **Outgoing segmentation came later.** Doc 9 echoes a delivered run as one segment; MSS-bounded
+  segmentation arrives with the send buffer (Doc 11) and MSS negotiation (Doc 15).
 - **The 2³¹ offset assumption.** We assume a gap never spans > 2 GB; a production stack handles the full
   wrap with timestamps/PAWS (§C).
 
-None of these change the day-9 contract (reordered data is delivered in order, duplicates dropped); they
+None of these change the doc-9 contract (reordered data is delivered in order, duplicates dropped); they
 are the breadth the later days add.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -274,25 +274,25 @@ are the breadth the later days add.
       `RCV.NXT` advances by the *delivered* length, not the segment length.
 - [ ] Why offsets-from-base, not raw sequence numbers, key the buffer (the wrap).
 - [ ] What a duplicate ACK means and why three of them matter to the sender.
-- [ ] Why the reassembler's fragments are the SACK blocks (Day 18).
+- [ ] Why the reassembler's fragments are the SACK blocks (Doc 18).
 
 **Exercises:**
 
 - **E1.** Make `RCV.WND` dynamic: advertise `capacity − buffered_bytes` so a stalled reassembly buffer
-  actually throttles the sender (ties Day 8 to this chapter; §F).
-- **E2.** ✅ *Done* (Day 18): report the buffered byte ranges as **SACK** blocks (RFC 2018) so the sender
+  actually throttles the sender (ties Doc 8 to this chapter; §F).
+- **E2.** ✅ *Done* (Doc 18): report the buffered byte ranges as **SACK** blocks (RFC 2018) so the sender
   retransmits only the true gaps.
 - **E3.** Handle arbitrary **overlapping** fragments by merging byte intervals, then prove it with a test
   that feeds overlapping retransmissions — and think about the overlap attack (§I).
-- **E4.** ✅ *Done* (Days 11/15): segment **outgoing** data to a negotiated MSS so a large delivered run
+- **E4.** ✅ *Done* (Docs 11/15): segment **outgoing** data to a negotiated MSS so a large delivered run
   echoes as multiple MTU-sized segments, each queued for retransmission.
 - **E5.** Implement buffer **collapse**: when buffered bytes near the cap, merge adjacent fragments and
   prune, rather than discarding new arrivals (§H).
 
 ## 14. What the next step adds
 
-The receiver can now reorder; the sender can now retransmit (Day 6) and respect the receiver's window
-(Day 8). The missing governor is **congestion control** (Day 10) — limiting the sender by what the
+The receiver can now reorder; the sender can now retransmit (Doc 6) and respect the receiver's window
+(Doc 8). The missing governor is **congestion control** (Doc 10) — limiting the sender by what the
 *network* can carry: slow start, congestion avoidance (AIMD), and **fast retransmit / fast recovery**
 driven by the very duplicate ACKs we started emitting here. The effective send limit becomes
 `min(SND.WND, cwnd)`.
@@ -304,7 +304,7 @@ driven by the very duplicate ACKs we started emitting here. The effective send l
 ## A. Reassembly data-structure choices (BTreeMap, interval tree, list)
 
 The reassembler must support: insert a fragment, find the fragment at/after a given offset, remove a
-fragment, and (Day 18) iterate fragments in order. Options:
+fragment, and (Doc 18) iterate fragments in order. Options:
 
 ```text
    structure              insert    "next ≥ x"    in-order iter   notes
@@ -356,7 +356,7 @@ their *offset* comparison ambiguous too). For any real transfer a gap closes in 
 The remaining hazard a production stack must handle is an **old wrapped duplicate**: on a very fast,
 long-lived connection the *sequence space itself* wraps (4 GB), and an ancient delayed segment could carry
 a sequence number that lands in the current window — looking valid. **PAWS** (Protect Against Wrapped
-Sequences, RFC 7323 §5, Day 16) defends with timestamps: every segment carries a timestamp, and one whose
+Sequences, RFC 7323 §5, Doc 16) defends with timestamps: every segment carries a timestamp, and one whose
 timestamp predates the most recent (`TS.Recent`) is rejected as a stale duplicate regardless of its
 sequence number. Reassembly correctness on the open internet ultimately rests on timestamps; our offset
 trick is the LAN-correct version.
@@ -372,17 +372,17 @@ is missing."
 **not** a loss — the missing segment is right behind. Two could still be mild reordering. The designers
 chose **three** dup-ACKs (`DupThresh = 3`) as the threshold that strongly implies loss rather than
 reordering, balancing fast recovery against false positives. The sender then **fast-retransmits** the
-segment at `RCV.NXT` immediately (Day 10), recovering in ~1 RTT instead of ~1 RTO.
+segment at `RCV.NXT` immediately (Doc 10), recovering in ~1 RTT instead of ~1 RTO.
 
 The heuristic's weakness is exactly reordering: a path that reorders by 3+ positions triggers spurious
-fast retransmits. Modern stacks add **RACK** (time-based loss detection, RFC 8985) and **D-SACK** (Day 18
-§B) to detect and undo these. Day 9 *generates* the dup-ACKs; Day 10 *acts* on them; Day 18's SACK makes
+fast retransmits. Modern stacks add **RACK** (time-based loss detection, RFC 8985) and **D-SACK** (Doc 18
+§B) to detect and undo these. Doc 9 *generates* the dup-ACKs; Doc 10 *acts* on them; Doc 18's SACK makes
 them precise.
 
-## E. Generating SACK blocks from the reassembler (the Day 18 connection)
+## E. Generating SACK blocks from the reassembler (the Doc 18 connection)
 
 The reassembler's `frags` are, by construction, the set of received-out-of-order byte ranges — which is
-*exactly* what a SACK option reports. Day 18 added:
+*exactly* what a SACK option reports. Doc 18 added:
 
 ```rust
 pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
@@ -399,11 +399,11 @@ pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
 }
 ```
 
-Two day-9 design choices pay off here: the **`BTreeMap` order** means the blocks come out ascending for
+Two doc-9 design choices pay off here: the **`BTreeMap` order** means the blocks come out ascending for
 free, and **disjoint fragments** mean each is a clean range (only *adjacent* ones need coalescing). The
-single most valuable thing about building a real reassembly buffer at day 9 — rather than the day-4 "drop
+single most valuable thing about building a real reassembly buffer at doc 9 — rather than the doc-4 "drop
 out-of-order" hack — is that it becomes the source of truth SACK reads from. This is why the curriculum
-puts reassembly (Day 9) before SACK (Day 18): you can't *report* holes you don't *track*.
+puts reassembly (Doc 9) before SACK (Doc 18): you can't *report* holes you don't *track*.
 
 ## F. Buffer management and the advertised window
 
@@ -416,13 +416,13 @@ In a full stack the reassembly buffer and the advertised window are two ends of 
 When out-of-order data piles up (a persistent gap), `bytes_currently_buffered` rises, so `RCV.WND` falls,
 so the *sender slows down* — flow control automatically backs off a sender whose data the receiver can't
 yet deliver. When the gap fills and the buffer drains to the app, `RCV.WND` reopens. This coupling is why
-flow control (Day 8) and reassembly (Day 9) are really one system: the buffer is the physical thing; the
+flow control (Doc 8) and reassembly (Doc 9) are really one system: the buffer is the physical thing; the
 window is its advertised free space.
 
 We decouple them (flat 1024 window, real buffer bounded by `MAX_AHEAD`) because our echo server drains
 instantly, so the buffer is almost always empty. A bulk receiver *must* couple them, or it either drops
 data (window too big for the buffer) or stalls throughput (window too small). Exercise E1 makes the
-coupling real; §C of day 8 covers the silly-window pitfall of doing it carelessly.
+coupling real; §C of doc 8 covers the silly-window pitfall of doing it carelessly.
 
 ## G. A worked multi-gap reassembly trace
 
@@ -450,7 +450,7 @@ a single lost segment can stall a whole window's worth of received data from rea
    overlap handling   trims/merges arbitrary overlaps          disjoint-only (+ trim vs delivered)
    memory pressure    "collapse": merge adjacent, then prune   bound by MAX_AHEAD, discard far data
    window coupling    RCV.WND = free buffer (autotuned)        flat 1024
-   SACK generation    from the OoO tree                        from frags (Day 18)
+   SACK generation    from the OoO tree                        from frags (Doc 18)
    delivery           wake reader when in-order prefix grows   recv_buf + take_received
 ```
 
@@ -521,7 +521,7 @@ reassembler bounds the memory and makes the overlap policy explicit and inspecti
 14. **How would overlapping fragments be handled?** Byte-interval merging (E3) — carefully, it's an
     evasion vector (§I).
 15. **How do the fragments become SACK blocks?** `sack_blocks()` reads them as ascending coalesced ranges
-    (Day 18, §E).
+    (Doc 18, §E).
 16. **Why build a real buffer if SACK is far off?** Because SACK *needs* a buffer to report from; you
     can't report holes you don't track.
 17. **What couples the buffer to `RCV.WND`?** `RCV.WND = capacity − buffered` (§F) — ours is decoupled
@@ -532,7 +532,7 @@ reassembler bounds the memory and makes the overlap policy explicit and inspecti
 21. **Does in-order data hit the buffer?** It passes straight through (drain returns it immediately, empty
     buffer).
 22. **What is the 2³¹ assumption?** A gap never spans > 2 GB, so offsets stay unambiguous (§C).
-23. **What handles a wrapped ancient duplicate?** PAWS/timestamps (Day 16), not the offset trick.
+23. **What handles a wrapped ancient duplicate?** PAWS/timestamps (Doc 16), not the offset trick.
 24. **Can a buffer-exhaustion attack hurt us?** Bounded by `MAX_AHEAD` per connection (§I).
 25. **What's the receive-side twin of retransmission?** Reassembly — sender keeps to resend, receiver
     keeps to reorder.
@@ -549,12 +549,12 @@ Q: What does a duplicate ACK signal?  A: "missing RCV.NXT, but later segments ar
 Q: Why three dup-ACKs for fast retransmit?  A: one/two can be reordering; three implies loss.
 Q: What bounds how much we buffer?  A: MAX_AHEAD (out-of-window data discarded).
 Q: Disjoint-fragment assumption?  A: future fragments don't overlap each other (true for our sender).
-Q: How do reassembler fragments become SACK blocks?  A: ascending coalesced (left,right) ranges (Day 18).
+Q: How do reassembler fragments become SACK blocks?  A: ascending coalesced (left,right) ranges (Doc 18).
 Q: Why build the buffer before SACK?  A: you can't report holes you don't track.
 Q: What is head-of-line blocking?  A: arrived bytes blocked by an earlier missing segment.
 Q: What protocol removes HOLB?  A: QUIC/HTTP-3 (independent per-stream reassembly).
-Q: PAWS defends what here?  A: an ancient wrapped duplicate landing in the current window (Day 16).
-Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to reorder).
+Q: PAWS defends what here?  A: an ancient wrapped duplicate landing in the current window (Doc 16).
+Q: Receive-side twin of Doc 6 retransmission?  A: reassembly (keep early data to reorder).
 ```
 
 ## M. Glossary
@@ -565,11 +565,11 @@ Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to
 - **Trim / buffer / drain** — the three steps of `recv`.
 - **Duplicate ACK** — an ACK acknowledging no new data; signals a hole; 3 → fast retransmit.
 - **`MAX_AHEAD`** — the cap on how far past `RCV.NXT` we buffer (out-of-window).
-- **SACK block** — a `(left, right)` range of buffered out-of-order data (Day 18), read from the
+- **SACK block** — a `(left, right)` range of buffered out-of-order data (Doc 18), read from the
   reassembler.
 - **Collapse** — merging/pruning the out-of-order queue under memory pressure (real stacks).
 - **Head-of-line blocking (HOLB)** — arrived data delayed by an earlier missing segment.
-- **PAWS** — timestamp-based defense against wrapped-sequence duplicates (Day 16).
+- **PAWS** — timestamp-based defense against wrapped-sequence duplicates (Doc 16).
 
 ## N. Reference tables
 
@@ -605,5 +605,5 @@ Q: Receive-side twin of Day 6 retransmission?  A: reassembly (keep early data to
 ```
 
 > Re-type the `Reassembler` from this chapter with the book closed, then `cargo test`. You now hold both
-> halves of reliable, ordered delivery: retransmission on the send side (Day 6) and reassembly on the
-> receive side (Day 9) — and you've built the buffer that SACK (Day 18) will one day read its truth from.
+> halves of reliable, ordered delivery: retransmission on the send side (Doc 6) and reassembly on the
+> receive side (Doc 9) — and you've built the buffer that SACK (Doc 18) will one day read its truth from.

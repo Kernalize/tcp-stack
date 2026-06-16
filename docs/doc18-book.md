@@ -1,4 +1,4 @@
-# Day 18 — TCP, Part 16: Selective Acknowledgment (SACK, RFC 2018)
+# Doc 18 — TCP, Part 16: Selective Acknowledgment (SACK, RFC 2018)
 
 > Goal: stop punishing a sender for *one* lost packet. With only the cumulative ACK, a receiver can
 > say no more than "I have everything through byte N" — so when segment 2 of a 10-segment burst is
@@ -6,9 +6,9 @@
 > data the receiver already holds. **Selective Acknowledgment** (RFC 2018) adds a second channel:
 > the receiver also reports the *islands* it has buffered above the hole ("…and I separately have
 > bytes N+1000 … N+9000"), so the sender retransmits **only the hole**. This is the payoff day of the
-> last several: it uses the **option framework** (Day 15) to negotiate and carry blocks, the
-> **reassembler's** buffered ranges (Day 9) to *generate* them, and the **retransmission queue**
-> (Day 12) to *act* on them.
+> last several: it uses the **option framework** (Doc 15) to negotiate and carry blocks, the
+> **reassembler's** buffered ranges (Doc 9) to *generate* them, and the **retransmission queue**
+> (Doc 12) to *act* on them.
 
 **Contents**
 
@@ -67,10 +67,10 @@ receiver gets segment 1, then segments 3 through 10. What can it say?
    cumulative ACK the receiver can send:  ack = 2000   (everything through 1999)
 ```
 
-The receiver buffers 3–10 (Day 9's reassembler), but its **cumulative ACK is stuck at 2000** — it
+The receiver buffers 3–10 (Doc 9's reassembler), but its **cumulative ACK is stuck at 2000** — it
 cannot advance past the hole at `[2000, 3000)`, no matter how much arrives behind it. Every segment
 that arrives after the hole produces *another* ACK 2000. To the sender these look like **duplicate
-ACKs**, and three of them trigger a fast retransmit of segment 2 (Day 10). Good so far.
+ACKs**, and three of them trigger a fast retransmit of segment 2 (Doc 10). Good so far.
 
 But now ask: **what happens on a retransmission timeout?** Before today, our `RetxQueue::due` resends
 *every* unacknowledged segment whose timer has elapsed — and after an RTO they all have. So the
@@ -95,7 +95,7 @@ deployed across the 1990s Internet without a flag day.
 RFC 2018 is two options that work together:
 
 - **SACK-Permitted (kind 4)** — a 2-byte flag sent **only in the SYN / SYN-ACK**. It means "I can
-  *process* SACK information." Like window scaling and timestamps (Days 16–17), it is **negotiated**:
+  *process* SACK information." Like window scaling and timestamps (Docs 16–17), it is **negotiated**:
   SACK is used on a connection only if **both** SYNs carried SACK-Permitted. If either side stays
   silent, the feature is off and we fall back to pure cumulative ACKs. This is the handshake-time
   capability exchange.
@@ -188,7 +188,7 @@ The TCP header length field (the data offset) is **4 bits**, counting 32-bit wor
 Every option you want on a segment competes for those 40 bytes. Let's do the arithmetic that pins
 down how many SACK blocks fit.
 
-Once a connection is established with **timestamps** (Day 16), *every* segment we send carries a
+Once a connection is established with **timestamps** (Doc 16), *every* segment we send carries a
 Timestamps option. With its two NOP pads that is **12 bytes**:
 
 ```text
@@ -219,7 +219,7 @@ they were meant to share 40 bytes, and three SACK blocks + timestamps is the exa
 
 ## 6. The receiver's job: generating blocks from the reassembler
 
-Here is the lovely part: we already built the data structure that knows the answer. The Day-9
+Here is the lovely part: we already built the data structure that knows the answer. The Doc-9
 **reassembler** buffers out-of-order fragments keyed by offset in a `BTreeMap`. The set of buffered
 ranges *is* the set of SACK blocks. We only need to read them out as absolute sequence ranges and
 coalesce neighbors:
@@ -244,7 +244,7 @@ pub fn sack_blocks(&self) -> Vec<(u32, u32)> {
 Three things to notice:
 
 - **Offsets → absolute sequence numbers.** The reassembler stores `offset = seq − base` to keep
-  ordering wrap-free (Day 9). SACK blocks are *absolute* sequence numbers, so we add `base` back.
+  ordering wrap-free (Doc 9). SACK blocks are *absolute* sequence numbers, so we add `base` back.
 - **Coalescing.** Two fragments that happen to be adjacent (`prev.right == next.left`) are one
   contiguous run and become **one** block. This keeps the option compact — three blocks can describe
   three *holes*, not three fragments. Without coalescing, a burst that arrives as ten adjacent
@@ -346,7 +346,7 @@ advance. (If the peer *reneges* — drops data it once SACKed — a production s
 ## 8. Modular sequence math for block coverage
 
 Sequence numbers wrap at 2³², so "≤" can't be a plain integer compare — `4_000_000_000 ≤ 5` is true
-on the wrapping circle. We reuse Day 3's serial-number helpers (`src/seq.rs`, RFC 1982):
+on the wrapping circle. We reuse Doc 3's serial-number helpers (`src/seq.rs`, RFC 1982):
 
 - `seq::before(a, b)` — `a` is strictly before `b` (the wrapping difference `a − b` lands in the
   upper half).
@@ -923,7 +923,7 @@ structures it feeds.
   bandwidth-delay-product path that is the difference between a ~1.5 KB retransmission and a 10 MB
   one — and, because each spurious retransmit is also read as congestion, SACK additionally avoids an
   unnecessary `cwnd` collapse. The benefit grows with the BDP, which is exactly why SACK matters most
-  on the long-fat networks window scaling (Day 17) unlocked.
+  on the long-fat networks window scaling (Doc 17) unlocked.
 - **The cost** is small: a few bytes of options per ACK while a hole is open (we pay nothing when
   there's no hole), an O(buffered-fragments) scan to build blocks, and an O(segments × blocks) scan
   to mark the scoreboard. Both scans are over structures bounded by the window. There is no extra

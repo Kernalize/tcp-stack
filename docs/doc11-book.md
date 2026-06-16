@@ -1,6 +1,6 @@
-# Day 11 — TCP, Part 9: The Socket API & a Tiny HTTP Server
+# Doc 11 — TCP, Part 9: The Socket API & a Tiny HTTP Server
 
-> Goal: turn the machinery into something an **application** can use. Everything through Day 10 was
+> Goal: turn the machinery into something an **application** can use. Everything through Doc 10 was
 > internal plumbing — handshake, reliability, windows, congestion. None of it was reachable by a program
 > that just wants to "send these bytes and read those." This chapter adds the interface: a send buffer, a
 > receive buffer, and a `write` / `take_received` / `poll_transmit` API — then drives it with two real
@@ -54,7 +54,7 @@ Volume II — the exhaustive reference
 
 A TCP implementation has two faces. *Inward*, it talks to the network: parse segments, ACK, retransmit,
 slide windows. *Outward*, it talks to the application: "here are the bytes that arrived, in order" and
-"please send these bytes, reliably, when you can." Days 1–10 built the inward face. The outward face is
+"please send these bytes, reliably, when you can." Docs 1–10 built the inward face. The outward face is
 two byte buffers and three verbs:
 
 - **`write(bytes)`** — the app hands us bytes to send. They join a **send buffer**.
@@ -78,7 +78,7 @@ window and chopped to the MSS**:
 while !self.send_buf.is_empty() {
     let n = (self.usable_window() as usize).min(mss).min(self.send_buf.len());
     if n == 0 { break; }                                   // window full — wait for an ACK
-    // (Nagle, Day 13: hold a sub-MSS tail while data is in flight, unless TCP_NODELAY)
+    // (Nagle, Doc 13: hold a sub-MSS tail while data is in flight, unless TCP_NODELAY)
     let payload: Vec<u8> = self.send_buf.drain(..n).collect();
     let seg = self.segment(self.send.nxt, self.recv.nxt, PSH | ACK, &payload);
     self.send.nxt = self.send.nxt.wrapping_add(n as u32);
@@ -88,15 +88,15 @@ while !self.send_buf.is_empty() {
 ```
 
 This single loop ties together everything: `usable_window()` is `min(SND.WND, cwnd) − FlightSize` (flow
-control + congestion control), `mss` is the segmentation unit (negotiated on Day 15), and every segment is
-recorded for retransmission (Day 6). With `cwnd` starting at 1 MSS, a 5 KB `write` leaves as *one* segment,
+control + congestion control), `mss` is the segmentation unit (negotiated on Doc 15), and every segment is
+recorded for retransmission (Doc 6). With `cwnd` starting at 1 MSS, a 5 KB `write` leaves as *one* segment,
 and the rest waits — slow start, finally *visible* and *binding* (`bulk_send_is_gated_by_the_congestion_window`).
-This is the moment Day 10's congestion control stopped being theoretical: it now actually clamps a real
+This is the moment Doc 10's congestion control stopped being theoretical: it now actually clamps a real
 backlog.
 
 ## 3. The receive buffer and `take_received`
 
-Symmetrically, in-order bytes from the reassembler (Day 9) are appended to a receive buffer instead of
+Symmetrically, in-order bytes from the reassembler (Doc 9) are appended to a receive buffer instead of
 being echoed inline:
 
 ```rust
@@ -115,7 +115,7 @@ pub fn take_received(&mut self) -> Vec<u8> { std::mem::take(&mut self.recv_buf) 
 
 ## 4. Receive split from send: why the handler stopped echoing
 
-Through Day 10, receiving data *was* sending data — `on_segment` built and returned the echo inline. That
+Through Doc 10, receiving data *was* sending data — `on_segment` built and returned the echo inline. That
 conflates two responsibilities and only works for an echo server. The refactor separates them:
 
 - **Receiving** (`on_segment`): reassemble → buffer → return a **bare ACK**. It never decides *what* to
@@ -152,7 +152,7 @@ and a one-line body; anything else falls through to echo. (A real server buffers
 ## 6. Closing after the response
 
 HTTP/1.0 with `Connection: close` means the **server** closes once the response is sent — and the
-active-close path from Day 7 is exactly what we need:
+active-close path from Doc 7 is exactly what we need:
 
 ```rust
 if serving_http {
@@ -161,10 +161,10 @@ if serving_http {
 ```
 
 `close()` is valid from ESTABLISHED, sends `FIN|ACK` at `SND.NXT` (after the response bytes `poll_transmit`
-already advanced past), queues the FIN for retransmission (Day 12), and moves us into `FIN_WAIT_1`. The
+already advanced past), queues the FIN for retransmission (Doc 12), and moves us into `FIN_WAIT_1`. The
 client's ACK and FIN then drive us through `FIN_WAIT_2 → TIME_WAIT → CLOSED`, and the event loop reaps the
 TCB. The whole lifecycle — open, transfer, close — runs for every `curl`, and this is the **first** code
-path where our binary actively closes (Day 7's machinery, finally exercised live).
+path where our binary actively closes (Doc 7's machinery, finally exercised live).
 
 ## 7. The event loop, end to end
 
@@ -174,7 +174,7 @@ path where our binary actively closes (Day 7's machinery, finally exercised live
    loop:
      now = clock.elapsed()
      for each connection:                      # timers
-         send any retransmissions (on_tick)    # RTO fired → also signals congestion (Day 10)
+         send any retransmissions (on_tick)    # RTO fired → also signals congestion (Doc 10)
          reap if CLOSED                         # TIME_WAIT expired
      recv one packet (non-blocking):
          ICMP  → echo reply
@@ -193,12 +193,12 @@ retransmission, the adaptive RTO, both windows, congestion control, and teardown
 ```text
    curl http://192.168.0.2:8080/
 
-    SYN                → SYN-ACK → ACK                     (handshake, Day 3)
+    SYN                → SYN-ACK → ACK                     (handshake, Doc 3)
     PSH "GET / HTTP/1.0\r\n…\r\n\r\n"
                        → ACK (bare, acknowledges the request)        (§3)
     app: take_received() sees "GET …" → http_response() → write(200 OK)
                        → PSH "HTTP/1.0 200 OK… Hello…"   (poll_transmit, window-gated)
-                       → FIN|ACK                          (close(), Day 7)
+                       → FIN|ACK                          (close(), Doc 7)
     ACK, FIN|ACK       → ACK → TIME_WAIT → (2·MSL) → CLOSED → TCB reaped
 ```
 
@@ -232,18 +232,18 @@ tests pin offline. (§F traces it byte by byte.)
 | `on_segment` (data branch) | reassemble → buffer → bare ACK (no inline echo) |
 | `main.rs` app loop | `take_received` → echo or `http_response` → `write` → `poll_transmit` |
 | `http_response` | canned HTTP/1.0 200 OK for a request line |
-| `conn.close(now_ms)` | active close after the HTTP response (Day 7) |
+| `conn.close(now_ms)` | active close after the HTTP response (Doc 7) |
 
 ## 11. Verification
 
-`cargo test` proves the API offline. The Day-11 coverage:
+`cargo test` proves the API offline. The Doc-11 coverage:
 
 - `bulk_send_is_gated_by_the_congestion_window` — a 5 KB write leaves one MSS segment under cwnd=1·MSS;
   after an ACK grows cwnd to 2·MSS, two segments go. Slow start, demonstrated and *binding*.
 - `established_delivers_data_then_app_echoes` — data → bare ACK + `take_received()` returns it; the app
   `write`s it back and `poll_transmit` produces the echo segment with the right seq/ack.
 - The Nagle tests (`nagle_holds_small_write_until_prior_data_acked`, `nodelay_sends_small_write_immediately`,
-  Day 13) exercise `poll_transmit`'s hold logic.
+  Doc 13) exercise `poll_transmit`'s hold logic.
 - All the reassembly / retransmission / dup-ACK / window tests, updated to the write/poll_transmit API,
   still pass — the control logic is unchanged, only the *interface* moved.
 
@@ -271,13 +271,13 @@ veneer is optional sugar.
 ## 13. Honesty: the final status
 
 Eleven days in (and now eighteen), the stack does the **whole TCP lifecycle, reliably, over a real link**,
-driven by a real application. The status, *updated* for everything Days 12–18 added since this chapter was
+driven by a real application. The status, *updated* for everything Docs 12–18 added since this chapter was
 first written:
 
-- **Done since day 11:** SYN/SYN-ACK/FIN retransmission (Day 12), exponential RTO backoff (Day 12), Nagle +
-  `TCP_NODELAY` (Day 13), zero-window probes / persist timer (Day 14), TCP options framework + MSS
-  negotiation (Day 15), timestamps + RTTM + PAWS (Day 16), window scaling (Day 17), and SACK (Day 18). The
-  original day-11 "not done" list has largely been *done*.
+- **Done since doc 11:** SYN/SYN-ACK/FIN retransmission (Doc 12), exponential RTO backoff (Doc 12), Nagle +
+  `TCP_NODELAY` (Doc 13), zero-window probes / persist timer (Doc 14), TCP options framework + MSS
+  negotiation (Doc 15), timestamps + RTTM + PAWS (Doc 16), window scaling (Doc 17), and SACK (Doc 18). The
+  original doc-11 "not done" list has largely been *done*.
 - **Still genuinely missing:** RFC 5961 in-window RST/SYN validation, a distinct CLOSE_WAIT + half-close,
   modern congestion control (NewReno/CUBIC — we ship Reno), SACK-based loss recovery's full RFC 6675
   scoreboard, and a blocking `TcpListener`/`TcpStream` veneer with multi-request/keep-alive HTTP.
@@ -308,7 +308,7 @@ correct core; the remainder is breadth and robustness, not a missing heart.
 - **E2.** Make `http_response` buffer until `\r\n\r\n`, parse the path, and serve different bodies (and a
   404) (§H).
 - **E3.** Support HTTP keep-alive: don't close after the response; handle a second request on the same
-  connection (§C) — and note this avoids the TIME_WAIT cost (Day 7).
+  connection (§C) — and note this avoids the TIME_WAIT cost (Doc 7).
 - **E4.** Add real backpressure: when `poll_transmit` can't drain `send_buf` (window full), have the app
   stop producing until an ACK opens it — the real meaning of a blocking `write` (§D).
 - **E5.** Add request smuggling defenses: reject conflicting `Content-Length`/`Transfer-Encoding`, cap
@@ -318,8 +318,8 @@ correct core; the remainder is breadth and robustness, not a missing heart.
 
 The lifecycle is complete and application-driven. The remaining days are **hardening** — making the stack
 robust against loss and a hostile network, and speaking TCP's full option vocabulary: control-segment
-retransmission (Day 12), Nagle (Day 13), zero-window probes (Day 14), MSS negotiation (Day 15), timestamps
-(Day 16), window scaling (Day 17), and SACK (Day 18). Each builds directly on the socket API and event loop
+retransmission (Doc 12), Nagle (Doc 13), zero-window probes (Doc 14), MSS negotiation (Doc 15), timestamps
+(Doc 16), window scaling (Doc 17), and SACK (Doc 18). Each builds directly on the socket API and event loop
 assembled here.
 
 ---
@@ -340,13 +340,13 @@ Mapping them:
    connect()           active open                              Connection::connect (tests)
    write()/send()      queue bytes to send                      write() → send_buf
    read()/recv()       read received bytes                      take_received()
-   close()             graceful close                           close() → FIN (Day 7)
-   shutdown(SHUT_WR)   half-close one direction                 (unsupported; Day 5 §E)
-   setsockopt(NODELAY) disable Nagle                            set_nodelay() (Day 13)
+   close()             graceful close                           close() → FIN (Doc 7)
+   shutdown(SHUT_WR)   half-close one direction                 (unsupported; Doc 5 §E)
+   setsockopt(NODELAY) disable Nagle                            set_nodelay() (Doc 13)
 ```
 
 The two BSD ideas we *don't* model are the **listening socket** (a passive endpoint that spawns a new
-connected socket per `accept`, with backlog queues — Day 3 §I) and **blocking semantics** (a `read` that
+connected socket per `accept`, with backlog queues — Doc 3 §I) and **blocking semantics** (a `read` that
 sleeps until data arrives — §B). Our event loop collapses the listener into "any SYN makes a TCB" and
 replaces blocking with polling. The functional behavior (queue bytes, read bytes, close) is identical; the
 *shape* differs.
@@ -382,16 +382,16 @@ Our server speaks minimal HTTP/1.0. The lineage, and what each version asks of T
    ───────   ────   ───────────────────────────────   ───────────────────────────────────
    HTTP/1.0  1996   one request/response per conn      open → req → resp → close (our model)
    HTTP/1.1  1997   keep-alive, chunked, pipelining    persistent conn (avoid handshake/TIME_WAIT)
-   HTTP/2    2015   multiplexed streams over one conn   one TCP conn; suffers TCP HOLB (Day 9 §J)
+   HTTP/2    2015   multiplexed streams over one conn   one TCP conn; suffers TCP HOLB (Doc 9 §J)
    HTTP/3    2022   over QUIC (UDP)                     abandons TCP for per-stream reassembly
 ```
 
 HTTP/1.0's **close-delimited body** is what lets our server be so simple: with `Connection: close`, the
 body ends when the connection closes, so we don't even need `Content-Length` to be correct (though we send
 it) — `curl` reads until EOF. HTTP/1.1 keep-alive (E3) reuses one connection for many requests, amortizing
-the Day-3 handshake and the Day-7 TIME_WAIT (the close-storm fix, Day 7 §J) — which is why it became the
+the Doc-3 handshake and the Doc-7 TIME_WAIT (the close-storm fix, Doc 7 §J) — which is why it became the
 default. HTTP/2 multiplexes streams but still rides one TCP connection, so a single packet loss head-of-line
-blocks *all* streams (Day 9 §J); HTTP/3 moves to QUIC over UDP precisely to escape that. The arc:
+blocks *all* streams (Doc 9 §J); HTTP/3 moves to QUIC over UDP precisely to escape that. The arc:
 application protocols kept pushing against TCP's one-ordered-stream model until HTTP/3 left it.
 
 ## D. Send/receive buffer design and backpressure
@@ -405,7 +405,7 @@ lives:
   appends), so an app could queue unbounded data; E4 adds the real backpressure. `SO_SNDBUF` sizes this in
   a real stack.
 - **Receive buffer (`recv_buf`).** Data arrives faster than the app `read`s; it queues here, and its
-  occupancy *should* shrink the advertised `RCV.WND` (Day 8 §F, Day 9 §F) — the receiver-side backpressure
+  occupancy *should* shrink the advertised `RCV.WND` (Doc 8 §F, Doc 9 §F) — the receiver-side backpressure
   that throttles the *sender*. We keep a flat window, so our receive buffer doesn't push back. `SO_RCVBUF`
   sizes it; autotuning grows it to the BDP.
 
@@ -420,17 +420,17 @@ one loop:
 
 ```text
    n = min( usable_window(),    ←── flow control (SND.WND) ∧ congestion control (cwnd) ∧ −FlightSize
-            mss,                ←── segmentation (Day 15 negotiated MSS)
+            mss,                ←── segmentation (Doc 15 negotiated MSS)
             send_buf.len() )    ←── how much the app actually queued
    if n == 0: stop              ←── window full → wait for an ACK to slide it open
-   if Nagle && n<mss && in-flight: stop   ←── Nagle (Day 13): coalesce small writes
-   build PSH|ACK segment        ←── header + timestamps (Day 16) [+ checksums, Day 3]
-   advance SND.NXT by n         ←── sequence-space accounting (Day 3)
-   retx.record(...)             ←── reliability (Day 6): keep it for retransmission
+   if Nagle && n<mss && in-flight: stop   ←── Nagle (Doc 13): coalesce small writes
+   build PSH|ACK segment        ←── header + timestamps (Doc 16) [+ checksums, Doc 3]
+   advance SND.NXT by n         ←── sequence-space accounting (Doc 3)
+   retx.record(...)             ←── reliability (Doc 6): keep it for retransmission
 ```
 
-Reading this loop top to bottom is reading the whole curriculum: Day 3's sequence numbers, Day 6's
-retransmission, Day 8's flow control, Day 10's congestion control, Day 13's Nagle, Day 15's MSS, Day 16's
+Reading this loop top to bottom is reading the whole curriculum: Doc 3's sequence numbers, Doc 6's
+retransmission, Doc 8's flow control, Doc 10's congestion control, Doc 13's Nagle, Doc 15's MSS, Doc 16's
 timestamps. That convergence is *why* the socket API is the right capstone: it's the first code that has to
 honor every mechanism at once, and the place each one finally earns its keep against a real backlog.
 
@@ -439,7 +439,7 @@ honor every mechanism at once, and the place each one finally earns its keep aga
 A full `curl http://192.168.0.2:8080/`, our ISS 0, client ISN 100, abbreviated headers. `C`=client, `U`=us.
 
 ```text
-   ① C→U  SYN  seq=100  <mss,ws,ts,sackOK>          handshake (Days 3,15–18)
+   ① C→U  SYN  seq=100  <mss,ws,ts,sackOK>          handshake (Docs 3,15–18)
    ② U→C  SYN,ACK seq=0 ack=101 <mss,ws,ts,sackOK>
    ③ C→U  ACK  seq=101 ack=1
       —— ESTABLISHED, RCV.NXT=101, SND.NXT=1 ——
@@ -477,7 +477,7 @@ The **C10K problem** (handling 10,000 concurrent connections) is exactly the blo
 (§B): thread-per-connection collapses under 10k threads (context-switch and memory overhead), so scalable
 servers use an event loop over `epoll` — *our* architecture, just with a scalable readiness primitive
 instead of poll+sleep. Our stack is structurally a C10K-style server (one loop, never block); what it lacks
-for scale is `epoll` (Day 6 §E), zero-copy buffers, and TLS — not a different *shape*.
+for scale is `epoll` (Doc 6 §E), zero-copy buffers, and TLS — not a different *shape*.
 
 ## H. Security — HTTP parsing as attack surface
 
@@ -499,7 +499,7 @@ relevant — and our deliberately naive parser illustrates the hazards by *not* 
   rejected — normalize and confine paths.
 
 We serve a canned response, so most of these are latent, but the lesson is real: **the HTTP parser is an
-attack surface as much as the TCP parser** (Day 1's discipline — validate length, never trust input —
+attack surface as much as the TCP parser** (Doc 1's discipline — validate length, never trust input —
 applies one layer up), and request *framing* in particular (Content-Length vs chunked vs close-delimited)
 is where the subtle, high-impact bugs live.
 
@@ -507,7 +507,7 @@ is where the subtle, high-impact bugs live.
 
 - **The extra ACK.** Splitting receive from send (§4) means a request now draws a *bare ACK* and then,
   separately, the response — two segments where the inline echo sent one. On a request/response workload
-  that's one extra packet per exchange. Real stacks reclaim it with **delayed ACK** (Day 4 §B): hold the
+  that's one extra packet per exchange. Real stacks reclaim it with **delayed ACK** (Doc 4 §B): hold the
   bare ACK briefly so it can *piggyback* on the response, collapsing back to one segment. We ACK
   immediately, so we pay the extra packet — a deliberate simplicity-for-clarity trade.
 - **Copies.** `write` copies app bytes into `send_buf`; `poll_transmit`'s `drain(..n).collect()` copies them
@@ -515,11 +515,11 @@ is where the subtle, high-impact bugs live.
   out (the one *non*-copy, via `mem::take`). A zero-copy stack would reference buffers instead; we copy for
   clarity.
 - **Segmentation cost.** `poll_transmit` builds one segment per MSS chunk — N syscalls/allocations for N
-  segments. Real stacks use TSO/GSO (Day 6 §K) to hand the NIC one big buffer it splits. We emit each
+  segments. Real stacks use TSO/GSO (Doc 6 §K) to hand the NIC one big buffer it splits. We emit each
   segment individually.
 - **The win that matters:** congestion control finally *binds* (§2) — a bulk `write` is correctly paced by
   `cwnd`, so the stack behaves on a shared, lossy network. Correctness under load, not raw speed, is the
-  day-11 performance story.
+  doc-11 performance story.
 
 ## J. Extended FAQ
 
@@ -562,9 +562,9 @@ is where the subtle, high-impact bugs live.
     advanced past the response bytes (§F ⑦).
 22. **What mechanisms meet in the event loop?** All of them — parse, checksum, handshake, reassembly, retx,
     RTO, windows, congestion, teardown (§7).
-23. **What's still missing after day 11?** RFC 5961, distinct CLOSE_WAIT/half-close, NewReno/CUBIC, a
+23. **What's still missing after doc 11?** RFC 5961, distinct CLOSE_WAIT/half-close, NewReno/CUBIC, a
     blocking veneer (§13).
-24. **What did Days 12–18 add?** Control-seg retransmission, Nagle, zero-window probes, MSS, timestamps,
+24. **What did Docs 12–18 add?** Control-seg retransmission, Nagle, zero-window probes, MSS, timestamps,
     window scaling, SACK (§13).
 25. **Is this a complete TCP?** A complete, tested *core* that real clients interoperate with; the rest is
     breadth/robustness (§13).
@@ -580,13 +580,13 @@ Q: What does take_received() do?  A: moves all in-order received bytes to the ap
 Q: Why did on_segment stop echoing inline?  A: to split receiving (ACK) from sending (app-driven) → non-echo apps possible.
 Q: How does congestion control finally bind?  A: a bulk write exceeds cwnd, so poll_transmit paces it.
 Q: HTTP/1.0 close-delimited body means?  A: the body ends when the connection closes (no length needed).
-Q: Who actively closes for HTTP/1.0?  A: the server, after the response (close() → Day 7).
+Q: Who actively closes for HTTP/1.0?  A: the server, after the response (close() → Doc 7).
 Q: VecDeque vs Vec for the buffers?  A: VecDeque (FIFO drain-front) for send; Vec (append/take-all) for receive.
 Q: Why no blocking TcpListener?  A: it needs a thread/async layer; our verbs already ARE the stream ops.
 Q: The C10K problem is solved by?  A: an event loop over epoll (our shape), not thread-per-connection.
 Q: What is backpressure?  A: buffer fullness signaling "slow down" (write blocks / RCV.WND shrinks).
 Q: What is HTTP request smuggling?  A: conflicting Content-Length/Transfer-Encoding desyncing proxy and server.
-Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, zero-window probes, MSS, timestamps, wscale, SACK.
+Q: What did Docs 12–18 add to doc 11's status?  A: control-seg retx, Nagle, zero-window probes, MSS, timestamps, wscale, SACK.
 ```
 
 ## L. Glossary
@@ -617,10 +617,10 @@ Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, ze
    take_received()   stack → app    recv_buf      nothing (takes all)
 ```
 
-**M.2 — Inline echo (≤Day 10) vs split API (Day 11)**
+**M.2 — Inline echo (≤Doc 10) vs split API (Doc 11)**
 
 ```text
-                      ≤ Day 10 (echo)              Day 11 (split)
+                      ≤ Doc 10 (echo)              Doc 11 (split)
    ────────────────   ──────────────────────────  ──────────────────────────────
    data arrives       on_segment builds the echo   on_segment buffers + bare ACK
    who decides reply  the protocol handler         the application (take_received → write)
@@ -640,6 +640,6 @@ Q: What did Days 12–18 add to day 11's status?  A: control-seg retx, Nagle, ze
 ```
 
 > Re-type the send/receive buffers and `poll_transmit` with the book closed, then `cargo test`. You have now
-> built TCP end to end: from a raw IPv4 packet (Day 1) to an application serving HTTP over your own reliable,
-> congestion-controlled byte stream (Day 11). That is the whole arc — and `poll_transmit` is the one function
+> built TCP end to end: from a raw IPv4 packet (Doc 1) to an application serving HTTP over your own reliable,
+> congestion-controlled byte stream (Doc 11). That is the whole arc — and `poll_transmit` is the one function
 > where every day of it meets.

@@ -1,6 +1,6 @@
-# Day 10 — TCP, Part 8: Congestion Control (Slow Start, AIMD, Fast Recovery)
+# Doc 10 — TCP, Part 8: Congestion Control (Slow Start, AIMD, Fast Recovery)
 
-> Goal: keep the sender from overwhelming the **network**. Flow control (Day 8) bounds the sender by the
+> Goal: keep the sender from overwhelming the **network**. Flow control (Doc 8) bounds the sender by the
 > receiver's buffer; congestion control bounds it by the *path* — the routers and links in between, which
 > the receiver's window knows nothing about. The sender carries a second window, `cwnd`, that grows while
 > ACKs flow and collapses on loss. That feedback loop — AIMD — is one of the most consequential control
@@ -88,8 +88,8 @@ Two variables drive everything (`src/congestion.rs`):
   It starts "infinite" (we use 65535) and is pulled down to roughly half the in-flight data every time loss
   is detected — that's the "multiplicative decrease" half of AIMD.
 
-`MSS` (maximum segment size) is the unit of growth. At day 10 we use a fixed 1460 (typical Ethernet
-payload); Day 15 negotiates it from the peer's SYN. Measuring `cwnd` in *bytes* but growing it in *MSS
+`MSS` (maximum segment size) is the unit of growth. At doc 10 we use a fixed 1460 (typical Ethernet
+payload); Doc 15 negotiates it from the peer's SYN. Measuring `cwnd` in *bytes* but growing it in *MSS
 units* keeps the algorithm packet-oriented (the network congests on packets/queues, roughly per-segment),
 which is what RFC 5681 specifies.
 
@@ -133,7 +133,7 @@ an arbitrary choice — it is the *unique* increase/decrease rule that converges
 TCP infers loss two ways, and they mean different things:
 
 - **Three duplicate ACKs** — the receiver got segments *after* a gap (it keeps re-acking the byte it's
-  missing; those dup-ACKs are exactly what Day 9 made us emit). Data is still flowing, so the network isn't
+  missing; those dup-ACKs are exactly what Doc 9 made us emit). Data is still flowing, so the network isn't
   badly congested → a *mild* signal. Response: **fast retransmit + fast recovery** (halve, keep going).
 - **Retransmission timeout (RTO)** — silence; not even dup-ACKs came back. The pipe may be severely
   congested or broken → a *strong* signal. Response: collapse `cwnd` to 1 MSS and restart slow start.
@@ -182,9 +182,9 @@ pub fn on_ack(&mut self, acked: u32) {
 ```
 
 On our side, `Connection` detects a duplicate ACK (acks no new data, `th.ack == SND.UNA`, data still
-outstanding, empty payload, window unchanged — the four-part test hardened on Day 14) and, when
+outstanding, empty payload, window unchanged — the four-part test hardened on Doc 14) and, when
 `on_dup_ack` returns `true`, resends the oldest unacked segment via `RetxQueue::fast_retransmit` — which
-also bumps that segment's retry count so Karn's algorithm (Day 6) correctly refuses to time it. (Day 18's
+also bumps that segment's retry count so Karn's algorithm (Doc 6) correctly refuses to time it. (Doc 18's
 SACK makes fast_retransmit resend the first *un-SACKed* hole rather than blindly the oldest.)
 
 ## 7. Worked numbers (what the tests assert)
@@ -234,7 +234,7 @@ bytes — far less than a full MSS (`congestion_avoidance_grows_sub_linearly`). 
 | `usable_window()` | now `min(SND.WND, cwnd) − FlightSize` |
 | `on_segment` ACK branch | new-data ACK → `on_ack` (grow); duplicate ACK → `on_dup_ack` → maybe fast-retransmit |
 | `on_tick` | RTO fired (`retx.due` non-empty) → `on_timeout` (collapse + slow start) |
-| `RetxQueue::fast_retransmit` | resend the oldest unacked (un-SACKed, Day 18) segment, reset timer, count retry |
+| `RetxQueue::fast_retransmit` | resend the oldest unacked (un-SACKed, Doc 18) segment, reset timer, count retry |
 
 The connection now distinguishes three kinds of ACK in ESTABLISHED: one that **advances** `SND.UNA` (grow
 cwnd), a **duplicate** (no new data, data outstanding → count toward fast retransmit), and everything else
@@ -249,9 +249,9 @@ harmlessly.
 
 So why build it now? Because the **algorithm** is the lesson, and it's fully exercised by unit tests that
 drive the state machine directly. The piece that makes it *bind* in practice is a real **send buffer** and
-an application that writes in bulk — precisely the socket API of Day 11, whose `poll_transmit` gates every
-send on `usable_window()`. Building the controller first means Day 11's sender has a correct window to obey
-on day one. (Same pattern as the RTT estimator in Day 6: a clean, tested module wired in ahead of the load
+an application that writes in bulk — precisely the socket API of Doc 11, whose `poll_transmit` gates every
+send on `usable_window()`. Building the controller first means Doc 11's sender has a correct window to obey
+on day one. (Same pattern as the RTT estimator in Doc 6: a clean, tested module wired in ahead of the load
 that will exercise it.)
 
 ## 11. Verification
@@ -263,10 +263,10 @@ that will exercise it.)
   slow-start resumption.
 - `tcp::three_dup_acks_fast_retransmit_the_oldest_segment` — end-to-end: we echo "hi", then three duplicate
   ACKs arrive; the first two do nothing, the third returns the echo bytes for immediate resend.
-- `tcp::bulk_send_is_gated_by_the_congestion_window` (Day 11) — a real backlog clamped by `cwnd`.
+- `tcp::bulk_send_is_gated_by_the_congestion_window` (Doc 11) — a real backlog clamped by `cwnd`.
 
 Live, you can't easily *see* `cwnd` bind on the echo path (§10). The honest demonstration is the unit tests
-plus, with Day 11's bulk sender, an `iperf3`-style transfer under `tc netem loss 5%` showing the sawtooth —
+plus, with Doc 11's bulk sender, an `iperf3`-style transfer under `tc netem loss 5%` showing the sawtooth —
 the Manual's Week 8 milestone.
 
 ## 12. Why this, not that
@@ -275,17 +275,17 @@ the Manual's Week 8 milestone.
 |---|---|---|
 | Algorithm | RFC 5681 Reno (AIMD + fast recovery) | CUBIC (Linux default), BBR (model-based), etc. (§G) |
 | Initial cwnd | 1 MSS (visible ramp) | 10 MSS (RFC 6928) |
-| MSS | fixed 1460 at day 10 | negotiated via the MSS option in the SYN (Day 15) |
+| MSS | fixed 1460 at doc 10 | negotiated via the MSS option in the SYN (Doc 15) |
 | Loss signal | 3 dup-ACKs + RTO | + ECN (§F), RACK-TLP (time-based) |
 | Recovery | basic fast recovery | NewReno / SACK-based per-segment recovery (§E) |
-| Where it binds | nowhere at day 10 (echo server) | gates every send from a real send buffer (Day 11) |
+| Where it binds | nowhere at doc 10 (echo server) | gates every send from a real send buffer (Doc 11) |
 
 ## 13. Honesty: what production does (NewReno, CUBIC, BBR, ECN)
 
 - **Reno → NewReno → SACK recovery.** Our fast recovery is basic Reno. **NewReno** (RFC 6582) stays in
   recovery until *all* data outstanding at the time of loss is acked, retransmitting on each *partial* ACK
   — fixing Reno's poor handling of multiple losses in one window. **SACK-based recovery** (RFC 6675, our
-  Day 18 building blocks) uses the scoreboard to retransmit exactly the holes while keeping the pipe full.
+  Doc 18 building blocks) uses the scoreboard to retransmit exactly the holes while keeping the pipe full.
   We implement classic Reno; the upgrades are exercises E2/E5.
 - **CUBIC is the Linux default (§G).** Reno's linear additive-increase is too slow to fill modern long-fat
   pipes; CUBIC grows as a cubic function of time-since-loss, ramping fast far from the last loss and gently
@@ -293,14 +293,14 @@ the Manual's Week 8 milestone.
 - **ECN avoids loss as the signal (§F).** Explicit Congestion Notification lets routers *mark* packets
   instead of dropping them; the sender reacts to a mark as a (gentler, lossless) congestion signal. We
   don't implement ECN.
-- **MSS is fixed at day 10.** The controller uses a 1460 constant; Day 15 negotiates the real MSS, and the
+- **MSS is fixed at doc 10.** The controller uses a 1460 constant; Doc 15 negotiates the real MSS, and the
   congestion module derives its `MSS` from the same source so the two agree.
 - **No pacing.** Real stacks *pace* `cwnd` worth of data smoothly across the RTT rather than bursting it on
   each ACK; we'd burst (if we had a backlog). Pacing reduces queue spikes.
 - **Appropriate Byte Counting, hystart, etc.** Many refinements (RFC 3465 ABC, HyStart slow-start exit) are
   out of scope.
 
-None of these change the day-10 contract (the sender obeys `min(SND.WND, cwnd)` and runs AIMD); they are
+None of these change the doc-10 contract (the sender obeys `min(SND.WND, cwnd)` and runs AIMD); they are
 the decades of refinement layered on Jacobson's core.
 
 ## 14. Rebuild it yourself — checklist + exercises
@@ -316,14 +316,14 @@ the decades of refinement layered on Jacobson's core.
 
 **Exercises:**
 
-- **E1.** ✅ *Done* (Day 11): a real send buffer + bulk write so `usable_window()` actually clamps
+- **E1.** ✅ *Done* (Doc 11): a real send buffer + bulk write so `usable_window()` actually clamps
   transmission; watch `cwnd` sawtooth under `tc netem loss`.
 - **E2.** Implement **NewReno**: stay in recovery until *all* data outstanding at the time of loss is acked,
   retransmitting on each partial ACK (§E).
 - **E3.** Add **ECN**: react to a congestion mark in the IP/TCP headers as a gentler loss signal, halving
   without a retransmit (§F).
 - **E4.** Swap Reno for **CUBIC**'s cubic growth and compare ramp-up on a high-BDP path (§G).
-- **E5.** Wire Day 18's SACK scoreboard into recovery (RFC 6675 `pipe`/`IsLost`) so recovery retransmits
+- **E5.** Wire Doc 18's SACK scoreboard into recovery (RFC 6675 `pipe`/`IsLost`) so recovery retransmits
   holes while keeping the pipe full.
 
 ## 15. What the next step adds
@@ -331,7 +331,7 @@ the decades of refinement layered on Jacobson's core.
 We now have every internal mechanism of TCP: handshake, reliable in-order transfer, retransmission with an
 adaptive RTO, teardown, flow control, reassembly, and congestion control. What's missing is the
 **interface**: a socket-style API (`write`/`take_received`/`poll_transmit`) with a send buffer, so a real
-application — a tiny HTTP server — can drive the stack instead of a hard-coded echo. That API (Day 11) is
+application — a tiny HTTP server — can drive the stack instead of a hard-coded echo. That API (Doc 11) is
 also what finally gives congestion control something to push against.
 
 ---
@@ -342,13 +342,13 @@ also what finally gives congestion control something to push against.
 
 In October 1986, the throughput between Lawrence Berkeley Lab and UC Berkeley — 400 yards apart, connected
 through a few IMPs — dropped from 32 kbit/s to **40 bit/s**, a factor of 1000. The cause: under load, RTTs
-rose, RFC 793's variance-blind RTO (Day 6 §B) fired too early, senders retransmitted, the extra traffic
+rose, RFC 793's variance-blind RTO (Doc 6 §B) fired too early, senders retransmitted, the extra traffic
 raised load further, and the network entered **congestion collapse** — a stable state where the link is
 busy but almost no *useful* data gets through (it's nearly all retransmissions of data already delivered or
 about to be).
 
 Van Jacobson's 1988 paper "Congestion Avoidance and Control" diagnosed it and added three mechanisms, all
-in this curriculum: the **variance-based RTO** (Day 6), **slow start**, and **congestion avoidance** (this
+in this curriculum: the **variance-based RTO** (Doc 6), **slow start**, and **congestion avoidance** (this
 day). The unifying principle he articulated is **conservation of packets**: a connection "in equilibrium"
 should put a new packet into the network only when an old one leaves (an ACK arrives) — the **ACK clock**.
 Slow start *reaches* equilibrium; congestion avoidance *maintains* it; the RTO and dup-ACKs detect when
@@ -444,9 +444,9 @@ The evolution of fast recovery, each fixing the last's weakness with multiple lo
   ACK (acks some but not all of it) means another loss; NewReno immediately retransmits the next hole and
   *stays* in recovery until all of `recover` is acked. Handles multiple losses in `~1 RTT each` without an
   RTO.
-- **SACK-based recovery (RFC 6675).** With SACK (Day 18) the receiver *names* the holes, so the sender
+- **SACK-based recovery (RFC 6675).** With SACK (Doc 18) the receiver *names* the holes, so the sender
   retransmits exactly them while a `pipe` estimator keeps the network as full as `cwnd` allows — the best
-  loss recovery, retransmitting only genuine holes and never stalling. Our Day 18 builds the SACK
+  loss recovery, retransmitting only genuine holes and never stalling. Our Doc 18 builds the SACK
   scoreboard; wiring 6675's `pipe`/`IsLost` is exercise E5.
 
 ```text
@@ -531,7 +531,7 @@ the congestion-avoidance sawtooth unless an RTO collapses it back to `cwnd = 1` 
    recovery          SACK + RACK-TLP + PRR                Reno fast recovery
    ECN               supported (DCTCP for datacenters)     none
    pacing            fq/pacing qdisc, BBR paces            none (would burst)
-   MSS               negotiated + PMTU discovery           negotiated (Day 15)
+   MSS               negotiated + PMTU discovery           negotiated (Doc 15)
 ```
 
 The instructive gap is **PRR** (Proportional Rate Reduction, RFC 6937), Linux's modern replacement for the
@@ -554,7 +554,7 @@ Congestion control trusts ACKs, and a lying or forged ACK stream can manipulate 
 - **Forged dup-ACKs / RST.** An off-path attacker who guesses the connection can inject dup-ACKs to trigger
   spurious fast retransmits and `cwnd` halving (a throughput DoS), or an in-window RST to kill the flow.
   RFC 5961 validation + random ISNs raise the bar.
-- **Low-rate "shrew" DoS (Day 6 §J).** Bursts timed to the RTO force repeated timeouts → `cwnd` collapse,
+- **Low-rate "shrew" DoS (Doc 6 §J).** Bursts timed to the RTO force repeated timeouts → `cwnd` collapse,
   starving a victim flow with low average attacker rate.
 
 The theme: `cwnd` is a quantity an adversary on either end (lying receiver) or off-path (injected ACKs)
@@ -563,7 +563,7 @@ reactions.
 
 ## K. Performance — BDP, fairness, bufferbloat, incast
 
-- **The BDP target.** To fill a path, `cwnd` must reach the bandwidth-delay product (Day 8 §E). Reno's
+- **The BDP target.** To fill a path, `cwnd` must reach the bandwidth-delay product (Doc 8 §E). Reno's
   linear growth takes `~BDP/MSS` RTTs to recover after each loss — on a 10 Gbit/s × 100 ms path (BDP
   ≈ 83k segments) that's *minutes* per recovery, which is why Reno can't fill long-fat networks and CUBIC/BBR
   exist (§G).
@@ -598,7 +598,7 @@ reactions.
 12. **Why `+3·MSS` on entering recovery?** Three dup-ACKs prove three segments left the network.
 13. **Why does `on_timeout` set `cwnd = 1 MSS`?** A timeout is the strong signal; restart slow start.
 14. **Where does the RTO get wired?** `on_tick` when `retx.due` is non-empty → `on_timeout`.
-15. **Does congestion control bind on the echo server?** No — no backlog; it binds with Day 11's send
+15. **Does congestion control bind on the echo server?** No — no backlog; it binds with Doc 11's send
     buffer (§10).
 16. **What is the TCP sawtooth?** Linear climb + halve-on-loss in congestion avoidance (§D).
 17. **What's the throughput formula?** ≈ `MSS/(RTT·√p)` — inverse RTT, inverse √(loss) (§D).
@@ -606,7 +606,7 @@ reactions.
     loss (§K); CUBIC fixes it.
 19. **What is NewReno?** Stays in recovery handling multiple losses via partial ACKs (§E).
 20. **What is SACK-based recovery?** Retransmit exactly the SACK-named holes, pipe-driven (RFC 6675;
-    Day 18).
+    Doc 18).
 21. **What is ECN?** Routers *mark* congestion instead of dropping; sender halves without a loss (§F).
 22. **What is CUBIC?** Cubic, RTT-independent growth — Linux's default (§G).
 23. **What is BBR?** Models bandwidth + RTT, paces to the BDP, ignores loss as the signal (§G).
@@ -683,12 +683,12 @@ Q: What did Jacobson 1988 add?  A: variance RTO, slow start, congestion avoidanc
    ─────────   ──────────────   ───────────────   ──────────────────
    Reno        loss             linear            implemented (RFC 5681)
    NewReno     loss             linear + partial  exercise E2
-   SACK/6675   loss + SACK      pipe-driven       Day 18 blocks; E5
+   SACK/6675   loss + SACK      pipe-driven       Doc 18 blocks; E5
    CUBIC       loss             cubic(time)       exercise E4
    BBR         bandwidth+RTT    paced to BDP      —
 ```
 
 > Re-type the `CongestionControl` state machine from this chapter with the book closed, then `cargo test`.
-> You now hold TCP's three control loops: reliability (Day 6), flow control (Day 8), and congestion control
-> (Day 10) — the trio that turns IP's best-effort packets into a stream you can trust on a shared network,
+> You now hold TCP's three control loops: reliability (Doc 6), flow control (Doc 8), and congestion control
+> (Doc 10) — the trio that turns IP's best-effort packets into a stream you can trust on a shared network,
 > and the algorithm that keeps the internet from melting.

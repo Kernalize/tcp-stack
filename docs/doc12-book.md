@@ -1,6 +1,6 @@
-# Day 12 — TCP, Part 10: Retransmitting the Control Segments (SYN, SYN-ACK, FIN)
+# Doc 12 — TCP, Part 10: Retransmitting the Control Segments (SYN, SYN-ACK, FIN)
 
-> Goal: close the first robustness gap left open at the end of Day 11. Through Day 11 the retransmission
+> Goal: close the first robustness gap left open at the end of Doc 11. Through Doc 11 the retransmission
 > queue protected only **data**. The three control segments that open and close a connection — `SYN`,
 > `SYN-ACK`, and `FIN` — were sent exactly once. If any is dropped, the connection wedges: a lost SYN-ACK
 > leaves the server stuck in `SYN_RCVD` forever; a lost FIN leaves a half-finished teardown. This chapter
@@ -10,7 +10,7 @@
 
 The insight is small and beautiful: SYN and FIN occupy sequence numbers exactly like data bytes, so they
 can be acknowledged exactly like data — and anything that can be acknowledged can be lost and resent by the
-*same* queue. Day 6 built that queue for data; today we drop the control segments into it and reuse every
+*same* queue. Doc 6 built that queue for data; today we drop the control segments into it and reuse every
 line. The only genuinely new mechanism is RTO backoff.
 
 **Contents**
@@ -65,14 +65,14 @@ number each, as if they were a phantom byte:
 Because SYN and FIN sit *in* the sequence space, the receiver acknowledges them exactly the way it
 acknowledges data: by advancing its ACK number past them. And the moment a segment can be acknowledged, it
 can also be **lost and resent** — the sender just keeps a copy until the ACK covers it. That is the entire
-idea of Day 12: the retransmission queue from Day 6 already does this for data; we simply put the SYN,
+idea of Doc 12: the retransmission queue from Doc 6 already does this for data; we simply put the SYN,
 SYN-ACK, and FIN into the same queue.
 
 ```text
               consumes a seq number?     can be ACKed?     must be retransmittable?
    SYN              yes                     yes                  yes   ← new today
    FIN              yes                     yes                  yes   ← new today
-   data             yes (len bytes)         yes                  yes   (Day 6)
+   data             yes (len bytes)         yes                  yes   (Doc 6)
    pure ACK         no                      no                   no
    RST              no                      no                   no
 ```
@@ -101,8 +101,8 @@ acknowledged. We already do that for data; today we extend it to the three contr
 
 ## 3. The mechanism: record on send, clear on ack
 
-The retransmission queue (`RetxQueue`, Day 6) stores `Unacked { start_seq, end_seq, packet, sent_at_ms,
-retries, sacked }` (the `start_seq`/`sacked` fields were added by Day 18's SACK; day 12 used the original
+The retransmission queue (`RetxQueue`, Doc 6) stores `Unacked { start_seq, end_seq, packet, sent_at_ms,
+retries, sacked }` (the `start_seq`/`sacked` fields were added by Doc 18's SACK; doc 12 used the original
 four). Two operations matter:
 
 - **`record(start_seq, end_seq, packet, now)`** — remember a segment we just put on the wire. `end_seq` is
@@ -111,7 +111,7 @@ four). Two operations matter:
 - **`ack(una, now)`** — drop every queued segment that `una` now covers (`end_seq` at or before `una`,
   modulo 2³²).
 
-Day 12 adds exactly four `record` calls and a handful of `ack` calls:
+Doc 12 adds exactly four `record` calls and a handful of `ack` calls:
 
 | Segment | Recorded in | `end_seq` | Cleared when |
 |---|---|---|---|
@@ -147,11 +147,11 @@ That is identical to how data is recorded, which is exactly the point: control a
 
 Clearing uses `ack(una, now)` with the wrapping comparison `seq::before(una, end_seq)`: a segment is "still
 unacked" while `una` is strictly before its `end_seq`. When `una == end_seq` (the ack lands exactly on the
-boundary) the segment is dropped. Same modular arithmetic as Day 3, so it is correct across the 2³² wrap.
+boundary) the segment is dropped. Same modular arithmetic as Doc 3, so it is correct across the 2³² wrap.
 
 ## 5. RTO backoff — Karn's second half
 
-Day 6 implemented the first half of Karn's algorithm (don't sample a retransmitted segment). Day 12 adds the
+Doc 6 implemented the first half of Karn's algorithm (don't sample a retransmitted segment). Doc 12 adds the
 **second half**: when a retransmission timeout fires, **double the RTO** and hold the doubled value until a
 clean sample arrives. `RttEstimator::back_off`:
 
@@ -173,7 +173,7 @@ is `200 → 400 → 800 → 1600 …`, capped at 60 s. Why double, and why freez
   un-retransmitted segment behind the loss, restarting the storm. The backed-off RTO holds until the first
   *new*, never-retransmitted segment gives a clean sample, which resets the estimator.
 
-Together with Day 6's sample-suppression, this completes RFC 6298 §5.5 / Karn & Partridge 1987 (§B has the
+Together with Doc 6's sample-suppression, this completes RFC 6298 §5.5 / Karn & Partridge 1987 (§B has the
 full treatment).
 
 ## 6. Why the handshake yields no RTT sample
@@ -255,7 +255,7 @@ All changes are in `src/tcp.rs` (plus two call-site updates in `src/main.rs`).
 - **`on_tick`** calls `self.rtt.back_off()` when `retx.due()` resent something (§5).
 - **`main.rs`** passes `now_ms` into `accept(…)` and `close(…)`.
 
-Nothing in `RetxQueue`'s resend logic changed — the payoff of the Day 6 design: time is an argument,
+Nothing in `RetxQueue`'s resend logic changed — the payoff of the Doc 6 design: time is an argument,
 resending is type-agnostic, so extending coverage is purely additive.
 
 ## 10. Verification
@@ -289,18 +289,18 @@ not over-fire.
   `R2` retransmissions (Linux `tcp_retries2` ≈ 15, ~15 minutes) and RST the connection, with an earlier
   `R1` (~3) that triggers a routing-recheck. We never abort (exercise E1, §C). A hung connection therefore
   lingers in our stack until the process dies.
-- **`Unacked` grew on Day 18.** Day 12's record stored four fields; Day 18 (SACK) added `start_seq` (to
+- **`Unacked` grew on Doc 18.** Doc 12's record stored four fields; Doc 18 (SACK) added `start_seq` (to
   match SACK blocks) and `sacked`, so the §3 struct shows six. The control-segment recording adapted to the
   new `record(start_seq, end_seq, …)` signature.
 - **SYN-ACK retry limits matter for SYN floods.** A real server caps SYN-ACK retransmissions tightly (or
-  uses SYN cookies, Day 3 §E) precisely so a flood of never-completed handshakes can't make it retransmit
+  uses SYN cookies, Doc 3 §E) precisely so a flood of never-completed handshakes can't make it retransmit
   forever. Our uncapped resend would amplify a flood (§H).
 - **We don't sample the handshake RTT.** RFC 6298 permits it (it would give an RTT estimate one round trip
   earlier); we forgo it for test determinism (§6).
 - **No TCP Fast Open.** A real modern stack can carry data *in* the SYN (TFO, RFC 7413) to save a round
   trip; ours doesn't (§I).
 
-None of these change the day-12 contract (every sequence-consuming segment is now resent until acked); they
+None of these change the doc-12 contract (every sequence-consuming segment is now resent until acked); they
 are the breadth a production stack adds.
 
 ## 13. Rebuild it yourself — checklist + exercises
@@ -317,7 +317,7 @@ are the breadth a production stack adds.
 
 - **E1.** Add a retransmission cap: after `R2` resends of a segment with no progress, abort the connection
   (send a RST, go to `CLOSED`). Mirror it for data (RFC 9293 §3.8.3; §C).
-- **E2.** Make the active-open SYN carry an MSS option (Day 15) and confirm the resent copy still includes
+- **E2.** Make the active-open SYN carry an MSS option (Doc 15) and confirm the resent copy still includes
   it byte-for-byte.
 - **E3.** Write a test where the *final ACK* of the handshake is itself lost, the client's data arrives, and
   confirm our SYN-ACK is no longer in flight by the time the data is processed.
@@ -327,7 +327,7 @@ are the breadth a production stack adds.
 
 ## 14. What the next step adds
 
-Day 13 turns from **reliability** to **efficiency**: **Nagle's algorithm** (RFC 896). A chatty application
+Doc 13 turns from **reliability** to **efficiency**: **Nagle's algorithm** (RFC 896). A chatty application
 that writes one byte at a time would flood the link with 41-byte packets (40 bytes of header for 1 byte of
 data). Nagle coalesces those small writes — *hold a sub-MSS segment while earlier data is still
 unacknowledged* — and a `TCP_NODELAY` switch turns it off for latency-sensitive traffic. It's a three-line
@@ -346,15 +346,15 @@ space (so it can be acknowledged). The full accounting:
 ```text
    carries                consumes seq?   "length" in seq space   retransmit?
    ────────────────────   ─────────────   ─────────────────────   ───────────
-   data (len bytes)       yes             len                     yes (Day 6)
-   SYN                    yes             1                       yes (Day 12)
-   FIN                    yes             1                       yes (Day 12)
+   data (len bytes)       yes             len                     yes (Doc 6)
+   SYN                    yes             1                       yes (Doc 12)
+   FIN                    yes             1                       yes (Doc 12)
    SYN + data (TFO)       yes             1 + len                 yes
    FIN + data             yes             len + 1                 yes
    pure ACK               no              0                       no (nothing to ack)
    RST                    no              0                       no (abortive, not reliable)
    window update (bare)   no              0                       no
-   zero-window probe      yes             1 (one byte)            yes (Day 14)
+   zero-window probe      yes             1 (one byte)            yes (Doc 14)
 ```
 
 The "length in sequence space" (RFC 9293 calls it `SEG.LEN` including the SYN/FIN) is what the receiver's
@@ -364,11 +364,11 @@ supersedes it). This is why the retransmission queue holds exactly "things that 
 
 ## B. RTO exponential backoff in full
 
-Karn & Partridge's 1987 algorithm has two rules; Day 6 did rule 1, Day 12 does rule 2:
+Karn & Partridge's 1987 algorithm has two rules; Doc 6 did rule 1, Doc 12 does rule 2:
 
 ```text
-   rule 1 (Day 6):  ignore RTT samples from retransmitted segments (ambiguous ACK).
-   rule 2 (Day 12): on each retransmission timeout, RTO ← min(2·RTO, MAX_RTO),
+   rule 1 (Doc 6):  ignore RTT samples from retransmitted segments (ambiguous ACK).
+   rule 2 (Doc 12): on each retransmission timeout, RTO ← min(2·RTO, MAX_RTO),
                     and HOLD that value until a fresh, unambiguous sample is taken.
 ```
 
@@ -412,10 +412,10 @@ SYN-ACK retries specially:
 - **Why retransmit a SYN-ACK at all?** A lost SYN-ACK on an active-open-from-a-minimal-peer would deadlock
   (§2); resending rescues it.
 - **Why limit it tightly?** Each half-open connection (in `SYN_RCVD`, awaiting the final ACK) holds a TCB.
-  A **SYN flood** (Day 3 §E) creates many half-opens that never complete; if the server retransmits each
+  A **SYN flood** (Doc 3 §E) creates many half-opens that never complete; if the server retransmits each
   SYN-ACK several times with backoff, it spends bandwidth and holds TCBs *longer*, amplifying the attack.
 
-The production resolution is **SYN cookies** (Day 3 §E): under flood, don't allocate a TCB or queue a
+The production resolution is **SYN cookies** (Doc 3 §E): under flood, don't allocate a TCB or queue a
 SYN-ACK retransmission at all — encode the state in the ISN and reconstruct it from the final ACK. So a real
 stack retransmits SYN-ACKs normally when the SYN queue is healthy, and switches to stateless cookies (no
 retransmission) when it overflows. Our uncapped, always-stateful SYN-ACK retransmission is the wrong choice
@@ -435,7 +435,7 @@ Active close (we send the first FIN), our FIN lost once. ISS context: `SND.NXT =
    t=...   peer FIN → we ACK → TIME_WAIT → (2·MSL) → CLOSED
 ```
 
-Without Day 12, the FIN dropped at t=0 would never be resent: we'd sit in FIN_WAIT_1 forever, the peer never
+Without Doc 12, the FIN dropped at t=0 would never be resent: we'd sit in FIN_WAIT_1 forever, the peer never
 learning we'd closed. With it, the teardown self-heals in one RTO — and the backoff means if the path is
 genuinely down, we probe at 200, 400, 800… rather than flooding it. The same shape protects the *passive*
 FIN (in LAST_ACK) and the SYN/SYN-ACK at open.
@@ -491,7 +491,7 @@ tighter bound. Implementing `R2` (E1) is the first step toward this.
   tuning is genuinely adversarial.
 - **Resource exhaustion via never-completing handshakes.** Without a cap, every half-open from a SYN flood
   retransmits SYN-ACKs indefinitely, holding bandwidth and TCBs — the amplified SYN flood. Bounded retries +
-  cookies are the defense (Day 3 §E).
+  cookies are the defense (Doc 3 §E).
 
 The theme: control-segment retransmission is necessary for reliability but is an *attacker-exploitable
 resource* (each resend costs the server bandwidth and a held TCB), so production stacks cap it tightly for
@@ -524,7 +524,7 @@ version omits.
    ACK.
 2. **Why does that matter for retransmission?** Only sequence-consuming segments can be acked, hence lost
    and resent.
-3. **What hangs if a SYN-ACK is lost (pre-Day-12)?** The server sits in SYN_RCVD; the client waits — a
+3. **What hangs if a SYN-ACK is lost (pre-Doc-12)?** The server sits in SYN_RCVD; the client waits — a
    deadlock unless the client resends its SYN.
 4. **What hangs if a FIN is lost?** The teardown stalls in LAST_ACK/FIN_WAIT; the peer never sends the final
    ACK.
@@ -552,14 +552,14 @@ version omits.
 19. **Why are SYN-ACK retries limited tightly in real stacks?** SYN-flood amplification — uncapped retries
     worsen it (§D/§H).
 20. **How does this interact with SYN cookies?** Cookies are stateless (no TCB, no SYN-ACK retransmission)
-    under flood (Day 3 §E).
+    under flood (Doc 3 §E).
 21. **What is the latency cost of a lost SYN?** A full initial RTO (1 s real / 200 ms us) before resend —
     setup-dominating for short flows (§I).
 22. **What is TCP Fast Open?** Data in the SYN (cookie-validated) saving a round trip; `SYN+data` consumes
     `1+len` (§A/§I).
 23. **Does the resent segment differ from the original?** No — byte-for-byte identical (we store the whole
     packet).
-24. **Did `Unacked` change later?** Yes — Day 18 added `start_seq` and `sacked` (SACK), so `record` gained
+24. **Did `Unacked` change later?** Yes — Doc 18 added `start_seq` and `sacked` (SACK), so `record` gained
     a `start_seq` arg.
 25. **What's the most important next robustness step?** Implement `R2` to abort a hung connection (E1).
 
@@ -625,7 +625,7 @@ Q: TCP Fast Open?  A: data in the SYN (cookie-validated), saving a round trip; S
    data (len)         len                       yes
    SYN / FIN          1                         yes
    SYN+data           1 + len                   yes (TFO)
-   zero-window probe  1                         yes (Day 14)
+   zero-window probe  1                         yes (Doc 14)
    pure ACK / RST     0                         no
 ```
 

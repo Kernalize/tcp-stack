@@ -1,7 +1,7 @@
 //! Shared helpers used across layers.
 //!
-//! Day 2: the **Internet Checksum** (RFC 1071) — one function reused by the IPv4
-//! header, ICMP, TCP and UDP (the "reuse physically" rule). Theory: `docs/day2-book.md`.
+//! Doc 2: the **Internet Checksum** (RFC 1071) — one function reused by the IPv4
+//! header, ICMP, TCP and UDP (the "reuse physically" rule). Theory: `docs/doc2-book.md`.
 
 /// Internet checksum (RFC 1071): the 16-bit one's-complement of the one's-complement
 /// sum of the data, taken as a sequence of 16-bit big-endian words.

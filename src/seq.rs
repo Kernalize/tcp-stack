@@ -4,7 +4,7 @@
 //! before B?" cannot be a plain `<` — after `0xFFFFFFFF` comes `0`, and a naive comparison
 //! would mis-order packets across the wrap. These helpers do *modular* comparison: A is "before"
 //! B if the wrapping difference `A − B` lands in the negative half of the circle. They're the
-//! basis for validating which seq/ack numbers are acceptable. Theory: `docs/day3-book.md`.
+//! basis for validating which seq/ack numbers are acceptable. Theory: `docs/doc3-book.md`.
 
 /// Modular "is `a` strictly before `b`" on the 32-bit sequence circle.
 ///

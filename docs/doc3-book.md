@@ -1,4 +1,4 @@
-# Day 3 — TCP, Part 1: The Three-Way Handshake
+# Doc 3 — TCP, Part 1: The Three-Way Handshake
 
 > Goal: when a client runs `nc 192.168.0.2 8080`, our stack answers its `SYN` with a `SYN-ACK`,
 > accepts the client's `ACK`, and reaches **ESTABLISHED** — a real, open TCP connection. This is
@@ -6,7 +6,7 @@
 > TCB), sequence numbers, and a state machine. After this you can explain every number in a handshake
 > and why three packets — not two, not four — are required.
 
-This is the hinge of the whole project. Days 1–2 were *stateless*: parse a packet, maybe reply, forget
+This is the hinge of the whole project. Docs 1–2 were *stateless*: parse a packet, maybe reply, forget
 it. From here on TCP forces us to *remember* — and almost every later day (data transfer,
 retransmission, flow/congestion control, options, SACK) is a refinement of the bookkeeping we set up
 today. Read this one slowly.
@@ -53,7 +53,7 @@ Volume II — the exhaustive reference
 
 ## 1. Why TCP is a different kind of problem
 
-ICMP (Day 2) was **stateless**: each packet was handled in isolation — see an echo request, send an
+ICMP (Doc 2) was **stateless**: each packet was handled in isolation — see an echo request, send an
 echo reply, forget everything. There was nothing to remember between packets. TCP is **stateful**. It
 turns IP's unreliable, unordered, duplicating, best-effort packet delivery into a **reliable, ordered,
 de-duplicated byte stream**, and the only way to do that is for both ends to *remember things across
@@ -96,7 +96,7 @@ and use it as the key of a `HashMap<Quad, Connection>`. Every incoming TCP segme
 
 - **found** → hand it to that connection's state machine (`on_segment`),
 - **not found** → if it's a `SYN`, open a new connection (`accept`); otherwise it's a stray segment to
-  a closed port, and the correct reply is a `RST` (we add that on Day 5; Day 3 simply ignores it).
+  a closed port, and the correct reply is a `RST` (we add that on Doc 5; Doc 3 simply ignores it).
 
 `Quad` derives `Hash, Eq, Copy` so it can be a map key and passed by value freely; `Ipv4Addr` already
 supports those. The direction convention (remote = source = client, local = destination = us) is worth
@@ -114,7 +114,7 @@ Four facts you must internalize:
 
 1. **They are 32-bit and wrap around** (mod 2³²). After `0xFFFF_FFFF` comes `0`. All arithmetic uses
    `wrapping_add` so overflow is *defined*, not a panic, and comparisons use *modular* "is A before B"
-   logic (RFC 1982 serial numbers — Day 3's `src/seq.rs`, expanded in §B). A connection that runs
+   logic (RFC 1982 serial numbers — Doc 3's `src/seq.rs`, expanded in §B). A connection that runs
    long enough genuinely wraps; the math must keep working across the seam.
 
 2. **They do not start at 0 on the wire.** Each side picks a random **Initial Sequence Number (ISN)**
@@ -123,7 +123,7 @@ Four facts you must internalize:
 
 3. **The ACK number is "the next sequence number I expect from you"** — a *cumulative* acknowledgement.
    `ACK = 101` means "I have everything up to and including byte 100; send me 101 next." One number
-   summarizes everything received so far. (Day 18's SACK adds a *second* channel for the gaps this one
+   summarizes everything received so far. (Doc 18's SACK adds a *second* channel for the gaps this one
    can't express — but that's far ahead.)
 
 4. **`SYN` and `FIN` each consume one sequence number**, even though they carry no data. This is why
@@ -153,10 +153,10 @@ read directly off the spec.
   acked yet. Everything below it is safely delivered.
 - `nxt` — **S**e**nd** **N**e**xt**: the next sequence number we'll put on the wire.
 - `wnd` — the peer's advertised receive window: how much it will let us have in flight (flow control,
-  Day 8). It's a `u32` in our code because window scaling (Day 17) can stretch it past 64 KB.
+  Doc 8). It's a `u32` in our code because window scaling (Doc 17) can stretch it past 64 KB.
 
 The region `[UNA, NXT)` is "sent but not yet acknowledged" — the data we may have to **retransmit**
-(Day 6). The region from `NXT` up to `UNA + WND` is what we may still send.
+(Doc 6). The region from `NXT` up to `UNA + WND` is what we may still send.
 
 **Receive Sequence Space** — about the bytes *we* receive (`RecvSequence`):
 
@@ -214,7 +214,7 @@ the minimum for two parties to agree on two numbers over an unreliable channel. 
 **Why bother agreeing on ISNs at all?** Because the network can deliver an *old* duplicate segment
 from a previous connection on the same 4-tuple. Random, per-connection ISNs make it astronomically
 unlikely that a stale segment's sequence number falls in the new connection's window, so the new
-connection isn't poisoned by ghosts of the old one. (This is the same reason TIME_WAIT exists — Day 7.)
+connection isn't poisoned by ghosts of the old one. (This is the same reason TIME_WAIT exists — Doc 7.)
 
 ## 6. The state machine (our subset)
 
@@ -228,7 +228,7 @@ is the smallest meaningful slice:
 - **(no entry in the table)** is effectively LISTEN/CLOSED — every port is implicitly "listening,"
   because we open a TCB on any incoming SYN.
 - **SYN_RCVD** — we've sent our SYN-ACK and await the client's ACK.
-- **ESTABLISHED** — open; ready for data (Day 4).
+- **ESTABLISHED** — open; ready for data (Doc 4).
 
 `Connection::accept` creates the TCB and the SYN-ACK; `Connection::on_segment` drives
 SYN_RCVD → ESTABLISHED. Later days add the teardown states (FIN_WAIT_1/2, CLOSING, CLOSE_WAIT,
@@ -246,15 +246,15 @@ mirror image of parsing:
 - **TCP header (20 B + options):** source/dest ports, the 32-bit seq and ack, the **data offset**
   (header length in 32-bit words, in the high nibble of byte 12 — the TCP analogue of IHL), the flag
   byte, the window, then the checksum, then the urgent pointer (0).
-- **payload** — none for a SYN-ACK; data arrives in Day 4.
+- **payload** — none for a SYN-ACK; data arrives in Doc 4.
 
 The whole thing is `vec![0u8; total_len]` followed by field-by-field `copy_from_slice` of big-endian
 bytes. Every multi-byte field goes out **most-significant byte first** (network byte order) — the
-discipline drilled in Day 1 §7. (Every field of the TCP header is dissected in §A.)
+discipline drilled in Doc 1 §7. (Every field of the TCP header is dissected in §A.)
 
 ## 8. The TCP checksum and the pseudo-header
 
-The TCP checksum uses the same one's-complement `utils::checksum` (Day 2), but over more than the
+The TCP checksum uses the same one's-complement `utils::checksum` (Doc 2), but over more than the
 segment: it covers a **pseudo-header** *plus* the TCP segment. The IPv4 pseudo-header is 12 bytes:
 
 ```text
@@ -345,11 +345,11 @@ see all three packets and can read the seq/ack numbers exactly as drawn in §5.
 | Decision | We chose | Alternative | Why / caveat |
 |---|---|---|---|
 | ISN | fixed 0 in tests, random in `accept` | always random | 0 is debuggable; **production must randomize** (RFC 6528) — a predictable ISN enables off-path spoofing/injection (§D). |
-| No-connection non-SYN | ignore (Day 3) | send RST | RST is the correct behavior; we add it on Day 5. |
+| No-connection non-SYN | ignore (Doc 3) | send RST | RST is the correct behavior; we add it on Doc 5. |
 | Connection key | `Quad{remote,local}` | a listener-socket abstraction | a real API has explicit listening sockets + an accept queue (§I); we go straight to per-flow TCBs. |
 | SYN-flood defense | none | SYN cookies | a real server must resist half-open floods (§E); out of scope but essential to know. |
-| Simultaneous open | not handled at Day 3 | full state machine | both-sides-SYN is rare; the code grows to handle it later (§G). |
-| Receive window | fixed 1024 | dynamic, from buffer space | real flow control arrives on Day 8. |
+| Simultaneous open | not handled at Doc 3 | full state machine | both-sides-SYN is rare; the code grows to handle it later (§G). |
+| Receive window | fixed 1024 | dynamic, from buffer space | real flow control arrives on Doc 8. |
 | TCB layout | two RFC-named structs | flat fields | matching RFC 9293 §3.3.1 names makes later rules read off the spec. |
 
 ## 13. Honesty: what production does that we don't
@@ -361,7 +361,7 @@ see all three packets and can read the seq/ack numbers exactly as drawn in §5.
 - **Fixed window, no buffers yet.** We advertise 1024 unconditionally; the real window tracks free
   receive-buffer space.
 - **No options yet.** A real SYN carries MSS, window scale, SACK-permitted, timestamps — all added
-  Days 15–18. Today's SYN-ACK is bare.
+  Docs 15–18. Today's SYN-ACK is bare.
 - **No RST, no PAWS, no challenge-ACK.** The defensive validations (RFC 5961) come much later.
 - **ISN is a counter/0 in tests**, not the RFC 6528 keyed hash (§D).
 
@@ -398,11 +398,11 @@ hardened server.
 
 ## 15. What the next step adds
 
-Day 4 is **data transfer**: in ESTABLISHED, accept incoming data, advance `RCV.NXT`, send an **ACK**
+Doc 4 is **data transfer**: in ESTABLISHED, accept incoming data, advance `RCV.NXT`, send an **ACK**
 for it, and — to prove it end to end — build a tiny **echo server** that sends the data back, verifiable
 with `nc`. That brings *acceptance tests* on sequence numbers (in-window vs out-of-window), the `PSH`
-flag, and sending data with correct seq/ack. After that: teardown (FIN/TIME_WAIT, Days 5 & 7) and
-reliability (retransmission, Day 6).
+flag, and sending data with correct seq/ack. After that: teardown (FIN/TIME_WAIT, Docs 5 & 7) and
+reliability (retransmission, Doc 6).
 
 ---
 
@@ -446,7 +446,7 @@ within the TCP header:
    Window           14–15  16    receive window advertised by the sender
    Checksum         16–17  16    one's-complement over pseudo-header + segment
    Urgent Pointer   18–19  16    offset of urgent data; valid only if URG set
-   Options          20…    0–40  MSS, window scale, SACK-perm, timestamps (Days 15–18)
+   Options          20…    0–40  MSS, window scale, SACK-perm, timestamps (Docs 15–18)
 ```
 
 The six flags (byte 13, low bits), most to least significant of the low six:
@@ -496,7 +496,7 @@ The two windows on the circle, drawn together:
 ```
 
 A 32-bit space wraps after 4 GiB of one-directional data — reachable on a fast link, which is exactly
-why timestamps + PAWS (Day 16) exist to disambiguate a wrapped sequence from an ancient duplicate.
+why timestamps + PAWS (Doc 16) exist to disambiguate a wrapped sequence from an ancient duplicate.
 
 ## C. The full 11-state TCP state machine
 
@@ -537,9 +537,9 @@ where the handshake sits:
 ```
 
 - **The handshake** is the top half: CLOSED → (LISTEN | SYN_SENT) → SYN_RCVD → ESTABLISHED.
-- **The teardown** is the bottom half (Days 5 & 7): four-way close with FIN_WAIT/CLOSE_WAIT/CLOSING,
+- **The teardown** is the bottom half (Docs 5 & 7): four-way close with FIN_WAIT/CLOSE_WAIT/CLOSING,
   ending in TIME_WAIT's 2·MSL linger.
-- Our code's `State` enum names all of these; only the handshake half is reachable at Day 3.
+- Our code's `State` enum names all of these; only the handshake half is reachable at Doc 3.
 
 ## D. ISN selection and thirty years of attacks (RFC 6528)
 
@@ -622,7 +622,7 @@ Sum all the 16-bit words (pseudo-header + header) with end-around carry, then ta
 complement; that 16-bit result goes into the checksum field. The receiver sums the *same* words *with*
 the checksum in place and gets `0xFFFF` → `0` after complement — the property our
 `accept_produces_valid_synack` test checks with `tcp_checksum(...) == 0`. (The full one's-complement
-mechanics — folding carries, why `0` is sent as `0xFFFF` — are in day2-book.md §R; here the point is
+mechanics — folding carries, why `0` is sent as `0xFFFF` — are in doc2-book.md §R; here the point is
 *which bytes* go in: pseudo-header first, then the segment.)
 
 ## G. Active open, simultaneous open, and self-connect
@@ -656,7 +656,7 @@ The full passive-open handshake from §5, with our TCB after each step. `C` = cl
    ② U→C  SYN,ACK  seq=0 ack=101 win=1024
       wire (TCP hdr): 00 50 12 34 | 00 00 00 00 | 00 00 00 65 | 50 12 04 00 | csum | 00 00
                       sport 80    | seq 0       | ack 101     | off5 SYNACK  | ...
-      (queued for retransmission until the final ACK — Day 12)
+      (queued for retransmission until the final ACK — Doc 12)
 
    ③ C→U  ACK  seq=101 ack=1 win=65535
       wire (TCP hdr): 12 34 00 50 | 00 00 00 65 | 00 00 00 01 | 50 10 ff ff | csum | 00 00
@@ -691,7 +691,7 @@ Every byte we parse from a SYN is attacker-controlled, and the handshake itself 
 attacker can consume:
 
 - **Parser safety.** `parse` validates the data offset before slicing; a malformed offset can't make
-  us read out of bounds or panic. This is the same discipline as the Day 1/2 parsers — every length is
+  us read out of bounds or panic. This is the same discipline as the Doc 1/2 parsers — every length is
   checked against the actual buffer.
 - **Resource exhaustion.** With no half-open limit, a SYN flood grows our map without bound (§E). A
   real server caps it and uses cookies.
@@ -702,7 +702,7 @@ attacker can consume:
   source turns our server into a (small) reflector. Real mitigations rate-limit and use cookies.
 
 The takeaway from the security track: *the handshake is both a parser (validate everything) and a
-resource allocator (bound everything)*, and Day 3 implements the parser-safety half but not the
+resource allocator (bound everything)*, and Doc 3 implements the parser-safety half but not the
 resource-bounding half.
 
 ## K. Performance notes
@@ -724,27 +724,27 @@ resource-bounding half.
    the minimum that confirms both directions (§5). Four would be redundant.
 2. **Why does SYN consume a sequence number?** So its delivery is itself reliable — the SYN occupies a
    slot the ACK can acknowledge; that's the `+1`.
-3. **Does FIN also consume one?** Yes — same reason, at close (Day 5).
+3. **Does FIN also consume one?** Yes — same reason, at close (Doc 5).
 4. **What is the ACK number, exactly?** The next sequence number expected = cumulative "I have
    everything below this."
 5. **Why random ISNs?** To defeat off-path spoofing/injection and to fence off stale duplicates from a
    prior connection (§D).
-6. **What if two connections share a 4-tuple over time?** TIME_WAIT (Day 7) plus rising ISNs keep the
+6. **What if two connections share a 4-tuple over time?** TIME_WAIT (Doc 7) plus rising ISNs keep the
    old incarnation's segments from poisoning the new one.
 7. **What's `RCV.NXT` used for in our segments?** It's the ACK number we send — "send me this next."
 8. **What's `SND.NXT` vs `SND.UNA`?** NXT = next to send; UNA = oldest unacked. `[UNA, NXT)` is the
    retransmittable window.
-9. **Why is the window 1024 and fixed?** Placeholder until Day 8 wires it to real buffer space.
+9. **Why is the window 1024 and fixed?** Placeholder until Doc 8 wires it to real buffer space.
 10. **Why is `SND.WND` a `u32` but `RCV.WND` a `u16`?** The peer's window can be window-scaled past
-    64 KB (Day 17); the raw value we advertise is the 16-bit field.
+    64 KB (Doc 17); the raw value we advertise is the 16-bit field.
 11. **What's the pseudo-header for?** To bind the checksum to the IP addresses/protocol so a
     misdelivered segment is caught (§8, §F).
 12. **Is the pseudo-header sent on the wire?** No — it's only an input to the checksum.
 13. **What's the data offset?** TCP header length in 32-bit words (5 = 20 bytes, up to 15 = 60).
 14. **Why reject a data offset < 5?** A header can't be shorter than its fixed 20 bytes; a smaller
     value is malformed.
-15. **What happens to a non-SYN to a closed port?** Day 3 ignores it; the correct reply is a RST
-    (Day 5).
+15. **What happens to a non-SYN to a closed port?** Doc 3 ignores it; the correct reply is a RST
+    (Doc 5).
 16. **What's `Quad`'s direction convention?** `remote` = source = peer; `local` = dest = us. Replies
     swap them.
 17. **Can we open from any port?** We do (implicit LISTEN); a real stack only on `listen()`ed ports
@@ -756,14 +756,14 @@ resource-bounding half.
     ACK (§E).
 21. **What's simultaneous open?** Both sides `connect` at once; both go SYN_SENT → SYN_RCVD →
     ESTABLISHED (§G).
-22. **Do we handle simultaneous open at Day 3?** Not yet; the code grows to (exercise E5 / later days).
+22. **Do we handle simultaneous open at Doc 3?** Not yet; the code grows to (exercise E5 / later days).
 23. **Why split the TCB into two structs?** To mirror RFC 9293 §3.3.1 so later rules read off the spec.
 24. **Why `Option` from `accept`?** "Not a SYN → can't open" is a value, not a panic.
 25. **Why `wrapping_add`?** Sequence numbers wrap at 2³²; `+1` near the top must become 0, not overflow
     (§B).
 26. **Does a SYN carry data?** It may (TCP Fast Open), but classically no; ours doesn't.
 27. **What options does a real SYN carry?** MSS, window scale, SACK-permitted, timestamps (Days
-    15–18). Ours is bare at Day 3.
+    15–18). Ours is bare at Doc 3.
 28. **How is this tested without a network?** Construct headers, call `accept`/`on_segment`, assert
     states and checksums — all offline (§11).
 29. **What's the biggest simplification today?** No LISTEN/accept-queue/backlog and no RST — implicit
@@ -786,7 +786,7 @@ Q: What does the TCP pseudo-header contain?  A: src IP, dst IP, 0, protocol 6, T
 Q: Is the pseudo-header transmitted?  A: no — only an input to the checksum.
 Q: Data offset value for a 20-byte header?  A: 5 (words); byte 12 high nibble = 0x5.
 Q: Flag byte for SYN|ACK?  A: 0x12.
-Q: A non-SYN to a closed port should get?  A: a RST (Day 3 ignores; Day 5 adds it).
+Q: A non-SYN to a closed port should get?  A: a RST (Doc 3 ignores; Doc 5 adds it).
 Q: What is a SYN flood, and the defense?  A: never-completed SYNs exhausting half-open store; SYN cookies.
 Q: Why wrapping_add for SND.NXT/RCV.NXT?  A: 32-bit seq space wraps; +1 near top must become 0.
 ```

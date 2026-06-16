@@ -13,7 +13,7 @@
 //! Simplification: we assume buffered future fragments don't *overlap* each other (our sender
 //! emits each byte range once, so a reorder is just distinct ranges arriving in a jumbled order).
 //! We do correctly trim a fragment that overlaps already-delivered data, and drop pure
-//! duplicates. Theory: `docs/day9-book.md`.
+//! duplicates. Theory: `docs/doc9-book.md`.
 
 use std::collections::BTreeMap;
 

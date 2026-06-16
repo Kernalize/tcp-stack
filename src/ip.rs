@@ -1,8 +1,8 @@
 //! IPv4 layer (RFC 791).
 //!
-//! As of Day 2 the IPv4 logic lives here (moved out of `main.rs` now that ICMP also needs
-//! it — the "refactor when there are 2+ callers" rule, day1-book.md §13). Theory for the
-//! parse is in `docs/day1-book.md` §5–§8; for checksum writing, `docs/day2-book.md`.
+//! As of Doc 2 the IPv4 logic lives here (moved out of `main.rs` now that ICMP also needs
+//! it — the "refactor when there are 2+ callers" rule, doc1-book.md §13). Theory for the
+//! parse is in `docs/doc1-book.md` §5–§8; for checksum writing, `docs/doc2-book.md`.
 
 use std::net::Ipv4Addr;
 

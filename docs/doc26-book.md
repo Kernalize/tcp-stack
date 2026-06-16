@@ -1,11 +1,11 @@
-# Day 26 — TCP, Part 24: Keepalive — Detecting a Peer That Vanished (`SO_KEEPALIVE`, RFC 9293 §3.8.4)
+# Doc 26 — TCP, Part 24: Keepalive — Detecting a Peer That Vanished (`SO_KEEPALIVE`, RFC 9293 §3.8.4)
 
 > Goal: notice when the other end is simply *gone*. Everything so far detects an *active* failure —
 > a RST aborts, a FIN closes, lost data triggers retransmission. But what about a connection that is
 > ESTABLISHED, idle (no data flowing), and whose peer silently **disappears** — a crashed process, a
 > yanked Ethernet cable, a NAT box that dropped the mapping, a laptop that slept? No FIN, no RST, no
 > data to retransmit: nothing happens. The connection sits ESTABLISHED *forever*, a zombie holding a
-> TCB (and, on a real OS, a file descriptor) for a peer that will never speak again. Our Day 23
+> TCB (and, on a real OS, a file descriptor) for a peer that will never speak again. Our Doc 23
 > reaper bounds the *half-closed* states, but an idle ESTABLISHED connection has no timer at all.
 >
 > **TCP keepalive** (`SO_KEEPALIVE`) fills the gap. After a connection sits idle for a while, the
@@ -74,10 +74,10 @@ Line up everything that can end a connection and what detects it:
 ```text
    failure mode                         detected by                         state it acts in
    ──────────────────────────────────   ─────────────────────────────────   ────────────────────
-   peer aborts                          incoming RST (Day 19)               any synchronized
-   peer closes gracefully               incoming FIN (Days 5, 19)           ESTABLISHED → CLOSE_WAIT
-   in-flight data lost                  RTO / RACK / dup-ACK (Days 6,10,24) data outstanding
-   peer FIN'd then vanished             reaper timeout (Day 23)             CLOSE_WAIT / FIN_WAIT_2
+   peer aborts                          incoming RST (Doc 19)               any synchronized
+   peer closes gracefully               incoming FIN (Docs 5, 19)           ESTABLISHED → CLOSE_WAIT
+   in-flight data lost                  RTO / RACK / dup-ACK (Docs 6,10,24) data outstanding
+   peer FIN'd then vanished             reaper timeout (Doc 23)             CLOSE_WAIT / FIN_WAIT_2
    peer vanished while IDLE+ESTABLISHED  ── nothing, until today ──          ESTABLISHED, idle
 ```
 
@@ -147,13 +147,13 @@ So the total time to detect a dead peer is `IDLE + PROBES · INTVL` (here 60 + 3
 ## 5. Reset on any activity
 
 The keepalive timer measures *idleness*, so **any** segment from the peer resets it. We already track
-`last_active_ms` (Day 23, for the reaper); the keepalive schedule is anchored to it, and we reset the
+`last_active_ms` (Doc 23, for the reaper); the keepalive schedule is anchored to it, and we reset the
 probe counter on every arriving segment:
 
 ```rust
 // top of on_segment:
-self.last_active_ms = now_ms;       // Day 23
-self.keepalive_probes_sent = 0;     // Day 26 — the peer spoke, so it's alive; restart probing
+self.last_active_ms = now_ms;       // Doc 23
+self.keepalive_probes_sent = 0;     // Doc 26 — the peer spoke, so it's alive; restart probing
 ```
 
 This is what makes keepalive safe: a connection that's actually exchanging data (or whose peer
@@ -187,7 +187,7 @@ retransmission, fast/RACK recovery, zero-window persistence, lifecycle reaping, 
 
 **An opt-in `bool`, defaulted off.** `keepalive_enabled: bool` starts `false`; `set_keepalive(true)`
 turns it on. The `on_tick` block is gated on it, so a connection that didn't ask pays nothing. This
-mirrors `set_nodelay` (Day 13) — a per-connection option the protocol exposes but doesn't impose.
+mirrors `set_nodelay` (Doc 13) — a per-connection option the protocol exposes but doesn't impose.
 
 **The schedule from a counter, not a stored deadline.** Rather than store and rearm a "next probe
 time," we *derive* it each tick from `last_active_ms + IDLE + probes_sent · INTVL`. That's stateless
@@ -294,7 +294,7 @@ impossible to leave stale across a reset. (§8.)
   stack also typically sends a RST to the (possibly returned) peer and surfaces `ETIMEDOUT` to the
   application. We don't send the RST.
 - **No interaction with the application.** Real keepalive death wakes a blocked `read`/`write` with an
-  error; our socket façade (Day 22) would need to surface it (a small follow-on).
+  error; our socket façade (Doc 22) would need to surface it (a small follow-on).
 
 The mechanism — idle detection, the `SND.NXT − 1` probe, the count-to-death, the reset-on-activity —
 is real RFC 9293 keepalive; the gaps are configuration surface and integration polish.
@@ -314,7 +314,7 @@ is real RFC 9293 keepalive; the gaps are configuration surface and integration p
 
 1. **E1 — per-connection timers.** Add `set_keepalive_params(idle, intvl, probes)` (the
    `TCP_KEEPIDLE`/`INTVL`/`CNT` analogues) and test a connection with custom values.
-2. **E2 — surface the death.** Wire keepalive into the Day 22 socket façade so a `read` on a
+2. **E2 — surface the death.** Wire keepalive into the Doc 22 socket façade so a `read` on a
    keepalive-dead connection returns an error (the `ETIMEDOUT` analogue).
 3. **E3 — RST on death.** Send a RST to the peer when keepalive declares it dead (in case it returns),
    and test the RST is well-formed.
@@ -417,7 +417,7 @@ the one TCP itself provides.
 ## E. Comparison to real stacks — the sysctls and socket options
 
 ```text
-   aspect                Linux                          ours (Day 26)
+   aspect                Linux                          ours (Doc 26)
    ───────────────────   ────────────────────────────   ──────────────────────────
    enable                setsockopt SO_KEEPALIVE        set_keepalive(true)
    idle / intvl / count  TCP_KEEPIDLE/INTVL/CNT          global constants (E1)
@@ -457,7 +457,7 @@ as exercises." The probe and the reset-on-activity semantics match exactly.
 14. **Does an active connection get probed?** No — any data resets the idle timer; only a genuinely
     idle connection is probed.
 15. **Does keepalive change sequence numbers?** No — `SND.NXT − 1` is old; nothing advances.
-16. **Does it interact with the reaper (Day 23)?** No — the reaper handles half-closed states;
+16. **Does it interact with the reaper (Doc 23)?** No — the reaper handles half-closed states;
     keepalive handles idle ESTABLISHED. Disjoint.
 17. **Is it enabled in our demo?** No — API + tested, off in `main` (like `set_nodelay`).
 18. **Does keepalive detect a *hung application*?** No — the kernel answers the probe; the app could
@@ -515,9 +515,9 @@ Q: Is the probe retransmitted reliably?  A: no — spacing several probes + coun
 ```text
    segment              seq            purpose                         retransmitted?
    ──────────────────   ────────────   ─────────────────────────────   ──────────────
-   keepalive probe      SND.NXT − 1    force an ACK (liveness)         no (Day 26)
-   zero-window probe    SND.NXT        poke a closed window (1 byte)   yes (Day 14)
-   challenge ACK        SND.NXT        prove our state (RFC 5961)      no (Days 19/23)
+   keepalive probe      SND.NXT − 1    force an ACK (liveness)         no (Doc 26)
+   zero-window probe    SND.NXT        poke a closed window (1 byte)   yes (Doc 14)
+   challenge ACK        SND.NXT        prove our state (RFC 5961)      no (Docs 19/23)
    ordinary ACK         SND.NXT        acknowledge received data       no
 ```
 

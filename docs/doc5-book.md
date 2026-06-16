@@ -1,11 +1,11 @@
-# Day 5 — TCP, Part 3: Connection Teardown (the Passive Close)
+# Doc 5 — TCP, Part 3: Connection Teardown (the Passive Close)
 
 > Goal: close the connection cleanly. When the client sends `FIN`, we acknowledge it, send our own
 > `FIN`, and on the client's final `ACK` we destroy the TCB. After this the whole lifecycle —
 > **open → transfer → close** — works end to end with a stock `nc`. This chapter teaches the *passive*
-> close (the responder's side) in full, and maps the rest of the teardown machine that Day 7 completes.
+> close (the responder's side) in full, and maps the rest of the teardown machine that Doc 7 completes.
 
-Opening a connection took three packets and a careful dance of sequence numbers (Day 3). Closing is
+Opening a connection took three packets and a careful dance of sequence numbers (Doc 3). Closing is
 the mirror image, and it is subtler than it looks, because TCP connections are **full-duplex**: closing
 is really *two* independent half-closes, and the rules for who waits, who can still send, and how stray
 old packets are kept from poisoning a reused address are where decades of TCP folklore (TIME_WAIT,
@@ -94,7 +94,7 @@ the tail of a stream to a close. The FIN can't "overtake" data.
 The RFC's two closing paths, side by side:
 
 ```text
-   active close (initiator)            passive close (responder — us, day 5)
+   active close (initiator)            passive close (responder — us, doc 5)
    ESTABLISHED                          ESTABLISHED
      │ send FIN                           │ recv FIN, send ACK
      ▼                                    ▼
@@ -108,9 +108,9 @@ Today we implement the **passive** side, *collapsed*: because an echo server has
 instant the client closes, we go `ESTABLISHED → LAST_ACK` directly, sending `FIN|ACK` in one segment
 (the ACK of their FIN + our FIN together), then `LAST_ACK → CLOSED` on their final ACK. We skip
 **CLOSE_WAIT** as a *distinct* state because there is no interval during which a local application is
-still writing — there is no local application, just the echo. (Day 7 adds the *active* close —
+still writing — there is no local application, just the echo. (Doc 7 adds the *active* close —
 our side initiating — with FIN_WAIT_1/2, CLOSING, and TIME_WAIT. The full state enum already exists in
-the code; day 5 reaches the passive subset.)
+the code; doc 5 reaches the passive subset.)
 
 ## 4. The passive close, number by number
 
@@ -152,11 +152,11 @@ the wait is ~4 minutes) before truly closing. Two reasons, both essential:
 2. **Old-duplicate protection.** It lets stray, delayed segments from *this* connection drain out of
    the network before the same 4-tuple can be reused, so a ghost segment from the old connection can't
    be mistaken for data on a new one. (This is the same hazard random ISNs guard against at open —
-   Day 3 §D.)
+   Doc 3 §D.)
 
 As the **passive** closer, we send the last *FIN* and receive the last *ACK*, so we end in CLOSED via
 LAST_ACK and don't need TIME_WAIT — the *peer* (the active closer) is the one that waits. (When we
-implement active close ourselves on Day 7, we add TIME_WAIT and its 2·MSL timer. It is the classic
+implement active close ourselves on Doc 7, we add TIME_WAIT and its 2·MSL timer. It is the classic
 reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
 
 ## 6. The Rust: state transitions and reaping the TCB
@@ -170,7 +170,7 @@ reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
   protocol logic decides *when* the connection is dead; the container decides *how* it's freed, via the
   `Drop` that running off the end of `remove` triggers.
 - **The FIN is queued for retransmission.** The current code records our FIN in the retransmission
-  queue (Day 12) so a lost FIN is resent until acknowledged, rather than hanging the teardown. At day 5
+  queue (Doc 12) so a lost FIN is resent until acknowledged, rather than hanging the teardown. At doc 5
   the link is lossless so this isn't exercised, but the hook is there.
 
 ## 7. The code, walked end to end
@@ -182,7 +182,7 @@ reason a busy server accumulates thousands of TIME_WAIT sockets — §C, §I.)
        RCV.NXT += 1                                      # consume their FIN
        out = segment(seq=SND.NXT, ack=RCV.NXT, FIN|ACK)  # ack theirs + send ours
        SND.NXT += 1                                      # consume our FIN
-       (queue our FIN for retransmission — Day 12)
+       (queue our FIN for retransmission — Doc 12)
        state = LAST_ACK
        return out
 ```
@@ -243,11 +243,11 @@ matching seq/ack numbers.
 
 | Decision | We chose | Real TCP | Why / caveat |
 |---|---|---|---|
-| Close path | passive only, collapsed to LAST_ACK | active + passive, full state set | an echo server only ever *responds* to a close (Day 7 adds active). |
+| Close path | passive only, collapsed to LAST_ACK | active + passive, full state set | an echo server only ever *responds* to a close (Doc 7 adds active). |
 | CLOSE_WAIT | fused with the FIN-ACK | a distinct state | there's no local app still writing, so no gap to model (§E). |
-| TIME_WAIT | none (we're the passive closer) | 2·MSL on the active closer | the *peer* waits; we add it when we close actively (Day 7, §C). |
+| TIME_WAIT | none (we're the passive closer) | 2·MSL on the active closer | the *peer* waits; we add it when we close actively (Doc 7, §C). |
 | FIN with data | data branch + a separate bare-FIN branch | a segment can carry final data + FIN together | our echo never co-sends data and FIN; a real stack handles both at once. |
-| RST | not sent at day 5 | RST on bad/closed-port segments | added later (Day 7 path); abortive close is §F. |
+| RST | not sent at doc 5 | RST on bad/closed-port segments | added later (Doc 7 path); abortive close is §F. |
 | Half-close | not supported (we close both ways at once) | app can close one direction, keep reading | needs CLOSE_WAIT as a real state (§E). |
 
 ## 11. Honesty: what production does that we don't
@@ -258,16 +258,16 @@ matching seq/ack numbers.
   closes its request direction relies on this.
 - **No graceful-vs-abortive choice.** We always close gracefully (FIN). Applications can force an
   *abortive* close (RST) to discard buffered data and skip TIME_WAIT (`SO_LINGER` with timeout 0, §F).
-- **Simultaneous close not exercised at day 5.** If both sides FIN at once you reach CLOSING (§D);
-  the code grows to handle it (Day 7).
+- **Simultaneous close not exercised at doc 5.** If both sides FIN at once you reach CLOSING (§D);
+  the code grows to handle it (Doc 7).
 - **No FIN-with-data.** A real final segment may carry the last bytes *and* the FIN; we separate them.
 - **TIME_WAIT tuning.** Real stacks have `tcp_tw_reuse`, `SO_REUSEADDR`, and TIME_WAIT-assassination
   defenses (§C, §I) to manage the close storm of a busy server. We have none (we're the passive side).
-- **Lingering reliability.** The current code *does* queue the FIN for retransmission (Day 12), so a
-  lost FIN is resent — a genuine reliability improvement over the original day-5 fire-and-forget.
+- **Lingering reliability.** The current code *does* queue the FIN for retransmission (Doc 12), so a
+  lost FIN is resent — a genuine reliability improvement over the original doc-5 fire-and-forget.
 
-None of these change the day-5 contract (a client can close and we tear down cleanly); they are the
-breadth Day 7 and beyond add.
+None of these change the doc-5 contract (a client can close and we tear down cleanly); they are the
+breadth Doc 7 and beyond add.
 
 ## 12. Rebuild it yourself — checklist + exercises
 
@@ -283,8 +283,8 @@ breadth Day 7 and beyond add.
 
 - **E1.** Add `CLOSE_WAIT` as a real intermediate state: ACK the FIN immediately, and only send our
   FIN on a later `on_tick`. This sets up half-close (§E).
-- **E2.** Send a `RST` for a segment to an unknown/closed connection (ties together with day3 E2; §F).
-- **E3.** Implement `TIME_WAIT` for an *active* close and explain the 2·MSL timer (preview of Day 7;
+- **E2.** Send a `RST` for a segment to an unknown/closed connection (ties together with doc3 E2; §F).
+- **E3.** Implement `TIME_WAIT` for an *active* close and explain the 2·MSL timer (preview of Doc 7;
   §C).
 - **E4.** Handle a **FIN that carries data**: accept the trailing bytes, *then* process the FIN, in one
   segment.
@@ -293,10 +293,10 @@ breadth Day 7 and beyond add.
 
 ## 13. What the next step adds
 
-Day 6 is **reliability**: keep unacknowledged data in a retransmission queue, drive a timer from a
+Doc 6 is **reliability**: keep unacknowledged data in a retransmission queue, drive a timer from a
 non-blocking event loop, and resend on a retransmission timeout (RTO) computed adaptively (RFC 6298).
 That is the change that lets the connection survive a *lossy* link — including a lost FIN, so the
-teardown itself becomes reliable. Day 7 then adds the **active close** (our side initiating) with
+teardown itself becomes reliable. Doc 7 then adds the **active close** (our side initiating) with
 FIN_WAIT_1/2, CLOSING, and TIME_WAIT — completing the state machine sketched in §3.
 
 ---
@@ -332,7 +332,7 @@ the request half-closes.
 
 ## B. The teardown half of the 11-state machine
 
-Zooming into the bottom of the full diagram (day3-book.md §C):
+Zooming into the bottom of the full diagram (doc3-book.md §C):
 
 ```text
                          ESTABLISHED
@@ -360,7 +360,7 @@ Zooming into the bottom of the full diagram (day3-book.md §C):
 - **LAST_ACK** — we sent our FIN (from CLOSE_WAIT); awaiting its ACK.
 - **TIME_WAIT** — the active closer's 2·MSL linger (§C).
 
-Day 5 reaches only ESTABLISHED → LAST_ACK → CLOSED (the fused passive path). Day 7 reaches the rest.
+Doc 5 reaches only ESTABLISHED → LAST_ACK → CLOSED (the fused passive path). Doc 7 reaches the rest.
 
 ## C. TIME_WAIT in depth (2·MSL, the two reasons, the hazards)
 
@@ -387,10 +387,10 @@ final ACK has been delivered (or re-sent) and any straggling segment from this c
   source ports, all stuck in TIME_WAIT. Mitigations: `tcp_tw_reuse` (reuse a TIME_WAIT for a new
   *outgoing* connection when safe via timestamps), `SO_REUSEADDR`, longer ephemeral ranges.
 - **TIME_WAIT assassination (RFC 1337).** An injected RST can prematurely kill a TIME_WAIT, reopening
-  the old-duplicate window. PAWS (Day 16 timestamps) defends against the duplicate hazard.
+  the old-duplicate window. PAWS (Doc 16 timestamps) defends against the duplicate hazard.
 
 We, as passive closer, never hold TIME_WAIT — which is precisely why a passive-only server is cheap to
-close. Day 7's active close is where we take on the cost.
+close. Doc 7's active close is where we take on the cost.
 
 ## D. Simultaneous close and the CLOSING state
 
@@ -405,7 +405,7 @@ Each then receives the *other's* FIN before its own FIN is acked:
 
 **CLOSING** is the state "I've acked your FIN, but mine isn't acked yet." It's rare (needs both apps to
 close within a round trip of each other) but the state machine handles it with no new packet types —
-just the same FIN/ACK in a different interleaving. Our code adds CLOSING on Day 7's active-close path.
+just the same FIN/ACK in a different interleaving. Our code adds CLOSING on Doc 7's active-close path.
 
 ## E. Half-close, `shutdown`, and CLOSE_WAIT as a distinct state
 
@@ -430,7 +430,7 @@ close leak. Exercise E1 makes CLOSE_WAIT real in our stack.
 There are two ways to end a connection:
 
 - **Graceful close (FIN).** The four-way (or three-way fused) handshake above. Guarantees all data sent
-  before the FIN is delivered and acknowledged. This is the default and what day 5 implements.
+  before the FIN is delivered and acknowledged. This is the default and what doc 5 implements.
 - **Abortive close (RST).** Send a `RST` to immediately discard the connection — any unsent/unacked
   data is dropped, the peer gets "connection reset by peer," and there is **no TIME_WAIT**. Triggered
   by `SO_LINGER` with a zero timeout, by closing a socket with unread data, or by the stack when it
@@ -442,7 +442,7 @@ until data is delivered or the timer expires; with a *zero* timeout it sends a R
 the right tool when the application knows the data is worthless (e.g. a protocol error) and wants to
 skip both delivery and TIME_WAIT.
 
-We send neither RST in the day-5 path; the broader stack sends RST for segments to unknown/closed
+We send neither RST in the doc-5 path; the broader stack sends RST for segments to unknown/closed
 connections (`build_rst`, used on the dispatch path). Exercise E2 wires RST into the close logic.
 
 ## G. FIN consuming a sequence number, worked numerically
@@ -493,10 +493,10 @@ Flag byte `0x11` = FIN|ACK; `0x10` = ACK. The two `+1`s are visible: ①'s FIN a
 ## I. Comparison to real stacks — the TIME_WAIT problem
 
 ```text
-   concept            real kernel (Linux/BSD)                    this stack (day 5)
+   concept            real kernel (Linux/BSD)                    this stack (doc 5)
    ────────────────   ────────────────────────────────────────  ──────────────────────
    passive close      CLOSE_WAIT (distinct), app then closes      fused → LAST_ACK
-   active close        FIN_WAIT_1/2 → TIME_WAIT (2·MSL)            Day 7 adds it
+   active close        FIN_WAIT_1/2 → TIME_WAIT (2·MSL)            Doc 7 adds it
    TIME_WAIT cost      per-TCB memory; ephemeral-port pressure     n/a (we're passive)
    mitigations         tcp_tw_reuse, SO_REUSEADDR, tw recycling    none
    half-close          shutdown(SHUT_WR); stream after peer FIN    not supported
@@ -513,13 +513,13 @@ design point for a request/response server, not a gap.
 
 - **RST injection.** A forged in-window RST tears down a live connection (a DoS, or censorship — some
   middleboxes inject RSTs to block traffic). The defense (RFC 5961) is to accept a RST only at the
-  *exact* `RCV.NXT`, and to rate-limit "challenge ACKs" for near-misses. Our day-5 stack doesn't
+  *exact* `RCV.NXT`, and to rate-limit "challenge ACKs" for near-misses. Our doc-5 stack doesn't
   validate incoming RSTs tightly; that's a later hardening.
 - **FIN/NULL/Xmas scans.** Sending a FIN (or no-flags, or FIN+URG+PSH) to a *closed* port elicits a RST
   on many stacks, while an *open* port stays silent — a port-scanning technique (nmap `-sF`). Whether
   your stack replies reveals its state; correct behavior per RFC is to RST a non-SYN to a closed port.
 - **TIME_WAIT assassination (§C).** An injected RST during TIME_WAIT can cut it short, reopening the
-  old-duplicate window; PAWS (Day 16) mitigates.
+  old-duplicate window; PAWS (Doc 16) mitigates.
 - **Resource exhaustion via half-open closes.** An attacker can open many connections and FIN them to
   drive CLOSE_WAIT/LAST_ACK churn; bounded TCB tables and timeouts defend.
 
@@ -535,7 +535,7 @@ work adds.
 - **Ephemeral-port exhaustion** caps a client to ~28k–64k concurrent short connections per
   (dst IP, dst port) before ports stuck in TIME_WAIT run out; `tcp_tw_reuse` + timestamps reclaim them.
 - **Close batching / keep-alive.** The cheapest close is the one you don't do: HTTP keep-alive
-  (Day 11) reuses one connection for many requests, amortizing handshake *and* teardown.
+  (Doc 11) reuses one connection for many requests, amortizing handshake *and* teardown.
 - **Our cost** is one state assignment and one `HashMap::remove` per close — O(1), no lingering. The
   honest trade is that we don't *do* the expensive part (TIME_WAIT) because we don't actively close.
 
@@ -562,7 +562,7 @@ work adds.
 12. **What is simultaneous close?** Both sides FIN at once → CLOSING → TIME_WAIT (§D).
 13. **Can a segment carry data and FIN together?** Yes; we separate them, real stacks combine.
 14. **How does the TCB get freed?** `main` removes it from the map when state is CLOSED; Rust drops it.
-15. **Is our FIN retransmitted if lost?** Yes — it's queued in the retransmission queue (Day 12).
+15. **Is our FIN retransmitted if lost?** Yes — it's queued in the retransmission queue (Doc 12).
 16. **What ack does our FIN|ACK carry?** `RCV.NXT` = one past the client's FIN.
 17. **What ack must the client's final ACK carry?** Our `SND.NXT` (one past our FIN).
 18. **Why many CLOSE_WAIT sockets in netstat?** An app that received a FIN but never closed (a leak).
@@ -599,8 +599,8 @@ Q: Many CLOSE_WAIT sockets usually mean?  A: an app that received a FIN but neve
 
 - **FIN** — the flag/phantom-byte that closes one direction of the stream.
 - **Half-close** — closing one direction (`shutdown(SHUT_WR)`) while keeping the other open.
-- **Passive close** — responding to the peer's FIN (our role at day 5).
-- **Active close** — initiating the close by sending the first FIN (Day 7).
+- **Passive close** — responding to the peer's FIN (our role at doc 5).
+- **Active close** — initiating the close by sending the first FIN (Doc 7).
 - **CLOSE_WAIT** — peer closed; we acked; local app may still send.
 - **LAST_ACK** — we sent our FIN (from CLOSE_WAIT); awaiting its ACK.
 - **FIN_WAIT_1 / FIN_WAIT_2** — active closer: FIN sent / FIN acked, awaiting peer FIN.
@@ -645,5 +645,5 @@ Q: Many CLOSE_WAIT sockets usually mean?  A: an app that received a FIN but neve
 ```
 
 > Re-type the FIN/LAST_ACK logic from this chapter, then `cargo test`. You now hold the whole picture:
-> parsing (Day 1), checksums + write (Day 2), handshake (Day 3), data (Day 4), close (Day 5) — a TCP
+> parsing (Doc 1), checksums + write (Doc 2), handshake (Doc 3), data (Doc 4), close (Doc 5) — a TCP
 > connection a real `nc` opens, uses, and closes.

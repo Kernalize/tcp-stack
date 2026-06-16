@@ -1,7 +1,7 @@
-# Day 25 — TCP, Part 23: CUBIC — Filling Fat Pipes with a Cubic Growth Curve (RFC 8312 / 9438)
+# Doc 25 — TCP, Part 23: CUBIC — Filling Fat Pipes with a Cubic Growth Curve (RFC 8312 / 9438)
 
 > Goal: replace Reno's straight-line congestion avoidance with the curve the modern internet actually
-> runs. Day 10 gave us RFC 5681 Reno: after a loss, `cwnd` grows **+1 MSS per RTT** — a gentle slope
+> runs. Doc 10 gave us RFC 5681 Reno: after a loss, `cwnd` grows **+1 MSS per RTT** — a gentle slope
 > that is safe but glacial on a *fat pipe* (a high bandwidth-delay-product link: fast and/or
 > long-haul). On a 1 Gbps, 100 ms path the window needs ~8000 segments to fill the pipe; at +1
 > segment/RTT that's *minutes* to recover from a single loss. **CUBIC** (RFC 8312, updated by RFC
@@ -16,8 +16,8 @@
 > so two flows sharing a link converge to fairness regardless of their round-trip times (Reno favors
 > short-RTT flows).
 >
-> This is the congestion-control capstone: the loss *detection* (RACK-TLP, Day 24) and *recovery
-> structure* (NewReno/6675, Days 20–21) stay; CUBIC changes only the *growth law* and the *decrease
+> This is the congestion-control capstone: the loss *detection* (RACK-TLP, Doc 24) and *recovery
+> structure* (NewReno/6675, Docs 20–21) stay; CUBIC changes only the *growth law* and the *decrease
 > factor* — the two numbers that decide how fast a real bulk transfer fills a real network.
 
 **Contents**
@@ -175,7 +175,7 @@ only the curve itself uses floating point.
 Note the decrease is based on `cwnd` (CUBIC's definition), not Reno's `FlightSize/2`. And `W_max =
 cwnd` records the height to aim the curve back at. Everything else about recovery — the fast-retransmit
 inflation (`ssthresh + 3·MSS`), NewReno's partial-ACK deflation, the recovery-exit to `ssthresh` — is
-unchanged from Days 10/20. CUBIC swaps the *growth law* and the *cut factor*; the recovery *plumbing*
+unchanged from Docs 10/20. CUBIC swaps the *growth law* and the *cut factor*; the recovery *plumbing*
 is the same.
 
 ## 6. RTT-independence and fairness
@@ -212,7 +212,7 @@ if self.epoch_ms == 0 {
 ```
 
 Two new fields hold the curve's anchor: `w_max` (the inflection window) and `epoch_ms` (when this
-cubic epoch began). The connection already threads `now_ms` everywhere (Day 6), so the single
+cubic epoch began). The connection already threads `now_ms` everywhere (Doc 6), so the single
 call-site change in `tcp.rs` is `self.cong.on_ack(acked, now_ms)`.
 
 ## 8. The Rust: f64 for the curve, integer β, the per-ACK step
@@ -281,7 +281,7 @@ records `w_max = cwnd`; everything else (the `+3·MSS` inflation, the collapse-t
 before.
 
 **`tcp.rs`** — the one call site becomes `self.cong.on_ack(acked, now_ms)`; the connection already has
-`now_ms` in hand. NewReno (Day 20), RFC 6675 (Day 21), and RACK-TLP (Day 24) are untouched — they
+`now_ms` in hand. NewReno (Doc 20), RFC 6675 (Doc 21), and RACK-TLP (Doc 24) are untouched — they
 drive *which* segments to send and *when* a loss is declared; CUBIC only changes *how big* the window
 grows and *how much* it shrinks.
 
@@ -350,7 +350,7 @@ loss happened*; CUBIC decides *window size*. They're orthogonal — CUBIC swaps 
 - **Still loss-based.** CUBIC (like Reno) treats loss as the congestion signal; BBR instead models the
   bottleneck bandwidth and RTT and ignores loss. Different philosophy (§E), a much larger change.
 - **The echo server never bulk-sends**, so CUBIC, like all our congestion control, is exercised by the
-  unit tests rather than binding live — a bulk transfer over the socket API (Day 22) under `tc netem`
+  unit tests rather than binding live — a bulk transfer over the socket API (Doc 22) under `tc netem`
   is what makes it visible.
 
 CUBIC's curve and β are real; the gaps are the production refinements (TCP-friendly region, fast
@@ -380,7 +380,7 @@ convergence, HyStart, fixed-point), each a known follow-on.
    plateau→convex shape against the §4 numbers.
 4. **E4 — RTT fairness.** Simulate two flows with RTTs 20 ms and 200 ms sharing a bottleneck; show
    CUBIC's windows converge while Reno's diverge in the short-RTT flow's favor.
-5. **E5 — measure it.** Over the socket API (Day 22) with `tc qdisc … netem delay 100ms` + a single
+5. **E5 — measure it.** Over the socket API (Doc 22) with `tc qdisc … netem delay 100ms` + a single
    drop, time a bulk transfer's recovery under CUBIC vs a stubbed Reno slope; watch CUBIC refill in
    seconds.
 
@@ -503,7 +503,7 @@ capstone for this stack.
 ## F. Comparison to real stacks — Linux, the sysctls
 
 ```text
-   aspect                  Linux                       ours (Day 25)
+   aspect                  Linux                       ours (Doc 25)
    ─────────────────────   ─────────────────────────   ────────────────────────
    default CC              CUBIC (since 2.6.19)        CUBIC
    β                       0.7                         0.7 (integer 7/10)
@@ -609,10 +609,10 @@ Q: CUBIC vs BBR?  A: loss-based cubic growth vs model-based (bandwidth×RTT), lo
    W(t)     C·(t−K)³ + W_max             the target window
 ```
 
-**J.2 — what changed vs Reno (Day 10)**
+**J.2 — what changed vs Reno (Doc 10)**
 
 ```text
-   aspect                Reno (Day 10)        CUBIC (Day 25)
+   aspect                Reno (Doc 10)        CUBIC (Doc 25)
    ───────────────────   ──────────────────   ──────────────────────────────
    CA growth             +1 MSS / RTT          cubic curve in time
    decrease β            0.5 (FlightSize/2)    0.7 (cwnd · 7/10)

@@ -1,8 +1,8 @@
-# Day 21 — TCP, Part 19: SACK-Based Loss Recovery — `pipe`, `IsLost`, `NextSeg` (RFC 6675)
+# Doc 21 — TCP, Part 19: SACK-Based Loss Recovery — `pipe`, `IsLost`, `NextSeg` (RFC 6675)
 
-> Goal: turn Day 18's selective acknowledgements from a *retransmission hint* into a full
-> *loss-recovery engine*. SACK (Day 18) lets the receiver tell us exactly which islands it holds
-> above a hole; NewReno (Day 20) recovers from multiple losses but only *one hole per round trip* and
+> Goal: turn Doc 18's selective acknowledgements from a *retransmission hint* into a full
+> *loss-recovery engine*. SACK (Doc 18) lets the receiver tell us exactly which islands it holds
+> above a hole; NewReno (Doc 20) recovers from multiple losses but only *one hole per round trip* and
 > goes nearly silent while it does. RFC 6675 ("A Conservative Loss Recovery Algorithm Based on SACK")
 > uses the SACK scoreboard to do far better: infer **every** lost segment at once (`IsLost`),
 > estimate the bytes genuinely in flight (`pipe`), and then — gated by `pipe < cwnd` — retransmit
@@ -10,8 +10,8 @@
 > loses three segments is repaired in a single round trip instead of three, and the pipe never
 > drains.
 >
-> This is the capstone of the reliability arc that began on Day 6: retransmission queue (Day 12),
-> reassembly (Day 9), congestion control (Day 10), SACK blocks (Day 18), NewReno (Day 20), and now
+> This is the capstone of the reliability arc that began on Doc 6: retransmission queue (Doc 12),
+> reassembly (Doc 9), congestion control (Doc 10), SACK blocks (Doc 18), NewReno (Doc 20), and now
 > the algorithm that ties the scoreboard to the congestion window. We keep NewReno as the fallback
 > for peers that don't speak SACK; RFC 6675 is what runs when they do — which, on today's internet,
 > is almost always.
@@ -78,7 +78,7 @@ recovery.
 
 ## 2. Why NewReno still under-performs, concretely
 
-NewReno (Day 20) fixed the *correctness* of multiple-loss recovery — no more RTO stalls — but not its
+NewReno (Doc 20) fixed the *correctness* of multiple-loss recovery — no more RTO stalls — but not its
 *speed*. It learns about holes through the **cumulative** ACK, which can only reveal the *next* hole
 after the *previous* one is filled:
 
@@ -112,8 +112,8 @@ RFC 6675 is built from three pure functions over the retransmission queue + the 
 - **`NextSeg()`** — "what do I send next?" The next lost hole to retransmit; or, when no holes remain,
   new data.
 
-In our code these are methods on `RetxQueue` (which already tracks `sacked` per segment from Day 18,
-and `retries` from Day 12), plus a driver in `Connection::poll_transmit`. Let's take them in turn.
+In our code these are methods on `RetxQueue` (which already tracks `sacked` per segment from Doc 18,
+and `retries` from Doc 12), plus a driver in `Connection::poll_transmit`. Let's take them in turn.
 
 ## 4. `IsLost` — inferring loss from the scoreboard
 
@@ -236,7 +236,7 @@ window, not coalesce.
 
 ## 8. Where it lives: the queue computes, the connection paces
 
-The same separation-of-concerns that made Day 20 small applies again:
+The same separation-of-concerns that made Doc 20 small applies again:
 
 ```text
    ┌────────────────────────────────────────────┐    ┌──────────────────────────────────────┐
@@ -268,7 +268,7 @@ refactor that reorders the queue knows to revisit it.
 **`wrapping_sub` for lengths, `seq::after` for comparisons.** `s.end_seq − s.start_seq` uses
 `wrapping_sub` so a segment that straddles the 32-bit wrap still yields its true length; "is this
 SACKed segment above that one?" uses the modular `seq::after`, not `>`. Every sequence comparison in
-the file goes through `seq::` for exactly this reason (Day 3).
+the file goes through `seq::` for exactly this reason (Doc 3).
 
 ## 10. A fully worked three-loss trace — NewReno vs 6675
 
@@ -303,7 +303,7 @@ The feature is three `RetxQueue` methods, one `poll_transmit` branch, and one co
 scoreboard analogue of three duplicate ACKs.
 
 **The queue primitives** (`src/tcp.rs`, on `RetxQueue`): `is_lost` (private), `pipe`,
-`next_lost_retransmit` — §§4–6. They read `sacked` (Day 18) and `retries` (Day 12); no new per-segment
+`next_lost_retransmit` — §§4–6. They read `sacked` (Doc 18) and `retries` (Doc 12); no new per-segment
 state was needed.
 
 **The pacing** (`src/tcp.rs`, in `poll_transmit`): the `sack_ok && in_recovery()` branch of §7,
@@ -311,12 +311,12 @@ placed *before* the ordinary `usable_window`/Nagle path so it intercepts recover
 steady-state sending (and the whole non-SACK NewReno world) untouched.
 
 **Entry is unchanged.** We still enter recovery via the third duplicate ACK (`on_dup_ack`), which
-sets `recover` (Day 20) and fast-retransmits the first hole. RFC 6675 then takes over the *rest* of
-the retransmissions through `poll_transmit`. The SACK marking (`mark_sacked`, Day 18) already happens
+sets `recover` (Doc 20) and fast-retransmits the first hole. RFC 6675 then takes over the *rest* of
+the retransmissions through `poll_transmit`. The SACK marking (`mark_sacked`, Doc 18) already happens
 on every ACK, so the scoreboard is current before the loop reads it.
 
 **Fallback is automatic.** When `sack_ok` is false, the `poll_transmit` branch is skipped entirely
-and NewReno (Day 20) handles recovery through the cumulative ACK. One stack, two recovery engines,
+and NewReno (Doc 20) handles recovery through the cumulative ACK. One stack, two recovery engines,
 selected by whether the peer offered SACK in its SYN.
 
 ## 12. Verification — the three new tests, and why each exists
@@ -374,7 +374,7 @@ allows." (§7.)
   our queue, but a larger stack tracks them explicitly for the corner cases.
 - **No reneging handling.** If a receiver *discards* data it previously SACKed (legal but rare under
   memory pressure), a real stack must clear the scoreboard and fall back to cumulative recovery (RFC
-  6675 §5.1). We keep SACK state across RTOs (Day 18) and don't detect reneging.
+  6675 §5.1). We keep SACK state across RTOs (Doc 18) and don't detect reneging.
 - **No DSACK (RFC 2883) feedback into recovery.** DSACK reports *duplicate* receipt, letting a sender
   detect a *spurious* retransmit and undo its congestion reaction. We parse SACK blocks but don't act
   on duplicate ones.
@@ -382,7 +382,7 @@ allows." (§7.)
   octet; a partially-SACKed segment isn't split. Fine for our one-segment-per-record queue; a
   byte-granular scoreboard is what large stacks keep.
 - **The echo server never bulk-sends**, so this engine, like cwnd, rarely binds in the live binary —
-  it's exercised by the unit tests and would bind under the Day 22 socket API doing a real transfer.
+  it's exercised by the unit tests and would bind under the Doc 22 socket API doing a real transfer.
 
 None of these are wrong in what we built; they're the next refinements. Our `pipe`/`IsLost`/`NextSeg`
 core is faithful RFC 6675 for the common multi-loss case.
@@ -414,7 +414,7 @@ core is faithful RFC 6675 for the common multi-loss case.
    tail loss. Test a scenario where the *last* two segments are lost.
 4. **E4 — reneging.** Simulate a receiver that SACKs `[a,b)` then later cumulatively ACKs *below* `a`
    while un-SACKing it; detect the inconsistency and clear `sacked` flags (RFC 6675 §5.1).
-5. **E5 — measure it.** Under `tc qdisc … netem loss 8%`, run a bulk transfer (Day 22 socket API)
+5. **E5 — measure it.** Under `tc qdisc … netem loss 8%`, run a bulk transfer (Doc 22 socket API)
    with SACK on vs off (force NewReno) and compare completion time and the retransmission timeline in
    `tcpdump`.
 
@@ -424,10 +424,10 @@ ideas that *are* RFC 6675.
 ## 16. What the next day adds
 
 Tomorrow we finally give all of this an **application to drive it**: a blocking `TcpListener` /
-`TcpStream` façade over the event loop (the day11-book §11 exercise), plus **outgoing segmentation**
+`TcpStream` façade over the event loop (the doc11-book §11 exercise), plus **outgoing segmentation**
 below one delivered run and **multi-request / keep-alive HTTP** with full header buffering. Until now
 our "application" has been a hard-coded echo that never bulk-sends, so cwnd, NewReno, and the `pipe`
-estimator have been exercised only by tests. Day 22 builds the API a real program calls — at which
+estimator have been exercised only by tests. Doc 22 builds the API a real program calls — at which
 point a single `stream.write_all(big_buffer)` finally puts this whole reliability stack under genuine
 load.
 
@@ -446,19 +446,19 @@ and routines, mapped to our code:
    HighACK              highest cumulatively ACKed sequence       SND.UNA
    HighData             highest sequence transmitted              SND.NXT
    HighRxt              highest sequence retransmitted             (per-segment retries > 0)
-   RecoveryPoint        SND.NXT at recovery start                  recover (Day 20)
-   the scoreboard       per-range SACK state                      Unacked.sacked (Day 18)
+   RecoveryPoint        SND.NXT at recovery start                  recover (Doc 20)
+   the scoreboard       per-range SACK state                      Unacked.sacked (Doc 18)
    IsLost(SeqNum)       loss inference                            RetxQueue::is_lost
    SetPipe()/Pipe       bytes in flight                           RetxQueue::pipe
    NextSeg()            what to (re)transmit next                 next_lost_retransmit (+ new data)
-   Update()             ingest a SACK block                       mark_sacked (Day 18)
+   Update()             ingest a SACK block                       mark_sacked (Doc 18)
 ```
 
 The control flow on each ACK during recovery (RFC 6675 §5, simplified to what we implement):
 
 ```text
    1. Update() the scoreboard from the SACK blocks.                  (mark_sacked, on every ACK)
-   2. If a full ACK (cum ≥ RecoveryPoint): exit recovery.            (on_ack, Day 20)
+   2. If a full ACK (cum ≥ RecoveryPoint): exit recovery.            (on_ack, Doc 20)
    3. Else SetPipe(); while (pipe < cwnd):                           (poll_transmit loop)
         a. (re)transmit NextSeg();                                   (next_lost_retransmit / new data)
         b. pipe += the bytes just sent.
@@ -549,13 +549,13 @@ follow-ons and noted here so the gap is explicit.
 RFC 6675 is the SACK-era standard our stack now implements. The modern frontier is **RACK-TLP** (RFC
 8985), which replaces the *count*-based DupThresh with a *time*-based test ("a segment is lost if a
 segment sent later has been ACKed and enough time has passed"), eliminating the reordering
-sensitivity and handling tail loss with a Tail Loss Probe. RACK builds directly on our Day 16
-timestamps + Day 18 SACK; it's the natural successor day.
+sensitivity and handling tail loss with a Tail Loss Probe. RACK builds directly on our Doc 16
+timestamps + Doc 18 SACK; it's the natural successor day.
 
 ## G. Comparison to real stacks — Linux, FreeBSD, lwIP, smoltcp
 
 ```text
-   aspect                Linux             FreeBSD         lwIP            smoltcp       ours (Day 21)
+   aspect                Linux             FreeBSD         lwIP            smoltcp       ours (Doc 21)
    ───────────────────   ───────────────   ─────────────   ─────────────   ───────────   ──────────────
    SACK recovery         RACK-TLP (6675+)  6675 + RACK     basic/none      6675-ish      6675 core
    pipe estimator        yes               yes             no              yes           yes
@@ -615,9 +615,9 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
    ACK.
 10. **How do we enter recovery?** Still via three duplicate ACKs (`on_dup_ack`) — SACK rides on those
     dup ACKs. 6675 then drives the rest of the retransmissions.
-11. **Where does the scoreboard come from?** `mark_sacked` (Day 18), called on every ACK before the
+11. **Where does the scoreboard come from?** `mark_sacked` (Doc 18), called on every ACK before the
     loop reads it.
-12. **What marks a segment "retransmitted" for `pipe`?** `retries > 0` (Day 12) — reused as RFC
+12. **What marks a segment "retransmitted" for `pipe`?** `retries > 0` (Doc 12) — reused as RFC
     6675's HighRxt/Retran predicate.
 13. **Does a SACKed segment count in `pipe`?** No — the receiver has it; it's not in the network.
 14. **Does a lost-but-retransmitted segment count?** Yes — it's back on the wire.
@@ -625,7 +625,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
 16. **What if `pipe ≥ cwnd`?** Send nothing this round — the pipe is full; wait for ACKs to open it.
 17. **Why skip Nagle during recovery?** We *want* to fill the window with retransmits and new data;
     coalescing would defeat that.
-18. **What happens when SACK isn't negotiated?** The `poll_transmit` branch is skipped; NewReno (Day
+18. **What happens when SACK isn't negotiated?** The `poll_transmit` branch is skipped; NewReno (Doc
     20) handles recovery via the cumulative ACK.
 19. **How is the loop self-terminating?** Each (re)transmission raises `pipe`; once `pipe ≥ limit` or
     no holes/new-data remain, it stops.
@@ -633,7 +633,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
     `IsLost` segment because the queue is in ascending order.
 21. **Can `pipe` exceed cwnd?** Momentarily, if cwnd shrinks, but we never *add* when `pipe ≥ limit`,
     so it converges down as ACKs arrive.
-22. **Does 6675 change how we *exit* recovery?** No — the full-ACK exit is NewReno's (Day 20), via
+22. **Does 6675 change how we *exit* recovery?** No — the full-ACK exit is NewReno's (Doc 20), via
     `recover`.
 23. **What's reneging and do we handle it?** A receiver discarding previously-SACKed data; we don't
     detect it (exercise E4).
@@ -647,7 +647,7 @@ scoreboard in a balanced tree / interval structure for O(log n) updates.
     wouldn't retransmit the second hole in the same round.
 28. **Complexity?** O(segments) per `pipe`, O(segments) calls per recovery → O(n²) worst case for our
     linear queue; production uses a tree for O(log n).
-29. **Does this interact with timestamps (Day 16)?** Not directly today, but RACK-TLP (the successor)
+29. **Does this interact with timestamps (Doc 16)?** Not directly today, but RACK-TLP (the successor)
     uses timestamps to replace the count-based `IsLost` — a natural next day.
 30. **Single biggest thing still missing?** Rescue/TLP for tail loss, and RACK's time-based loss
     detection (RFC 8985).
@@ -667,7 +667,7 @@ Q: A SACKed segment's contribution to pipe?  A: zero (the receiver has it).
 Q: A retransmitted lost segment's contribution to pipe?  A: its length (back on the wire).
 Q: What marks "retransmitted" in our code?  A: retries > 0 (RFC 6675 HighRxt).
 Q: How do we enter 6675 recovery?  A: 3 duplicate ACKs (carrying SACK), same as before.
-Q: Fallback when SACK isn't negotiated?  A: NewReno (cumulative ACK), Day 20.
+Q: Fallback when SACK isn't negotiated?  A: NewReno (cumulative ACK), Doc 20.
 Q: Tail-loss weakness of 6675?  A: nothing SACKs above the last segments → RTO (rescue/TLP fixes it).
 Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detection.
 ```
@@ -680,7 +680,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 - **`NextSeg`** — RFC 6675's "what to send next" routine: lost holes, then new data (then rescue).
 - **DupThresh** — the loss threshold (3); the SACK analogue of three duplicate ACKs.
 - **HighRxt / Retran** — the highest retransmitted sequence; a segment is "retransmitted" if resent.
-- **RecoveryPoint** — SND.NXT frozen at recovery entry (our `recover`, Day 20); recovery ends when the
+- **RecoveryPoint** — SND.NXT frozen at recovery entry (our `recover`, Doc 20); recovery ends when the
   cumulative ACK reaches it.
 - **Rescue retransmission** — retransmitting the highest outstanding segment to avoid a tail-loss RTO.
 - **Reneging** — a receiver discarding data it previously SACKed.
@@ -715,7 +715,7 @@ Q: The modern successor to 6675?  A: RACK-TLP (RFC 8985), time-based loss detect
 ```text
    routine    purpose                         our method                         tested by
    ────────   ─────────────────────────────   ────────────────────────────────   ───────────────────────────
-   Update()   ingest a SACK block             mark_sacked (Day 18)               out_of_order_data_acks… etc.
+   Update()   ingest a SACK block             mark_sacked (Doc 18)               out_of_order_data_acks… etc.
    IsLost()   loss inference                  RetxQueue::is_lost (private)        via pipe / next_lost tests
    SetPipe()  bytes in flight                 RetxQueue::pipe                     pipe_excludes_sacked…
    NextSeg()  what to (re)transmit            next_lost_retransmit + new data    sack_recovery_retransmits…

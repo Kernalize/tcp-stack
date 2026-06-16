@@ -1,12 +1,12 @@
 //! TCP congestion control: slow start, fast retransmit/recovery (RFC 5681), NewReno partial-ACK
-//! recovery (RFC 6582, Day 20), and **CUBIC** congestion avoidance (RFC 8312/9438, Day 25).
+//! recovery (RFC 6582, Doc 20), and **CUBIC** congestion avoidance (RFC 8312/9438, Doc 25).
 //!
-//! Flow control (Day 8) caps the sender at what the *receiver* can hold. Congestion control caps
+//! Flow control (Doc 8) caps the sender at what the *receiver* can hold. Congestion control caps
 //! it at what the *network* can carry — the receiver's window says nothing about the routers in
 //! between. The sender keeps a second window, `cwnd`, and may have at most `min(cwnd, rwnd)` bytes
 //! in flight. `cwnd` grows while ACKs flow and collapses on loss.
 //!
-//! Day 25 replaces Reno's *linear* congestion-avoidance increase (+1 MSS/RTT) with **CUBIC**: after
+//! Doc 25 replaces Reno's *linear* congestion-avoidance increase (+1 MSS/RTT) with **CUBIC**: after
 //! a loss, `cwnd` follows a cubic curve in *time* — `W(t) = C·(t − K)³ + W_max` — that climbs back
 //! quickly toward the pre-loss window `W_max`, flattens (the concave "plateau") around it to probe
 //! gently, then accelerates past it (the convex region) to find new bandwidth. On high
@@ -15,8 +15,8 @@
 //! CUBIC's β = 0.7, so a single loss costs less window.
 //!
 //! Honest caveat: our echo server never sends in bulk, so `cwnd` won't actually *bind* here — but
-//! the machinery below is real and fully unit-tested with a simulated clock. Theory: `docs/day10-book.md`
-//! (Reno) and `docs/day25-book.md` (CUBIC).
+//! the machinery below is real and fully unit-tested with a simulated clock. Theory: `docs/doc10-book.md`
+//! (Reno) and `docs/doc25-book.md` (CUBIC).
 //!
 //! [`CongestionControl`] is an enum dispatching to one of two controllers: the loss-based **CUBIC**
 //! ([`Cubic`], the default, here) or the model-based **BBR** ([`crate::bbr::Bbr`]). A connection
@@ -32,7 +32,7 @@ pub const MSS: u32 = 1460;
 const INIT_SSTHRESH: u32 = 65_535; // "infinite" until the first loss tightens it (RFC 5681 §3.1)
 const DUP_ACK_THRESHOLD: u32 = 3; //  3 duplicate ACKs ⇒ fast retransmit (RFC 5681 §3.2)
 
-// Day 25 — CUBIC constants (RFC 9438). β is the multiplicative-decrease factor (kept as an integer
+// Doc 25 — CUBIC constants (RFC 9438). β is the multiplicative-decrease factor (kept as an integer
 // fraction so `ssthresh` stays deterministic); C scales the cubic growth in time.
 const CUBIC_BETA_NUM: u32 = 7; //  β = 0.7 (Reno uses 0.5) — a single loss costs 30% of cwnd, not 50%
 const CUBIC_BETA_DEN: u32 = 10;
@@ -46,7 +46,7 @@ pub struct Cubic {
     ssthresh: u32,     // below it → slow start; at/above it → congestion avoidance (CUBIC)
     dup_acks: u32,     // consecutive duplicate ACKs seen
     in_recovery: bool, // inside a fast-recovery episode
-    // Day 25 (CUBIC):
+    // Doc 25 (CUBIC):
     w_max: u32,        // cwnd at the last reduction — the inflection point the curve aims back at
     epoch_ms: u64,     // start of the current CUBIC epoch (0 = no CA epoch in progress yet)
 }
@@ -67,7 +67,7 @@ impl Cubic {
 
     /// An ACK that acknowledges `acked` NEW bytes, at time `now_ms`. Grows `cwnd` (slow start or
     /// CUBIC congestion avoidance) and ends any fast-recovery episode. `now_ms` drives CUBIC's
-    /// time-based curve (Day 25); it is ignored in slow start and on the recovery-exit path.
+    /// time-based curve (Doc 25); it is ignored in slow start and on the recovery-exit path.
     pub fn on_ack(&mut self, acked: u32, now_ms: u64) {
         self.dup_acks = 0;
         if self.in_recovery {
@@ -85,7 +85,7 @@ impl Cubic {
             // Slow start: +1 MSS per ACK ⇒ ~doubles each RTT (exponential ramp-up). Unchanged.
             self.cwnd = self.cwnd.saturating_add(MSS);
         } else {
-            // Day 25 — CUBIC congestion avoidance. Start a new epoch on the first CA ACK after a
+            // Doc 25 — CUBIC congestion avoidance. Start a new epoch on the first CA ACK after a
             // loss (or after slow start), anchoring W_max at the current cwnd if no recent loss set
             // a higher one.
             if self.epoch_ms == 0 {
@@ -108,7 +108,7 @@ impl Cubic {
         }
     }
 
-    /// Day 25 — the CUBIC window for the current epoch at time `now_ms` (bytes):
+    /// Doc 25 — the CUBIC window for the current epoch at time `now_ms` (bytes):
     /// `W(t) = C·(t − K)³ + W_max`, where `K = ∛(W_max·(1 − β) / C)` is the time to climb back to
     /// `W_max`, and `t` is seconds since the epoch began. Below K the curve is concave (fast early
     /// recovery, then a gentle plateau under W_max); above K it is convex (probing past W_max).
@@ -123,7 +123,7 @@ impl Cubic {
 
     /// A duplicate ACK (acknowledges no new data while data is outstanding). Returns `true` exactly
     /// on the threshold-th one, when the caller should fast-retransmit the oldest unacked segment.
-    /// Day 25: the multiplicative decrease is CUBIC's `cwnd·β` (β = 0.7), anchoring `W_max` at the
+    /// Doc 25: the multiplicative decrease is CUBIC's `cwnd·β` (β = 0.7), anchoring `W_max` at the
     /// pre-loss window so the cubic curve can aim the recovery back at it.
     pub fn on_dup_ack(&mut self, _flight: u32) -> bool {
         self.dup_acks += 1;
@@ -143,7 +143,7 @@ impl Cubic {
     }
 
     /// The retransmission timer fired (RTO) — the strongest congestion signal. Collapse to one
-    /// segment and re-enter slow start (RFC 5681 §3.1). Day 25: `ssthresh` uses CUBIC's β, and
+    /// segment and re-enter slow start (RFC 5681 §3.1). Doc 25: `ssthresh` uses CUBIC's β, and
     /// `W_max` records the window we fell from so the curve can climb back after slow start.
     pub fn on_timeout(&mut self, _flight: u32) {
         self.w_max = self.cwnd;
@@ -154,14 +154,14 @@ impl Cubic {
         self.epoch_ms = 0;
     }
 
-    /// Day 20 — are we inside a fast-recovery episode? NewReno (RFC 6582) needs this to route an
+    /// Doc 20 — are we inside a fast-recovery episode? NewReno (RFC 6582) needs this to route an
     /// incoming ACK: during recovery a *partial* ACK is handled specially (see `on_partial_ack`),
     /// while outside recovery an ACK grows the window normally (`on_ack`).
     pub fn in_recovery(&self) -> bool {
         self.in_recovery
     }
 
-    /// Day 20 — NewReno **partial ACK** (RFC 6582 §3). During fast recovery, an ACK advanced
+    /// Doc 20 — NewReno **partial ACK** (RFC 6582 §3). During fast recovery, an ACK advanced
     /// SND.UNA but did *not* reach `recover` (the SND.NXT at recovery start), so at least one more
     /// segment in that window was also lost. Deflate `cwnd` by the `acked` bytes (they left the
     /// network) and add back one MSS for the segment the ACK just freed, then **stay in recovery** —
