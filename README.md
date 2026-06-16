@@ -10,8 +10,8 @@ It is also a **teaching project**: every feature ships with a heavily-commented 
 and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.md`).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
-> 5961/1337 robustness are implemented and unit-tested (137 tests, offline). What's *not* done is
-> live conformance/throughput testing and breadth (BBR) — see
+> 5961/1337 robustness — plus both **CUBIC and BBR** congestion control — are implemented and
+> unit-tested (151 tests, offline). What's *not* done is live conformance/throughput testing — see
 > [Limitations](#limitations).
 
 ## What works
@@ -46,7 +46,9 @@ and a from-scratch chapter in [`docs/`](docs/) (`day1-book.md` … `day18-book.m
 | 26 | **Keepalive** (`SO_KEEPALIVE`): probe an idle connection to detect a vanished peer | 9293 | day26 |
 | 27 | **SYN cookies**: survive a SYN flood — encode the handshake in the SYN-ACK ISN, allocate no TCB until a valid cookie returns | 4987 | day27 |
 
-Plus: UDP echo, and `RST` for segments to unknown/closed connections.
+Plus: **BBR** model-based congestion control (`src/bbr.rs`, the live server's controller), a
+**multi-connection `TcpServer`** (`src/socket.rs`), UDP echo, and `RST` for segments to
+unknown/closed connections.
 
 ## Architecture
 
@@ -64,15 +66,18 @@ src/
   seq.rs         32-bit wrapping sequence-number arithmetic (RFC 1982 serial numbers)
   rtt.rs         RTT estimator + adaptive RTO (RFC 6298)
   reassembly.rs  out-of-order receive buffer
-  congestion.rs  congestion control: slow start, fast recovery, NewReno + CUBIC (5681/6582/8312)
+  congestion.rs  loss-based control: slow start, fast recovery, NewReno + CUBIC (5681/6582/8312)
+  bbr.rs         model-based control: BtlBw/RTprop filters + STARTUP/DRAIN/PROBE_BW/PROBE_RTT
   http.rs        HTTP/1.x request parsing + keep-alive responder (used by main's server)
-  socket.rs      blocking TcpListener/TcpStream façade over a PacketIo trait (embeddable; loopback-tested)
+  socket.rs      TcpListener/TcpStream façade + multi-connection TcpServer over a PacketIo trait
   utils.rs       the shared Internet checksum
 ```
 
 The low-level "socket API" is `Connection::{write, take_received, poll_transmit}` + the event loop;
 `socket.rs` wraps it in a blocking, `std::net`-shaped `TcpListener`/`TcpStream` over a `PacketIo`
-transport trait — single-connection and loopback-tested offline (see `docs/day22-book.md`).
+transport trait (loopback-tested offline; see `docs/day22-book.md`), plus a multi-connection
+`TcpServer` that demuxes a 4-tuple connection table over one transport — many concurrent
+connections at once, the same way `main` does for the live stack.
 
 ## Build & test
 
@@ -81,7 +86,7 @@ artifacts go to a native-fs target dir (see `.cargo/config.toml`) so `setcap` wo
 
 ```bash
 # Verify correctness offline — no sudo, no TUN, no network:
-cargo test          # 137 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
+cargo test          # 151 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
                     # reassembly, retransmission, options (MSS/timestamps/wscale/SACK), and a
                     # differential check against `etherparse`
 cargo clippy        # clean
@@ -110,19 +115,23 @@ sudo tc qdisc del dev tun0 root
 
 ## Limitations
 
-This is a correct, tested *core*, not a production stack. Not yet implemented (all are genuine
-TCP features, several are exercises in the day-books):
+This is a correct, tested *core*, not a production stack. The congestion-control family is now
+complete — both the loss-based **CUBIC** (Day 25) over NewReno + RFC 6675 SACK recovery (Days 20–21)
+with **RACK-TLP** time-based loss detection (Day 24), and the model-based **BBR** (`src/bbr.rs`:
+BtlBw/RTprop filters + STARTUP→DRAIN→PROBE_BW→PROBE_RTT, which the live server now runs) — alongside
+RFC 5961 RST/SYN/data challenge ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2
+reaping (Day 23), `SO_KEEPALIVE` (Day 26), and **SYN cookies** for SYN-flood survival (Day 27). The
+socket façade (`src/socket.rs`) ships both the single-connection blocking `TcpListener`/`TcpStream`
+(Day 22) and a **multi-connection `TcpServer`** that demuxes a connection table over one transport.
 
-- **Hardening:** **CUBIC** congestion control (Day 25) over NewReno + RFC 6675 SACK recovery
-  (Days 20–21) with **RACK-TLP** time-based loss detection (Day 24); RFC 5961 RST/SYN/data challenge
-  ACKs (Days 19, 23) throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaped (Day 23), and
-  `SO_KEEPALIVE` for idle ESTABLISHED connections (Day 26), and **SYN cookies** for SYN-flood
-  survival (Day 27). Still missing: **BBR** congestion control.
-- **A multi-connection socket facade.** We ship a single-connection blocking `TcpListener`/`TcpStream`
-  over a `PacketIo` trait (Day 22, loopback-tested) and keep-alive HTTP/1.1, but the façade demuxes
-  one connection at a time and isn't wired into `main` (which keeps its own multi-protocol loop).
+What remains is not algorithm work but live exercise, which needs sudo/TUN and a real network rather
+than offline unit tests:
+
 - **Live conformance + load testing:** `packetdrill` against the kernel, `iperf3` throughput under
-  `tc netem`, profiling/flamegraphs (needs sudo/TUN and live runs).
+  `tc netem`, profiling/flamegraphs.
+- **Rate-paced transmission:** BBR computes a pacing rate (`pacing_rate_bps`, surfaced by the live
+  server), but the sender is still window-limited — actually pacing sends to that rate is the natural
+  next step and only matters under bulk transfer, which the echo server never drives.
 
 ## Learning OS
 

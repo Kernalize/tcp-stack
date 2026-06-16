@@ -917,13 +917,19 @@ impl Connection {
                     // every ACK yields a clean sample — even for retransmitted data, since the echo
                     // disambiguates which copy (no Karn restriction). Without timestamps, fall back to
                     // timing the retx queue (Karn-limited to never-retransmitted segments).
+                    // Capture the RTT sample (if any) so BBR can feed it into its RTprop/BDP model;
+                    // CUBIC ignores it. `None` means this ACK yielded no clean sample (Karn).
+                    let mut rtt_sample: Option<u64> = None;
                     if self.ts_enabled {
                         if let Some((_, tsecr)) = opts.timestamps {
-                            self.rtt.sample(self.ts_val.wrapping_sub(tsecr) as u64);
+                            let s = self.ts_val.wrapping_sub(tsecr) as u64;
+                            self.rtt.sample(s);
+                            rtt_sample = Some(s);
                         }
                         let _ = self.retx.ack(self.send.una, now_ms);
                     } else if let Some(rtt_ms) = self.retx.ack(self.send.una, now_ms) {
                         self.rtt.sample(rtt_ms);
+                        rtt_sample = Some(rtt_ms);
                     }
                     // Day 20 — NewReno (RFC 6582). During fast recovery, a *partial* ACK (advances
                     // SND.UNA but stops short of `recover`, so a later segment in the same window was
@@ -937,7 +943,8 @@ impl Connection {
                             return Some(pkt); // retransmit the next hole immediately
                         }
                     } else {
-                        self.cong.on_ack(acked, now_ms); // slow start / CUBIC CA / full-ACK exit
+                        // slow start / CUBIC CA / full-ACK exit (CUBIC), or the BBR model update.
+                        self.cong.on_ack(acked, rtt_sample, now_ms);
                     }
                 } else if th.ack == self.send.una
                     && self.send.una != self.send.nxt
@@ -1343,6 +1350,20 @@ impl Connection {
     /// receive buffer. Empty if nothing new has arrived.
     pub fn take_received(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.recv_buf)
+    }
+
+    /// Switch this connection to **BBR** congestion control (`src/bbr.rs`), the model-based
+    /// alternative to the default CUBIC/Reno controller. A real stack chooses per-socket; the live
+    /// `main` server selects BBR for every connection it accepts. Safe to call on a fresh connection
+    /// (no congestion state has accumulated yet); the rest of the state machine is unaffected.
+    pub fn use_bbr(&mut self) {
+        self.cong = CongestionControl::bbr();
+    }
+
+    /// BBR's modelled paced send rate (bytes/sec) for this connection: `0.0` until the model has
+    /// learned a bottleneck bandwidth, and always `0.0` under the window-only CUBIC controller.
+    pub fn pacing_rate_bps(&self) -> f64 {
+        self.cong.pacing_rate_bps()
     }
 
     #[cfg(test)]
@@ -3541,6 +3562,27 @@ mod tests {
         };
         let ack = conn.on_packet(&data, b"hi").expect("an ACK");
         assert_eq!(parse(&ack[20..]).unwrap().ack, peer_isn + 3); // the 2 bytes delivered
+        assert_eq!(conn.take_received(), b"hi");
+    }
+
+    // ── BBR congestion control (src/bbr.rs) wired into the connection ──
+
+    #[test]
+    fn use_bbr_selects_model_based_control_and_keeps_the_connection_working() {
+        let cookie = 0x5000_0000u32;
+        let peer_isn = 100u32;
+        let mut conn = Connection::from_syn_cookie((ME, 80), (PEER, 0x1234), peer_isn, cookie, 1460, 0);
+        conn.use_bbr();
+        // BBR starts at its 4-segment floor, not CUBIC's 1·MSS — proof the controller was swapped.
+        assert_eq!(conn.cwnd(), 4 * crate::congestion::MSS);
+        assert!(!conn.in_recovery()); // BBR has no Reno fast-recovery episode
+        // The connection still delivers and acknowledges data with BBR driving the window.
+        let data = TcpHeader {
+            src_port: 0x1234, dst_port: 80, seq: peer_isn + 1, ack: cookie.wrapping_add(1),
+            data_offset: 20, flags: PSH | ACK, window: 0xffff,
+        };
+        let ack = conn.on_packet(&data, b"hi").expect("an ACK");
+        assert_eq!(parse(&ack[20..]).unwrap().ack, peer_isn + 3);
         assert_eq!(conn.take_received(), b"hi");
     }
 }

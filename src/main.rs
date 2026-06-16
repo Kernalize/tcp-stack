@@ -46,6 +46,7 @@
 //!
 //! Build/run/test: see README.md.  `cargo test` proves it offline.
 
+mod bbr; // BBR model-based congestion control (selectable alternative to CUBIC; used by tcp)
 mod congestion; // congestion control: slow start + AIMD + fast recovery (used by tcp)
 mod http; // Day 22: HTTP/1.x request parsing + keep-alive responder (used by the server below)
 mod icmp; // ICMP: parse + echo reply
@@ -268,6 +269,12 @@ fn main() -> std::io::Result<()> {
                             for seg in conn.poll_transmit(now_ms) {
                                 iface.send(&seg)?;
                             }
+                            // BBR (src/bbr.rs) models the path as a paced send rate; surface it once
+                            // the model has learned a bottleneck bandwidth (0 until then; CUBIC → 0).
+                            let pacing = conn.pacing_rate_bps();
+                            if pacing > 0.0 {
+                                println!("         · BBR pacing ≈ {pacing:.0} B/s");
+                            }
                             if closing_http {
                                 // The response asked to close (HTTP/1.0, or `Connection: close`):
                                 // actively close once it's on the wire (the Day 7 FIN_WAIT path).
@@ -310,9 +317,10 @@ fn main() -> std::io::Result<()> {
                                 && connections.values().filter(|c| c.state() == tcp::State::SynRcvd).count()
                                     < SYN_BACKLOG
                             {
-                                if let Some((conn, synack)) =
+                                if let Some((mut conn, synack)) =
                                     tcp::Connection::accept(hdr.src, hdr.dst, &th, &opts, now_ms)
                                 {
+                                    conn.use_bbr(); // live stack runs model-based BBR (src/bbr.rs)
                                     iface.send(&synack)?;
                                     connections.insert(quad, conn);
                                     println!("         → sent SYN-ACK (state SynRcvd)");
@@ -331,9 +339,10 @@ fn main() -> std::io::Result<()> {
                                 if let Some(mss) =
                                     tcp::check_syn_cookie(syn_secret, local, remote, peer_isn, cookie, now_ms)
                                 {
-                                    let conn = tcp::Connection::from_syn_cookie(
+                                    let mut conn = tcp::Connection::from_syn_cookie(
                                         local, remote, peer_isn, cookie, mss, now_ms,
                                     );
+                                    conn.use_bbr(); // live stack runs model-based BBR (src/bbr.rs)
                                     connections.insert(quad, conn);
                                     println!("         → SYN cookie validated (state Established)");
                                 } else {

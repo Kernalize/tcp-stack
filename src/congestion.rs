@@ -17,6 +17,13 @@
 //! Honest caveat: our echo server never sends in bulk, so `cwnd` won't actually *bind* here — but
 //! the machinery below is real and fully unit-tested with a simulated clock. Theory: `docs/day10-book.md`
 //! (Reno) and `docs/day25-book.md` (CUBIC).
+//!
+//! [`CongestionControl`] is an enum dispatching to one of two controllers: the loss-based **CUBIC**
+//! ([`Cubic`], the default, here) or the model-based **BBR** ([`crate::bbr::Bbr`]). A connection
+//! calls the same six methods regardless; `default()` is CUBIC and `CongestionControl::bbr()` opts
+//! into BBR (a real stack chooses per-socket via sysctl / `setsockopt`).
+
+use crate::bbr::Bbr;
 
 /// Maximum segment size (bytes). We don't negotiate the MSS option, so we assume a typical
 /// Ethernet-sized payload; a real stack learns it from the peer's SYN (RFC 9293 §3.7.1).
@@ -31,9 +38,10 @@ const CUBIC_BETA_NUM: u32 = 7; //  β = 0.7 (Reno uses 0.5) — a single loss co
 const CUBIC_BETA_DEN: u32 = 10;
 const CUBIC_C: f64 = 0.4; //       the cubic scaling constant (RFC 9438 §4.1)
 
-/// Per-connection congestion state.
+/// Per-connection **CUBIC/Reno** state — the loss-based controller, and the `CongestionControl`
+/// default; the model-based alternative is [`crate::bbr::Bbr`].
 #[derive(Debug)]
-pub struct CongestionControl {
+pub struct Cubic {
     cwnd: u32,         // congestion window (bytes)
     ssthresh: u32,     // below it → slow start; at/above it → congestion avoidance (CUBIC)
     dup_acks: u32,     // consecutive duplicate ACKs seen
@@ -43,7 +51,7 @@ pub struct CongestionControl {
     epoch_ms: u64,     // start of the current CUBIC epoch (0 = no CA epoch in progress yet)
 }
 
-impl Default for CongestionControl {
+impl Default for Cubic {
     fn default() -> Self {
         // Classic initial window of 1 MSS so slow start's doubling is visible. Modern stacks
         // (RFC 6928) start at 10·MSS.
@@ -51,7 +59,7 @@ impl Default for CongestionControl {
     }
 }
 
-impl CongestionControl {
+impl Cubic {
     /// Bytes the network will currently let us keep in flight.
     pub fn window(&self) -> u32 {
         self.cwnd
@@ -164,12 +172,94 @@ impl CongestionControl {
     }
 }
 
+/// The congestion controller a connection uses: loss-based **CUBIC/Reno** ([`Cubic`], the default)
+/// or model-based **BBR** ([`Bbr`]). The connection drives the same six methods either way and this
+/// enum forwards to the active arm — so swapping algorithms touches nothing in `tcp.rs`.
+#[derive(Debug)]
+pub enum CongestionControl {
+    Cubic(Cubic),
+    Bbr(Bbr),
+}
+
+impl Default for CongestionControl {
+    /// CUBIC/Reno, to match every connection's historical behaviour.
+    fn default() -> Self {
+        CongestionControl::Cubic(Cubic::default())
+    }
+}
+
+impl CongestionControl {
+    /// Opt into model-based **BBR** congestion control (`src/bbr.rs`).
+    pub fn bbr() -> Self {
+        CongestionControl::Bbr(Bbr::new())
+    }
+
+    /// Bytes the network will currently let us keep in flight (`min(cwnd, rwnd)` is applied by the
+    /// connection).
+    pub fn window(&self) -> u32 {
+        match self {
+            CongestionControl::Cubic(c) => c.window(),
+            CongestionControl::Bbr(b) => b.window(),
+        }
+    }
+
+    /// An ACK acknowledging `acked` new bytes, with RTT sample `rtt_ms` when one was measured, at
+    /// `now_ms`. CUBIC ignores `rtt_ms` (its curve is time-based); BBR feeds it into RTprop/BDP.
+    pub fn on_ack(&mut self, acked: u32, rtt_ms: Option<u64>, now_ms: u64) {
+        match self {
+            CongestionControl::Cubic(c) => c.on_ack(acked, now_ms),
+            CongestionControl::Bbr(b) => b.on_ack(acked, rtt_ms, now_ms),
+        }
+    }
+
+    /// A duplicate ACK; returns `true` on the threshold-th one so the caller fast-retransmits. BBR
+    /// returns `true` likewise but, unlike CUBIC, does not shrink the window.
+    pub fn on_dup_ack(&mut self, flight: u32) -> bool {
+        match self {
+            CongestionControl::Cubic(c) => c.on_dup_ack(flight),
+            CongestionControl::Bbr(b) => b.on_dup_ack(),
+        }
+    }
+
+    /// NewReno partial-ACK handling during fast recovery — CUBIC only; BBR has no Reno recovery
+    /// episode (`in_recovery()` is always false), so this is a no-op under BBR.
+    pub fn on_partial_ack(&mut self, acked: u32) {
+        if let CongestionControl::Cubic(c) = self {
+            c.on_partial_ack(acked);
+        }
+    }
+
+    /// The retransmission timer fired — the strongest congestion signal.
+    pub fn on_timeout(&mut self, flight: u32) {
+        match self {
+            CongestionControl::Cubic(c) => c.on_timeout(flight),
+            CongestionControl::Bbr(b) => b.on_timeout(),
+        }
+    }
+
+    /// Are we inside a fast-recovery episode? (Always false under BBR — loss isn't its signal.)
+    pub fn in_recovery(&self) -> bool {
+        match self {
+            CongestionControl::Cubic(c) => c.in_recovery(),
+            CongestionControl::Bbr(b) => b.in_recovery(),
+        }
+    }
+
+    /// The paced send rate (bytes/sec): BBR's model output, `0.0` for the window-only CUBIC arm.
+    pub fn pacing_rate_bps(&self) -> f64 {
+        match self {
+            CongestionControl::Cubic(_) => 0.0,
+            CongestionControl::Bbr(b) => b.pacing_rate_bps(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Grow `cwnd` to `n`·MSS through slow start (each ACK adds one MSS from the 1·MSS default).
-    fn grow_to(c: &mut CongestionControl, n: u32) {
+    fn grow_to(c: &mut Cubic, n: u32) {
         for _ in 0..(n - 1) {
             c.on_ack(MSS, 0);
         }
@@ -178,12 +268,12 @@ mod tests {
 
     #[test]
     fn starts_in_slow_start_at_one_mss() {
-        assert_eq!(CongestionControl::default().window(), MSS);
+        assert_eq!(Cubic::default().window(), MSS);
     }
 
     #[test]
     fn slow_start_adds_one_mss_per_ack() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         c.on_ack(MSS, 0); // 1460 → 2920
         assert_eq!(c.window(), 2 * MSS);
         c.on_ack(MSS, 0); // 2920 → 4380
@@ -192,7 +282,7 @@ mod tests {
 
     #[test]
     fn cubic_reduces_cwnd_by_beta_on_three_dup_acks() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 10); // cwnd = 10·MSS
         assert!(!c.on_dup_ack(0)); // 1st
         assert!(!c.on_dup_ack(0)); // 2nd
@@ -203,7 +293,7 @@ mod tests {
 
     #[test]
     fn extra_dup_acks_inflate_during_recovery() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 10);
         c.on_dup_ack(0);
         c.on_dup_ack(0);
@@ -214,7 +304,7 @@ mod tests {
 
     #[test]
     fn new_ack_deflates_out_of_recovery_to_ssthresh() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 10);
         c.on_dup_ack(0);
         c.on_dup_ack(0);
@@ -225,7 +315,7 @@ mod tests {
 
     #[test]
     fn reports_recovery_state() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         assert!(!c.in_recovery());
         c.on_dup_ack(0);
         c.on_dup_ack(0);
@@ -237,7 +327,7 @@ mod tests {
 
     #[test]
     fn newreno_partial_ack_deflates_and_stays_in_recovery() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 10);
         c.on_dup_ack(0);
         c.on_dup_ack(0);
@@ -255,7 +345,7 @@ mod tests {
 
     #[test]
     fn cubic_recovers_toward_and_past_w_max() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 10); // cwnd = 10·MSS
         c.on_dup_ack(0);
         c.on_dup_ack(0);
@@ -277,12 +367,40 @@ mod tests {
 
     #[test]
     fn timeout_collapses_to_one_mss_and_slow_start() {
-        let mut c = CongestionControl::default();
+        let mut c = Cubic::default();
         grow_to(&mut c, 6); // cwnd = 6·MSS
         c.on_timeout(0); // RTO → cwnd = 1·MSS, ssthresh = 6·MSS·0.7 ≈ 4·MSS
         assert_eq!(c.window(), MSS);
         // Back in slow start (cwnd < ssthresh): the next ACK adds a full MSS again.
         c.on_ack(MSS, 100);
         assert_eq!(c.window(), 2 * MSS);
+    }
+
+    // ── The CongestionControl enum: algorithm selection + dispatch ──
+
+    #[test]
+    fn default_dispatches_to_cubic() {
+        // The default controller behaves exactly like Cubic (slow start adds one MSS per ACK).
+        let mut cc = CongestionControl::default();
+        assert!(matches!(cc, CongestionControl::Cubic(_)));
+        assert_eq!(cc.window(), MSS);
+        cc.on_ack(MSS, None, 0);
+        assert_eq!(cc.window(), 2 * MSS);
+        assert_eq!(cc.pacing_rate_bps(), 0.0); // window-only controller has no pacing rate
+    }
+
+    #[test]
+    fn bbr_is_selectable_and_dispatches_to_bbr() {
+        let mut cc = CongestionControl::bbr();
+        assert!(matches!(cc, CongestionControl::Bbr(_)));
+        assert!(!cc.in_recovery()); // BBR never enters Reno recovery
+        // Drive a few rate samples; BBR learns a bandwidth and exposes a non-zero pacing rate.
+        let mut t = 0u64;
+        for _ in 0..6 {
+            t += 10;
+            cc.on_ack(10 * MSS, Some(10), t);
+        }
+        assert!(cc.window() >= 4 * MSS);
+        assert!(cc.pacing_rate_bps() > 0.0, "BBR paces at gain·BtlBw");
     }
 }
