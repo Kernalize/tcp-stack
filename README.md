@@ -7,18 +7,21 @@
 
 A **TCP/IP stack built from scratch in Rust**, running in userspace over a Linux TUN device. It
 hand-parses and hand-builds Ethernet-free IPv4, ICMP, UDP, and TCP — no smol/embassy/std-net doing
-the protocol work — and implements enough of TCP (RFC 9293 + 6298 + 5681) that a stock `ping`,
-`nc`, and `curl` interoperate with it: handshake, reliable in-order transfer, adaptive
-retransmission, flow control, out-of-order reassembly, congestion control, and clean teardown.
+the protocol work — and implements enough of TCP (RFC 9293 + 6298 + 5681) to interoperate with stock
+`ping`, `nc`, and `curl`: handshake, reliable in-order transfer, adaptive retransmission, flow
+control, out-of-order reassembly, congestion control, and clean teardown.
 
 It is also **thoroughly documented**: every feature ships with a heavily-commented reference module
 and a from-first-principles chapter in [`docs/`](docs/) (`doc1-book.md` … `doc29-book.md`), compiled
 into a single-volume [`docs/BOOK.md`](docs/BOOK.md).
 
-> Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
-> 5961/1337 robustness — plus both **CUBIC and BBR** congestion control — are implemented and
-> unit-tested (153 tests, offline). What's *not* done is live conformance/throughput testing — see
-> [Limitations](#limitations).
+> **Status — a correct, tested *core*, not a production stack.** The full TCP **connection
+> lifecycle**, modern loss recovery, a socket API, RFC 5961/1337 robustness, and both **CUBIC and BBR**
+> congestion control are implemented and **verified offline by 153 deterministic tests** — including an
+> end-to-end loss-resilience harness — and kept clippy-clean in CI. Live interop with the real Linux
+> kernel (`ping`/`nc`/`curl`, `iperf3`, `packetdrill`) is **designed for and documented**
+> ([`docs/validation.md`](docs/validation.md)) but run by hand, not in CI — it needs a privileged TUN
+> device. See [Limitations](#limitations).
 
 ## What works
 
