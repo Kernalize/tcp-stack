@@ -3249,8 +3249,9 @@ src/
   tcp.rs     — TCP parse + connection state   (uses ip, utils)
   ethernet.rs, arp.rs — placeholders (TAP-only path; not `mod`-declared)
 docs/
-  Manual.md, doc1.md      — the original 12-week plan + doc-1 walkthrough
-  doc1-book.md … doc5-book.md — these teaching books
+  doc1.md                 — the original doc-1 walkthrough
+  doc1-book.md … doc29-book.md — these teaching books (compiled into BOOK.md)
+  setup-windows.md, setup-kali.md — environment setup guides
 ```
 Dependency direction is strictly upward: `utils` depends on nothing; `ip` on `utils`; `icmp`/`tcp`
 on `ip`+`utils`; `main` on all. No cycles — a clean layering that mirrors the protocol stack

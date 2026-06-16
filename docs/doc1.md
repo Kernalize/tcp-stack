@@ -82,7 +82,7 @@ There are two types of virtual interfaces:
 - The actual IP packet comes AFTER the 14-byte Ethernet header
 - You can see ARP packets (which are Layer 2)
 
-**The project uses TAP** (look at `Cargo.toml` — `tun-tap = "0.1"` supports both, and the `Manual.md` describes building from Layer 2 up). However, the current `main.rs` uses `Mode::Tun` for simplicity. **Doc 1 uses Tun.** Later you will switch to Tap to implement ARP.
+**The project uses TAP** (look at `Cargo.toml` — `tun-tap = "0.1"` supports both Layer-2 TAP and Layer-3 TUN). However, the current `main.rs` uses `Mode::Tun` for simplicity. **Doc 1 uses Tun.** Later you will switch to Tap to implement ARP.
 
 **Quick memory aid:**
 - TUN → Tunnel → IP packets (no Ethernet)
@@ -135,7 +135,7 @@ cd ~/tcp-stack   # or wherever you cloned it
 ls
 ```
 
-You should see: `Cargo.lock  Cargo.toml  Dockerfile  Manual.md  dev.sh  new_terminal.sh  src/  ...`
+You should see: `Cargo.lock  Cargo.toml  Dockerfile  LICENSE  README.md  src/  docs/  scripts/  ...`
 
 **Step 3: Build the Docker image**
 

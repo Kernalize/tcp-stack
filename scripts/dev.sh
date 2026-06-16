@@ -3,7 +3,7 @@
 # dev.sh — start the DOCKER development container (the *isolated* workflow).
 #
 # This is the ALTERNATIVE to our default "run directly in WSL2" workflow. Use it
-# only if you want full filesystem isolation (see docs/tcp-stack-setup-windows.md).
+# only if you want full filesystem isolation (see docs/setup-windows.md).
 # Note: it mounts ~/tcp-stack (a copy inside WSL home), NOT /mnt/c — so if you use
 # Docker, keep your source in ~/tcp-stack, not the Windows folder.
 #
