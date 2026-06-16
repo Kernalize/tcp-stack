@@ -13,7 +13,7 @@
 //! Theory: `docs/day22-book.md`.
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
@@ -243,6 +243,140 @@ impl<T: PacketIo> TcpListener<T> {
     }
 }
 
+/// Parse one received datagram into its TCP parts and 4-tuple, with no per-connection filtering —
+/// the multi-connection server routes by the returned `Quad`. `None` for non-IPv4/non-TCP packets.
+fn parse_any(packet: &[u8]) -> Option<(Quad, TcpHeader, Vec<u8>, tcp::TcpOptions)> {
+    let iph = ip::parse(packet).ok()?;
+    if iph.protocol != 6 {
+        return None;
+    }
+    let l4 = &packet[iph.header_len..];
+    let th = tcp::parse(l4)?;
+    let quad = Quad { remote: (iph.src, th.src_port), local: (iph.dst, th.dst_port) };
+    let off = th.data_offset.min(l4.len());
+    let payload = l4[off..].to_vec();
+    let opts = tcp::parse_options(&l4[20..off]);
+    Some((quad, th, payload, opts))
+}
+
+/// A **multi-connection** TCP server over a single shared transport — the production-shaped listener
+/// the single-connection [`TcpListener`] above is a teaching stepping-stone toward. It owns one
+/// `PacketIo` and a table of [`Connection`]s keyed by 4-tuple, demuxing every inbound datagram to
+/// the right connection (or accepting a brand-new one on a SYN), exactly as `src/main.rs` does for
+/// the live stack. One `poll` drives *all* connections: timers, ingest+routing, and transmission.
+///
+/// The app pulls newly-established connections with [`accept_one`](Self::accept_one) and then drives
+/// each by 4-tuple with [`send`](Self::send) / [`recv`](Self::recv) / [`close`](Self::close). This
+/// removes the Day-22 limitation that the façade "demuxes one connection at a time".
+pub struct TcpServer<T: PacketIo> {
+    io: T,
+    local: (Ipv4Addr, u16),
+    conns: HashMap<Quad, Connection>,
+    backlog: VecDeque<Quad>,    // connections that just reached ESTABLISHED, awaiting accept_one()
+    announced: HashSet<Quad>,   // quads already handed to the backlog (announce-once)
+}
+
+impl<T: PacketIo> TcpServer<T> {
+    /// Bind the server to a local `(addr, port)`. SYNs to this port open new connections; segments
+    /// for any established 4-tuple are routed to their connection.
+    pub fn bind(io: T, local: (Ipv4Addr, u16)) -> Self {
+        Self { io, local, conns: HashMap::new(), backlog: VecDeque::new(), announced: HashSet::new() }
+    }
+
+    /// One non-blocking pump of the *whole* server: fire every connection's timers, ingest and route
+    /// every ready datagram (accepting new connections on a SYN to our port), flush all transmissions,
+    /// announce the newly-established connections, and reap the closed ones.
+    pub fn poll(&mut self, now_ms: u64) -> io::Result<()> {
+        // 1. Timers / retransmissions for every connection.
+        for conn in self.conns.values_mut() {
+            for pkt in conn.on_tick(now_ms) {
+                self.io.send(&pkt)?;
+            }
+        }
+        // 2. Ingest + route. A segment for a known 4-tuple goes to its connection; a SYN to our port
+        //    with no connection opens one (passive open → SYN-ACK); anything else is ignored.
+        while let Some(pkt) = self.io.try_recv()? {
+            let Some((quad, th, payload, opts)) = parse_any(&pkt) else { continue };
+            if quad.local != self.local {
+                continue; // not addressed to this server's (addr, port)
+            }
+            if let Some(conn) = self.conns.get_mut(&quad) {
+                if let Some(out) = conn.on_segment(&th, &payload, &opts, now_ms) {
+                    self.io.send(&out)?;
+                }
+            } else if th.flags & tcp::SYN != 0 && th.flags & tcp::ACK == 0 {
+                if let Some((conn, synack)) = Connection::accept(quad.remote.0, quad.local.0, &th, &opts, now_ms) {
+                    self.io.send(&synack)?;
+                    self.conns.insert(quad, conn);
+                }
+            }
+        }
+        // 3. Flush data each connection can now send, and announce any that just established.
+        for (quad, conn) in self.conns.iter_mut() {
+            for seg in conn.poll_transmit(now_ms) {
+                self.io.send(&seg)?;
+            }
+            if conn.state() == State::Established && !self.announced.contains(quad) {
+                self.announced.insert(*quad);
+                self.backlog.push_back(*quad);
+            }
+        }
+        // 4. Reap fully-closed connections.
+        let announced = &mut self.announced;
+        self.conns.retain(|quad, conn| {
+            let keep = conn.state() != State::Closed;
+            if !keep {
+                announced.remove(quad);
+            }
+            keep
+        });
+        Ok(())
+    }
+
+    /// Take the next newly-established connection's 4-tuple, if any (FIFO). Drive it afterward with
+    /// [`send`](Self::send) / [`recv`](Self::recv) / [`close`](Self::close).
+    pub fn accept_one(&mut self) -> Option<Quad> {
+        self.backlog.pop_front()
+    }
+
+    /// Queue application bytes on connection `quad` (sent on the next `poll`).
+    pub fn send(&mut self, quad: &Quad, data: &[u8]) {
+        if let Some(conn) = self.conns.get_mut(quad) {
+            conn.write(data);
+        }
+    }
+
+    /// Drain the in-order received bytes delivered on connection `quad`.
+    pub fn recv(&mut self, quad: &Quad) -> Vec<u8> {
+        self.conns.get_mut(quad).map(|c| c.take_received()).unwrap_or_default()
+    }
+
+    /// Close our send side on connection `quad` (emit its FIN).
+    pub fn close(&mut self, quad: &Quad, now_ms: u64) -> io::Result<()> {
+        if let Some(conn) = self.conns.get_mut(quad) {
+            if let Some(fin) = conn.close(now_ms) {
+                self.io.send(&fin)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The state of connection `quad`, or `None` if it has been reaped / never existed.
+    pub fn state(&self, quad: &Quad) -> Option<State> {
+        self.conns.get(quad).map(|c| c.state())
+    }
+
+    /// Has the peer on `quad` half-closed (sent its FIN)?
+    pub fn peer_closed(&self, quad: &Quad) -> bool {
+        self.conns.get(quad).map(|c| c.peer_closed()).unwrap_or(false)
+    }
+
+    /// How many connections the server is currently tracking.
+    pub fn connection_count(&self) -> usize {
+        self.conns.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,5 +514,101 @@ mod tests {
             client.poll(t).unwrap();
         }
         assert_eq!(client.recv_all(), b"a reply after your FIN");
+    }
+
+    #[test]
+    fn server_demuxes_two_concurrent_connections() {
+        // A shared medium: both clients write "up" to the server; the server broadcasts "down" to
+        // every client inbox, and each client ignores datagrams not for its own 4-tuple (just like a
+        // real shared link). This exercises TcpServer routing many connections over one transport.
+        type Q = Rc<RefCell<VecDeque<Vec<u8>>>>;
+
+        struct ServerSide {
+            up: Q,
+            down: Vec<Q>,
+        }
+        impl PacketIo for ServerSide {
+            fn send(&mut self, p: &[u8]) -> io::Result<()> {
+                for q in &self.down {
+                    q.borrow_mut().push_back(p.to_vec());
+                }
+                Ok(())
+            }
+            fn try_recv(&mut self) -> io::Result<Option<Vec<u8>>> {
+                Ok(self.up.borrow_mut().pop_front())
+            }
+        }
+        struct ClientSide {
+            up: Q,
+            down: Q,
+        }
+        impl PacketIo for ClientSide {
+            fn send(&mut self, p: &[u8]) -> io::Result<()> {
+                self.up.borrow_mut().push_back(p.to_vec());
+                Ok(())
+            }
+            fn try_recv(&mut self) -> io::Result<Option<Vec<u8>>> {
+                Ok(self.down.borrow_mut().pop_front())
+            }
+        }
+
+        let up: Q = Default::default();
+        let down_a: Q = Default::default();
+        let down_b: Q = Default::default();
+
+        let server_addr = (Ipv4Addr::new(192, 168, 0, 2), 80);
+        let a_addr = (Ipv4Addr::new(192, 168, 0, 1), 40001);
+        let b_addr = (Ipv4Addr::new(192, 168, 0, 1), 40002);
+
+        let server_io = ServerSide { up: up.clone(), down: vec![down_a.clone(), down_b.clone()] };
+        let mut server = TcpServer::bind(server_io, server_addr);
+        let mut client_a =
+            TcpStream::connect(ClientSide { up: up.clone(), down: down_a }, a_addr, server_addr, 0).unwrap();
+        let mut client_b =
+            TcpStream::connect(ClientSide { up: up.clone(), down: down_b }, b_addr, server_addr, 0).unwrap();
+
+        let qa = Quad { remote: a_addr, local: server_addr };
+        let qb = Quad { remote: b_addr, local: server_addr };
+
+        // Drive all three on one logical clock until BOTH ends of BOTH connections are established —
+        // the clients reach ESTABLISHED a round before the server processes their final ACKs.
+        for t in 0..200u64 {
+            server.poll(t).unwrap();
+            client_a.poll(t).unwrap();
+            client_b.poll(t).unwrap();
+            let server_ready = server.state(&qa) == Some(State::Established)
+                && server.state(&qb) == Some(State::Established);
+            if client_a.established() && client_b.established() && server_ready {
+                break;
+            }
+        }
+        assert!(client_a.established() && client_b.established());
+        assert_eq!(server.connection_count(), 2, "server tracks both connections at once");
+
+        // Both connections are accepted as distinct 4-tuples (and only two).
+        let q1 = server.accept_one().expect("first connection accepted");
+        let q2 = server.accept_one().expect("second connection accepted");
+        assert_ne!(q1, q2);
+        assert!(server.accept_one().is_none());
+
+        // Each client sends distinct data; the server demuxes it to the right connection and echoes
+        // it back. Proof the bytes don't cross-wire between the two simultaneous connections.
+        client_a.feed(b"hello from A");
+        client_b.feed(b"hello from B");
+        for t in 100..220u64 {
+            server.poll(t).unwrap();
+            client_a.poll(t).unwrap();
+            client_b.poll(t).unwrap();
+            let ra = server.recv(&qa);
+            if !ra.is_empty() {
+                server.send(&qa, &ra);
+            }
+            let rb = server.recv(&qb);
+            if !rb.is_empty() {
+                server.send(&qb, &rb);
+            }
+        }
+        assert_eq!(client_a.recv_all(), b"hello from A");
+        assert_eq!(client_b.recv_all(), b"hello from B");
     }
 }
