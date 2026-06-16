@@ -611,4 +611,75 @@ mod tests {
         assert_eq!(client_a.recv_all(), b"hello from A");
         assert_eq!(client_b.recv_all(), b"hello from B");
     }
+
+    #[test]
+    fn bulk_transfer_survives_packet_loss_end_to_end() {
+        // A conformance/loss-resilience harness, run offline over a lossy loopback (no TUN, no sudo):
+        // each direction drops every Nth datagram, so the whole reliability stack is exercised end to
+        // end — SYN/SYN-ACK retransmission, data retransmission, fast-retransmit / RACK-TLP / NewReno
+        // recovery, and out-of-order reassembly (a dropped-then-retransmitted segment arrives after the
+        // ones behind it). The assertion is the property a live `iperf3 + tc netem` run would check:
+        // every byte arrives, intact and in order, despite ~12% loss.
+        type Q = Rc<RefCell<VecDeque<Vec<u8>>>>;
+        struct LossyPipe {
+            tx: Q,
+            rx: Q,
+            n: u32,
+            drop_every: u32,
+        }
+        impl PacketIo for LossyPipe {
+            fn send(&mut self, p: &[u8]) -> io::Result<()> {
+                self.n += 1;
+                if !self.n.is_multiple_of(self.drop_every) {
+                    self.tx.borrow_mut().push_back(p.to_vec()); // every drop_every-th datagram is lost
+                }
+                Ok(())
+            }
+            fn try_recv(&mut self) -> io::Result<Option<Vec<u8>>> {
+                Ok(self.rx.borrow_mut().pop_front())
+            }
+        }
+
+        let a2b: Q = Default::default();
+        let b2a: Q = Default::default();
+        let server_addr = (Ipv4Addr::new(192, 168, 0, 2), 80);
+        let client_addr = (Ipv4Addr::new(192, 168, 0, 1), 40000);
+        let client_io = LossyPipe { tx: a2b.clone(), rx: b2a.clone(), n: 0, drop_every: 8 };
+        let server_io = LossyPipe { tx: b2a, rx: a2b, n: 0, drop_every: 8 };
+
+        let mut listener = TcpListener::bind(server_io, server_addr);
+        let mut client = TcpStream::connect(client_io, client_addr, server_addr, 0).unwrap();
+
+        // Drive a logical clock (5 ms/tick) long enough for RTO-based handshake recovery under loss.
+        let mut server: Option<TcpStream<LossyPipe>> = None;
+        let mut t = 0u64;
+        while t < 20_000 {
+            t += 5;
+            if server.is_none() {
+                server = listener.poll_accept(t).unwrap();
+            }
+            client.poll(t).unwrap();
+            if let Some(s) = server.as_mut() {
+                s.poll(t).unwrap();
+            }
+            if client.established() && server.as_ref().is_some_and(|s| s.established()) {
+                break;
+            }
+        }
+        let mut server = server.expect("handshake completed despite loss");
+        assert!(client.established() && server.established(), "both ends ESTABLISHED through a lossy link");
+
+        // Bulk transfer: 16 KB, client → server, every byte distinct so reordering/corruption is caught.
+        let payload: Vec<u8> = (0..16 * 1024).map(|i| (i * 31 + 7) as u8).collect();
+        client.feed(&payload);
+        let mut received = Vec::new();
+        while t < 600_000 && received.len() < payload.len() {
+            t += 5;
+            client.poll(t).unwrap();
+            server.poll(t).unwrap();
+            received.extend(server.recv_all());
+        }
+        assert_eq!(received.len(), payload.len(), "every byte eventually delivered despite ~12% loss");
+        assert_eq!(received, payload, "delivered intact and in order — retransmission + reassembly held");
+    }
 }

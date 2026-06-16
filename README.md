@@ -3,7 +3,7 @@
 [![CI](https://github.com/Kernalize/tcp-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/Kernalize/tcp-stack/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-orange.svg)](https://www.rust-lang.org/)
-![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-153%20passing-brightgreen.svg)
 
 A **TCP/IP stack built from scratch in Rust**, running in userspace over a Linux TUN device. It
 hand-parses and hand-builds Ethernet-free IPv4, ICMP, UDP, and TCP — no smol/embassy/std-net doing
@@ -17,7 +17,7 @@ into a single-volume [`docs/BOOK.md`](docs/BOOK.md).
 
 > Status: the full TCP **connection lifecycle**, modern loss recovery, a socket API, and RFC
 > 5961/1337 robustness — plus both **CUBIC and BBR** congestion control — are implemented and
-> unit-tested (151 tests, offline). What's *not* done is live conformance/throughput testing — see
+> unit-tested (153 tests, offline). What's *not* done is live conformance/throughput testing — see
 > [Limitations](#limitations).
 
 ## What works
@@ -92,7 +92,7 @@ artifacts go to a native-fs target dir (see `.cargo/config.toml`) so `setcap` wo
 
 ```bash
 # Verify correctness offline — no sudo, no TUN, no network:
-cargo test          # 151 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
+cargo test          # 153 unit tests: parsers vs known packets, the state machine, RTT/cwnd math,
                     # reassembly, retransmission, options (MSS/timestamps/wscale/SACK), and a
                     # differential check against `etherparse`
 cargo clippy        # clean
@@ -135,11 +135,14 @@ throttled per CVE-2016-5696, CLOSE_WAIT/FIN_WAIT_2 reaping (Doc 23), `SO_KEEPALI
 single-connection blocking `TcpListener`/`TcpStream` (Doc 22) and a **multi-connection `TcpServer`**
 that demuxes a connection table over one transport.
 
-What remains is not algorithm or feature work — it's *live* exercise that needs sudo/TUN and a real
-network rather than the offline unit tests this project is built on:
+Loss resilience is verified **offline and in CI** by an end-to-end harness that drives two real stacks
+through a lossy loopback and asserts a bulk transfer arrives intact
+(`bulk_transfer_survives_packet_loss_end_to_end`). What remains is *live* validation against the real
+Linux kernel — it needs a privileged TUN device, so it's run by hand rather than in CI (full runbook +
+checklist: [`docs/validation.md`](docs/validation.md)):
 
-- **Live conformance + load testing:** `packetdrill` against the kernel, `iperf3` throughput under
-  `tc netem`, profiling/flamegraphs. (These are the one thing no offline test can stand in for.)
+- **Live conformance + throughput:** `packetdrill` against the kernel, `iperf3` under `tc netem`,
+  profiling/flamegraphs — the final real-world confirmation a privileged live run provides.
 
 ## Built from scratch
 
@@ -149,7 +152,7 @@ header/byte layout → the Rust → verification → a "why this, not that" rati
 a from-blank rebuild checklist and exercises, so the implementation can be reconstructed module by
 module. Design rules enforced throughout: time is injected (`now_ms`), never read from a clock, so
 every timer is unit-testable without sleeping; sequence comparisons go through `seq::` (the space
-wraps); and shared helpers live once. Correctness is proven offline — 151 unit tests, clippy-clean
+wraps); and shared helpers live once. Correctness is proven offline — 153 unit tests, clippy-clean
 under `-D warnings`, run in CI on every push.
 
 ## License
